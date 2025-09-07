@@ -3,6 +3,8 @@
 #include <stdexcept>
 #include <fstream>
 #include <vector>
+#include <algorithm> 
+#include <filesystem> // NEW: Include for checking file paths
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -26,7 +28,8 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 
 Renderer::Renderer(int width, int height)
     : screenWidth(width), screenHeight(height),
-    camera(glm::vec3(0.0f, 50.0f, 300.0f)), lastX(width / 2.0f), lastY(height / 2.0f) {
+    camera(glm::vec3(0.0f, 50.0f, 300.0f)), lastX(width / 2.0f), lastY(height / 2.0f),
+    fallbackRootDirectory("C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data") {
 }
 
 Renderer::~Renderer() {
@@ -68,9 +71,19 @@ void Renderer::init(bool headless) {
 
     model = std::make_unique<NifModel>();
 
+    loadConfig();
+
     if (!headless) {
         initUI();
-        loadLastNifPath();
+        if (!currentNifPath.empty()) {
+            std::ifstream testFile(currentNifPath);
+            if (testFile.good()) {
+                loadNifModel(currentNifPath);
+            }
+            else {
+                std::cout << "Last used NIF not found: " << currentNifPath << std::endl;
+            }
+        }
     }
 }
 
@@ -95,7 +108,6 @@ void Renderer::run() {
         ImGui::NewFrame();
 
         renderUI();
-
         ImGui::Render();
 
         int display_w, display_h;
@@ -103,7 +115,6 @@ void Renderer::run() {
         glViewport(0, 0, display_w, display_h);
 
         renderFrame();
-
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
@@ -111,28 +122,19 @@ void Renderer::run() {
 }
 
 void Renderer::renderUI() {
-    // Main menu bar
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Open NIF...")) {
                 const char* filterPatterns[1] = { "*.nif" };
-                const char* filePath = tinyfd_openFileDialog(
-                    "Open NIF File",
-                    "",
-                    1,
-                    filterPatterns,
-                    "NIF Files",
-                    0
-                );
+                const char* filePath = tinyfd_openFileDialog("Open NIF File", "", 1, filterPatterns, "NIF Files", 0);
                 if (filePath) {
                     loadNifModel(filePath);
                 }
             }
-            // NEW: Menu item to set the root directory
-            if (ImGui::MenuItem("Set Root Directory...")) {
-                const char* folderPath = tinyfd_selectFolderDialog("Select Root Data Folder", rootDirectory.c_str());
+            if (ImGui::MenuItem("Set Fallback Data Directory...")) {
+                const char* folderPath = tinyfd_selectFolderDialog("Select Fallback Data Folder", fallbackRootDirectory.c_str());
                 if (folderPath) {
-                    setRootDirectory(folderPath);
+                    setFallbackRootDirectory(folderPath);
                 }
             }
             ImGui::Separator();
@@ -168,26 +170,52 @@ void Renderer::renderFrame() {
 }
 
 void Renderer::loadNifModel(const std::string& path) {
+    std::string pathLower = path;
+    std::transform(pathLower.begin(), pathLower.end(), pathLower.begin(), ::tolower);
+
+    size_t meshesPos = pathLower.rfind("\\meshes\\");
+    if (meshesPos == std::string::npos) {
+        meshesPos = pathLower.rfind("/meshes/");
+    }
+
+    if (meshesPos != std::string::npos) {
+        rootDirectory = path.substr(0, meshesPos);
+        std::cout << "Auto-detected root directory: " << rootDirectory << std::endl;
+    }
+    else {
+        rootDirectory = fallbackRootDirectory;
+        std::cout << "Could not auto-detect root. Using fallback: " << rootDirectory << std::endl;
+    }
+
     if (!model) {
         model = std::make_unique<NifModel>();
     }
     if (model->load(path)) {
         currentNifPath = path;
-        saveLastNifPath(path);
-
-        // --- NEW: Display Textures in Console ---
-        std::cout << "\n--- Textures for " << path << " ---\n";
+        saveConfig();
+        std::cout << "\n--- Checking Textures for " << path << " ---\n";
         const auto& textures = model->getTextures();
         if (textures.empty()) {
             std::cout << "No textures found in this NIF file.\n";
         }
         else {
+            // UPDATED: Replaced the texture printing loop with file checking logic
             for (const auto& texPath : textures) {
-                std::cout << texPath << std::endl;
+                // 1. Construct and check the primary path
+                std::filesystem::path primaryPath = std::filesystem::path(rootDirectory) / texPath;
+                bool primaryExists = std::filesystem::exists(primaryPath);
+
+                std::cout << primaryPath.string() << " [" << (primaryExists ? "FOUND" : "NOT FOUND") << "]" << std::endl;
+
+                // 2. If primary not found, construct and check the fallback path
+                if (!primaryExists) {
+                    std::filesystem::path fallbackPath = std::filesystem::path(fallbackRootDirectory) / texPath;
+                    bool fallbackExists = std::filesystem::exists(fallbackPath);
+                    std::cout << "  -> " << fallbackPath.string() << " [" << (fallbackExists ? "FOUND" : "NOT FOUND") << "]" << std::endl;
+                }
             }
         }
-        std::cout << "---------------------------------------\n" << std::endl;
-
+        std::cout << "---------------------------------------------------------\n" << std::endl;
     }
     else {
         std::cerr << "Renderer failed to load NIF model." << std::endl;
@@ -201,12 +229,11 @@ void Renderer::setCamera(float posX, float posY, float posZ, float pitch, float 
     camera.updateCameraVectors();
 }
 
-// NEW: Setter for the root directory
-void Renderer::setRootDirectory(const std::string& path) {
-    rootDirectory = path;
-    std::cout << "Root directory set to: " << rootDirectory << std::endl;
+void Renderer::setFallbackRootDirectory(const std::string& path) {
+    fallbackRootDirectory = path;
+    std::cout << "Fallback root directory set to: " << fallbackRootDirectory << std::endl;
+    saveConfig();
 }
-
 
 void Renderer::saveToPNG(const std::string& path) {
     std::vector<unsigned char> buffer(screenWidth * screenHeight * 4);
@@ -218,7 +245,6 @@ void Renderer::saveToPNG(const std::string& path) {
 }
 
 void Renderer::processInput() {
-    // Only process camera controls if the UI is not capturing the mouse
     if (ImGui::GetIO().WantCaptureMouse) return;
 
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -231,29 +257,24 @@ void Renderer::processInput() {
         camera.ProcessKeyboard(RIGHT, 0.5f);
 }
 
-void Renderer::loadLastNifPath() {
+void Renderer::loadConfig() {
     std::ifstream configFile(configPath);
     if (configFile.is_open()) {
-        std::string path;
-        std::getline(configFile, path);
-        if (!path.empty()) {
-            // Check if file exists before trying to load
-            std::ifstream testFile(path);
-            if (testFile.good()) {
-                loadNifModel(path);
-            }
-            else {
-                std::cout << "Last used NIF not found: " << path << std::endl;
-            }
-        }
+        std::getline(configFile, currentNifPath);
+        std::getline(configFile, fallbackRootDirectory);
         configFile.close();
+
+        if (fallbackRootDirectory.empty()) {
+            fallbackRootDirectory = "C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data";
+        }
     }
 }
 
-void Renderer::saveLastNifPath(const std::string& path) {
+void Renderer::saveConfig() {
     std::ofstream configFile(configPath);
     if (configFile.is_open()) {
-        configFile << path;
+        configFile << currentNifPath << std::endl;
+        configFile << fallbackRootDirectory << std::endl;
         configFile.close();
     }
     else {

@@ -24,8 +24,8 @@ public:
     void loadNifModel(const std::string& path);
     void setCamera(float posX, float posY, float posZ, float pitch, float yaw);
 
-    // --- New Method ---
-    void setRootDirectory(const std::string& path);
+    // --- New/Updated Methods ---
+    void setFallbackRootDirectory(const std::string& path);
 
 private:
     // --- UI Methods ---
@@ -35,8 +35,10 @@ private:
 
     // --- Input and State ---
     void processInput();
-    void loadLastNifPath();
-    void saveLastNifPath(const std::string& path);
+    // UPDATED: Unified config methods
+    void loadConfig();
+    void saveConfig();
+
     std::string configPath = "mugshotter_config.txt";
 
     GLFWwindow* window = nullptr;
@@ -48,7 +50,11 @@ private:
     float lastX, lastY;
     bool firstMouse = true;
     std::string currentNifPath;
-    std::string rootDirectory; // NEW: Stores the root path for textures
+
+    // UPDATED: Now an 'active' root directory
+    std::string rootDirectory;
+    // NEW: Persistent fallback directory
+    std::string fallbackRootDirectory;
 };
 
 #endif // RENDERER_H

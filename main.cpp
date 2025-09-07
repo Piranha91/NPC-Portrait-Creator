@@ -15,7 +15,8 @@ int main(int argc, char** argv) {
     options.add_options()
         ("f,file", "Input .nif file", cxxopts::value<std::string>())
         ("o,output", "Output .png file", cxxopts::value<std::string>())
-        ("r,root", "Set the root data directory for textures", cxxopts::value<std::string>()) // NEW
+        // UPDATED: Clarified that this sets the fallback directory
+        ("r,root", "Set the fallback root data directory", cxxopts::value<std::string>())
         ("headless", "Run in headless mode without a visible window")
         ("camX", "Camera X position", cxxopts::value<float>()->default_value("0"))
         ("camY", "Camera Y position", cxxopts::value<float>()->default_value("0"))
@@ -36,14 +37,13 @@ int main(int argc, char** argv) {
     try {
         Renderer renderer(1280, 720);
 
-        // NEW: Set root directory from command line if provided
+        // UPDATED: This now sets the fallback directory
         if (result.count("root")) {
-            renderer.setRootDirectory(result["root"].as<std::string>());
+            renderer.setFallbackRootDirectory(result["root"].as<std::string>());
         }
 
         renderer.init(isHeadless);
 
-        // --- Headless Mode Execution ---
         if (isHeadless) {
             if (!result.count("file") || !result.count("output")) {
                 std::cerr << "Error: In headless mode, --file and --output are required." << std::endl;
@@ -64,7 +64,6 @@ int main(int argc, char** argv) {
             std::cout << "Image saved to " << outputPath << std::endl;
 
         }
-        // --- GUI Mode Execution ---
         else {
             renderer.run();
         }
