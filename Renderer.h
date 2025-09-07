@@ -6,6 +6,7 @@
 #include "Shader.h"
 #include "Camera.h"
 #include "NifModel.h"
+#include "TextureManager.h"
 
 struct GLFWwindow;
 
@@ -55,6 +56,7 @@ private:
     std::string rootDirectory;
     // NEW: Persistent fallback directory
     std::string fallbackRootDirectory;
+    TextureManager textureManager;
 };
 
 #endif // RENDERER_H

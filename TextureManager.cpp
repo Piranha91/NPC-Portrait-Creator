@@ -15,8 +15,9 @@ void TextureManager::setActiveDirectories(const std::string& rootDir, const std:
 }
 
 void TextureManager::checkTexture(const std::string& relativePath) const {
-    // 1. Check for loose file in root directory
     std::filesystem::path primaryLoosePath = std::filesystem::path(rootDirectory) / relativePath;
+
+    // 1. Check for loose file in root directory
     if (std::filesystem::exists(primaryLoosePath)) {
         std::cout << primaryLoosePath.string() << " [FOUND (Loose File)]" << std::endl;
         return;
@@ -31,19 +32,20 @@ void TextureManager::checkTexture(const std::string& relativePath) const {
     }
 
     // 3. Check for file in root directory's BSAs
-    if (rootBsaManager.fileExists(relativePath)) {
+    std::string foundInBsa = rootBsaManager.findFileInArchives(relativePath);
+    if (!foundInBsa.empty()) {
         std::cout << primaryLoosePath.string() << " [NOT FOUND]" << std::endl;
         std::cout << "  -> " << fallbackLoosePath.string() << " [NOT FOUND]" << std::endl;
-        std::cout << "  -> " << primaryLoosePath.string() << " [FOUND (BSA Archive)]" << std::endl;
+        std::cout << "  -> " << primaryLoosePath.string() << " [FOUND (in " << foundInBsa << ")]" << std::endl;
         return;
     }
 
     // 4. Check for file in fallback directory's BSAs
-    if (fallbackBsaManager.fileExists(relativePath)) {
+    foundInBsa = fallbackBsaManager.findFileInArchives(relativePath);
+    if (!foundInBsa.empty()) {
         std::cout << primaryLoosePath.string() << " [NOT FOUND]" << std::endl;
         std::cout << "  -> " << fallbackLoosePath.string() << " [NOT FOUND]" << std::endl;
-        std::cout << "  -> " << primaryLoosePath.string() << " [NOT FOUND (BSA Archive)]" << std::endl;
-        std::cout << "  -> " << fallbackLoosePath.string() << " [FOUND (BSA Archive)]" << std::endl;
+        std::cout << "  -> " << fallbackLoosePath.string() << " [FOUND (in " << foundInBsa << ")]" << std::endl;
         return;
     }
 

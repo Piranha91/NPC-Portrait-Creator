@@ -193,26 +193,15 @@ void Renderer::loadNifModel(const std::string& path) {
     if (model->load(path)) {
         currentNifPath = path;
         saveConfig();
+        textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory);
         std::cout << "\n--- Checking Textures for " << path << " ---\n";
         const auto& textures = model->getTextures();
         if (textures.empty()) {
             std::cout << "No textures found in this NIF file.\n";
         }
         else {
-            // UPDATED: Replaced the texture printing loop with file checking logic
             for (const auto& texPath : textures) {
-                // 1. Construct and check the primary path
-                std::filesystem::path primaryPath = std::filesystem::path(rootDirectory) / texPath;
-                bool primaryExists = std::filesystem::exists(primaryPath);
-
-                std::cout << primaryPath.string() << " [" << (primaryExists ? "FOUND" : "NOT FOUND") << "]" << std::endl;
-
-                // 2. If primary not found, construct and check the fallback path
-                if (!primaryExists) {
-                    std::filesystem::path fallbackPath = std::filesystem::path(fallbackRootDirectory) / texPath;
-                    bool fallbackExists = std::filesystem::exists(fallbackPath);
-                    std::cout << "  -> " << fallbackPath.string() << " [" << (fallbackExists ? "FOUND" : "NOT FOUND") << "]" << std::endl;
-                }
+                textureManager.checkTexture(texPath);
             }
         }
         std::cout << "---------------------------------------------------------\n" << std::endl;
@@ -231,6 +220,7 @@ void Renderer::setCamera(float posX, float posY, float posZ, float pitch, float 
 
 void Renderer::setFallbackRootDirectory(const std::string& path) {
     fallbackRootDirectory = path;
+    textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory);
     std::cout << "Fallback root directory set to: " << fallbackRootDirectory << std::endl;
     saveConfig();
 }

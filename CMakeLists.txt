@@ -33,6 +33,13 @@ add_executable(Mugshotter
     TextureManager.h
     TextureManager.cpp
     vendor/tinyfiledialogs/tinyfiledialogs.c
+
+    # Manually include the libbsarch C++ source files in the build
+    vendor/libbsarch/src/bs_archive.cpp
+    vendor/libbsarch/src/bs_archive_entries.cpp
+    vendor/libbsarch/src/utils/convertible_string.cpp
+    vendor/libbsarch/src/utils/string_convert.cpp
+    vendor/libbsarch/src/utils/convertible_ostream.cpp
 )
 
 target_include_directories(Mugshotter PRIVATE
