@@ -6,6 +6,7 @@
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <Shaders.hpp> 
+#include <limits>
 
 // Helper function to get the full world transform of a shape
 nifly::MatTransform GetShapeTransformToGlobal(const nifly::NifFile& nifFile, nifly::NiShape* niShape) {
@@ -52,6 +53,9 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         std::cerr << "Error: Failed to load NIF file: " << nifPath << std::endl;
         return false;
     }
+
+    glm::vec3 minBounds(std::numeric_limits<float>::max());
+    glm::vec3 maxBounds(std::numeric_limits<float>::lowest());
 
     // This section can be used for debug logging if you wish
     std::set<std::string> uniqueTexturePaths;
@@ -176,6 +180,15 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         glBindVertexArray(0);
 
         shapes.push_back(mesh);
+    }
+
+    if (shapes.empty()) {
+        modelCenter = glm::vec3(0.0f, 50.0f, 0.0f);
+        modelSize = 300.0f; // Default size if no shapes
+    }
+    else {
+        modelCenter = (minBounds + maxBounds) * 0.5f;
+        modelSize = glm::length(maxBounds - minBounds);
     }
 
     std::cout << "Successfully loaded " << shapes.size() << " shapes from NIF." << std::endl;

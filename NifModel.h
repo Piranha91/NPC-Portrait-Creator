@@ -38,8 +38,14 @@ public:
 
     // This is no longer used by the renderer for loading but can be kept for debugging
     std::vector<std::string> getTextures() const;
+
+    glm::vec3 getCenter() const { return modelCenter; }
+    float getSize() const { return modelSize; }
+
 private:
     nifly::NifFile nif;
     std::vector<MeshShape> shapes;
     std::vector<std::string> texturePaths; // Stores texture paths for debugging
+    glm::vec3 modelCenter = glm::vec3(0.0f);
+    float modelSize = 0.0f;
 };
