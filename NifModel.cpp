@@ -1,13 +1,13 @@
 #include "NifModel.h"
-#include "Shader.h" // Include Shader header for the draw function
+#include "Shader.h"
+#include "TextureManager.h" // Include the new texture manager
 #include <iostream>
 #include <set>
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <Shaders.hpp> 
 
-// Helper function to get the full world transform of a shape,
-// similar to the original repository's GetShapeTransformToGlobal function.
+// Helper function to get the full world transform of a shape
 nifly::MatTransform GetShapeTransformToGlobal(const nifly::NifFile& nifFile, nifly::NiShape* niShape) {
     nifly::MatTransform xform = niShape->transform;
     nifly::NiNode* parent = nifFile.GetParentNode(niShape);
@@ -17,7 +17,6 @@ nifly::MatTransform GetShapeTransformToGlobal(const nifly::NifFile& nifFile, nif
     }
     return xform;
 }
-
 
 // --- MeshShape Methods ---
 
@@ -47,23 +46,19 @@ NifModel::~NifModel() {
     cleanup();
 }
 
-bool NifModel::load(const std::string& nifPath) {
+bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) {
     cleanup();
-
     if (nif.Load(nifPath) != 0) {
         std::cerr << "Error: Failed to load NIF file: " << nifPath << std::endl;
         return false;
     }
 
-    // --- Texture Extraction using reference syntax ---
+    // This section can be used for debug logging if you wish
     std::set<std::string> uniqueTexturePaths;
     for (const auto& shape : nif.GetShapes()) {
         const auto shader = nif.GetShader(shape);
         if (shader && shader->HasTextureSet()) {
-            const auto textureSetRef = shader->TextureSetRef();
-
-            // FIXED: Use the templated GetBlock<T>() function which handles casting internally.
-            if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(textureSetRef)) {
+            if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
                 for (const auto& tex : textureSet->textures) {
                     if (auto path = tex.get(); !path.empty()) {
                         uniqueTexturePaths.insert(path);
@@ -72,7 +67,6 @@ bool NifModel::load(const std::string& nifPath) {
             }
         }
     }
-    // Copy unique paths from the set to our member vector
     texturePaths.assign(uniqueTexturePaths.begin(), uniqueTexturePaths.end());
 
     const auto& shapeList = nif.GetShapes();
@@ -83,26 +77,26 @@ bool NifModel::load(const std::string& nifPath) {
 
     for (auto* niShape : shapeList) {
         if (!niShape) continue;
-
         if (auto* geomData = niShape->GetGeomData()) {
             if (!niShape->HasNormals()) {
                 geomData->RecalcNormals();
             }
         }
 
-        std::vector<nifly::Triangle> triangles;
-
         const auto* vertices = nif.GetVertsForShape(niShape);
         const auto* normals = nif.GetNormalsForShape(niShape);
+        const auto* uvs = nif.GetUvsForShape(niShape); // Get UVs
+        std::vector<nifly::Triangle> triangles;
         niShape->GetTriangles(triangles);
-
         if (!vertices || vertices->empty() || triangles.empty()) {
             continue;
         }
 
+        // Updated Vertex struct to include texture coordinates
         struct Vertex {
             glm::vec3 pos;
             glm::vec3 normal;
+            glm::vec2 texCoords;
         };
 
         std::vector<Vertex> vertexData;
@@ -114,6 +108,14 @@ bool NifModel::load(const std::string& nifPath) {
             }
             else {
                 vertexData[i].normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+            if (uvs && i < uvs->size()) {
+                // DDS files often have their origin at the top-left, matching OpenGL, so no flip is needed.
+                // If textures appear upside down, use: glm::vec2((*uvs)[i].u, 1.0f - (*uvs)[i].v);
+                vertexData[i].texCoords = glm::vec2((*uvs)[i].u, (*uvs)[i].v);
+            }
+            else {
+                vertexData[i].texCoords = glm::vec2(0.0f, 0.0f);
             }
         }
 
@@ -130,8 +132,20 @@ bool NifModel::load(const std::string& nifPath) {
 
         auto niflyTransform = GetShapeTransformToGlobal(nif, niShape);
         auto matData = niflyTransform.ToMatrix();
-
         mesh.transform = glm::transpose(glm::make_mat4(&matData[0]));
+
+        // Load texture for this shape using the TextureManager
+        const auto shader = nif.GetShader(niShape);
+        if (shader && shader->HasTextureSet()) {
+            if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
+                if (!textureSet->textures.empty()) {
+                    std::string texPath = textureSet->textures[0].get(); // Get diffuse texture
+                    if (!texPath.empty()) {
+                        mesh.diffuseTextureID = textureManager.loadTexture(texPath);
+                    }
+                }
+            }
+        }
 
         glGenVertexArrays(1, &mesh.VAO);
         glGenBuffers(1, &mesh.VBO);
@@ -144,11 +158,17 @@ bool NifModel::load(const std::string& nifPath) {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.EBO);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned short), indices.data(), GL_STATIC_DRAW);
 
+        // Position Attribute (location = 0)
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, pos));
 
+        // Normal Attribute (location = 1)
         glEnableVertexAttribArray(1);
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
+
+        // Texture Coordinate Attribute (location = 2)
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoords));
 
         glBindVertexArray(0);
 
@@ -160,8 +180,17 @@ bool NifModel::load(const std::string& nifPath) {
 }
 
 void NifModel::draw(Shader& shader) {
+    shader.use();
+    // Tell the shader that the `texture_diffuse1` sampler should use texture unit 0
+    shader.setInt("texture_diffuse1", 0);
+
     for (const auto& shape : shapes) {
         shader.setMat4("model", shape.transform);
+
+        // Activate texture unit 0 and bind the correct texture for this shape
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
+
         shape.draw();
     }
 }

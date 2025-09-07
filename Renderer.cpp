@@ -187,24 +187,19 @@ void Renderer::loadNifModel(const std::string& path) {
         std::cout << "Could not auto-detect root. Using fallback: " << rootDirectory << std::endl;
     }
 
+    // Update the texture manager with the correct directories for this model
+    textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory);
+
     if (!model) {
         model = std::make_unique<NifModel>();
     }
-    if (model->load(path)) {
+
+    // Correctly call the new load function, passing the texture manager
+    if (model->load(path, textureManager)) {
         currentNifPath = path;
         saveConfig();
-        textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory);
-        std::cout << "\n--- Checking Textures for " << path << " ---\n";
-        const auto& textures = model->getTextures();
-        if (textures.empty()) {
-            std::cout << "No textures found in this NIF file.\n";
-        }
-        else {
-            for (const auto& texPath : textures) {
-                textureManager.checkTexture(texPath);
-            }
-        }
-        std::cout << "---------------------------------------------------------\n" << std::endl;
+        // The old texture checking loop is no longer needed here, as
+        // NifModel::load now handles texture loading.
     }
     else {
         std::cerr << "Renderer failed to load NIF model." << std::endl;

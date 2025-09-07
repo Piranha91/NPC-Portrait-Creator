@@ -28,23 +28,16 @@ void BsaManager::loadArchives(const std::string& directory) {
         std::cout << "--- Caching BSA contents from: " << directory << " ---" << std::endl;
         for (const auto& bsaPath : bsaPaths) {
             try {
-                // 1. Create the correct bs_archive object.
                 libbsarch::bs_archive bsa;
-
-                // 2. Load the archive from disk.
                 bsa.load_from_disk(bsaPath.wstring());
                 const std::string bsaFilename = bsaPath.filename().string();
 
-                // 3. Use the list_files() method to get all file paths.
                 for (const auto& file : bsa.list_files()) {
                     std::string filePath = std::string(file);
-
-                    // Normalize the path for consistent lookups
                     std::replace(filePath.begin(), filePath.end(), '/', '\\');
                     std::transform(filePath.begin(), filePath.end(), filePath.begin(), ::tolower);
 
-                    // Omit paths from the debug output that are unlikely to feature in a character's face
-                    if (filePath.find("texture") != std::string::npos && 
+                    if (filePath.find("texture") != std::string::npos &&
                         filePath.find("terrain") == std::string::npos &&
                         filePath.find("clutter") == std::string::npos &&
                         filePath.find("architecture") == std::string::npos &&
@@ -58,7 +51,6 @@ void BsaManager::loadArchives(const std::string& directory) {
                         std::cout << "[" << bsaFilename << "]: " << filePath << std::endl;
                     }
 
-                    // Add the file to our cache
                     fileCache[filePath] = bsaFilename;
                 }
             }
@@ -74,7 +66,11 @@ void BsaManager::loadArchives(const std::string& directory) {
     }
 }
 
-// This function remains correct and does not need changes.
+
+size_t BsaManager::getArchiveCount() const {
+    return bsaPaths.size();
+}
+
 std::string BsaManager::findFileInArchives(const std::string& relativePath) const {
     if (relativePath.empty()) {
         return "";
@@ -92,6 +88,36 @@ std::string BsaManager::findFileInArchives(const std::string& relativePath) cons
     return "";
 }
 
-size_t BsaManager::getArchiveCount() const {
-    return bsaPaths.size();
+// This function now correctly finds the full BSA path from its internal list.
+std::vector<char> BsaManager::extractFile(const std::string& relativePath) const {
+    std::string bsaName = findFileInArchives(relativePath);
+    if (bsaName.empty()) {
+        return {};
+    }
+
+    // Find the full path to the BSA from the stored list.
+    std::filesystem::path bsaFullPath;
+    for (const auto& p : bsaPaths) {
+        if (p.filename().string() == bsaName) {
+            bsaFullPath = p;
+            break;
+        }
+    }
+
+    if (bsaFullPath.empty()) {
+        return {}; // Should not happen if findFileInArchives worked, but good for safety.
+    }
+
+    try {
+        libbsarch::bs_archive bsa;
+        bsa.load_from_disk(bsaFullPath.wstring());
+
+        libbsarch::memory_blob blob = bsa.extract_to_memory(relativePath);
+        const char* data = static_cast<const char*>(blob.data);
+        return std::vector<char>(data, data + blob.size);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Failed to extract " << relativePath << " from " << bsaName << ": " << e.what() << std::endl;
+        return {};
+    }
 }

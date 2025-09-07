@@ -10,15 +10,15 @@
 
 #include <NifFile.hpp>
 
-// Forward-declare Shader so we can use it in the draw function signature
+// Forward-declare classes to avoid circular dependencies
 class Shader;
+class TextureManager;
 
-// The MeshShape struct should be fully defined here so the compiler
-// knows about its members (VAO, VBO, etc.)
 struct MeshShape {
     GLuint VAO = 0, VBO = 0, EBO = 0;
     GLsizei indexCount = 0;
     glm::mat4 transform;
+    GLuint diffuseTextureID = 0; // Texture ID for the diffuse map
 
     void draw() const;
     void cleanup();
@@ -30,17 +30,15 @@ public:
     NifModel();
     ~NifModel();
 
-    bool load(const std::string& path);
+    // Updated signature to accept a TextureManager
+    bool load(const std::string& path, TextureManager& textureManager);
     void draw(Shader& shader);
     void cleanup();
 
-    // Getter for texture paths found in the NIF
+    // This is no longer used by the renderer for loading but can be kept for debugging
     std::vector<std::string> getTextures() const;
-
 private:
-    // Declare the nifly::NifFile object and the vector of shapes as member variables
-    // so they persist outside of the load() function.
     nifly::NifFile nif;
     std::vector<MeshShape> shapes;
-    std::vector<std::string> texturePaths; // NEW: Stores texture paths
+    std::vector<std::string> texturePaths; // Stores texture paths for debugging
 };
