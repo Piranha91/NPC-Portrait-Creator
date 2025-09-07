@@ -24,6 +24,9 @@ public:
     void loadNifModel(const std::string& path);
     void setCamera(float posX, float posY, float posZ, float pitch, float yaw);
 
+    // --- New Method ---
+    void setRootDirectory(const std::string& path);
+
 private:
     // --- UI Methods ---
     void initUI();
@@ -40,12 +43,12 @@ private:
     Shader shader;
     Camera camera;
     std::unique_ptr<NifModel> model;
-    
+
     int screenWidth, screenHeight;
     float lastX, lastY;
     bool firstMouse = true;
     std::string currentNifPath;
+    std::string rootDirectory; // NEW: Stores the root path for textures
 };
 
 #endif // RENDERER_H
-

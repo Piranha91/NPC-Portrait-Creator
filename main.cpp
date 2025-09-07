@@ -15,6 +15,7 @@ int main(int argc, char** argv) {
     options.add_options()
         ("f,file", "Input .nif file", cxxopts::value<std::string>())
         ("o,output", "Output .png file", cxxopts::value<std::string>())
+        ("r,root", "Set the root data directory for textures", cxxopts::value<std::string>()) // NEW
         ("headless", "Run in headless mode without a visible window")
         ("camX", "Camera X position", cxxopts::value<float>()->default_value("0"))
         ("camY", "Camera Y position", cxxopts::value<float>()->default_value("0"))
@@ -31,9 +32,15 @@ int main(int argc, char** argv) {
     }
 
     bool isHeadless = result.count("headless") > 0;
-    
+
     try {
         Renderer renderer(1280, 720);
+
+        // NEW: Set root directory from command line if provided
+        if (result.count("root")) {
+            renderer.setRootDirectory(result["root"].as<std::string>());
+        }
+
         renderer.init(isHeadless);
 
         // --- Headless Mode Execution ---
@@ -44,7 +51,7 @@ int main(int argc, char** argv) {
             }
             std::string nifPath = result["file"].as<std::string>();
             std::string outputPath = result["output"].as<std::string>();
-            
+
             renderer.setCamera(
                 result["camX"].as<float>(), result["camY"].as<float>(), result["camZ"].as<float>(),
                 result["pitch"].as<float>(), result["yaw"].as<float>()
@@ -56,17 +63,17 @@ int main(int argc, char** argv) {
             renderer.saveToPNG(outputPath);
             std::cout << "Image saved to " << outputPath << std::endl;
 
-        } 
+        }
         // --- GUI Mode Execution ---
         else {
             renderer.run();
         }
 
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e) {
         std::cerr << "An unhandled exception occurred: " << e.what() << std::endl;
         return 1;
     }
 
     return 0;
 }
-

@@ -34,10 +34,13 @@ public:
     void draw(Shader& shader);
     void cleanup();
 
+    // Getter for texture paths found in the NIF
+    std::vector<std::string> getTextures() const;
+
 private:
     // Declare the nifly::NifFile object and the vector of shapes as member variables
     // so they persist outside of the load() function.
     nifly::NifFile nif;
     std::vector<MeshShape> shapes;
+    std::vector<std::string> texturePaths; // NEW: Stores texture paths
 };
-

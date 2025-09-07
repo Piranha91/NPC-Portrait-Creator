@@ -24,9 +24,10 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
 }
 
-Renderer::Renderer(int width, int height) 
-    : screenWidth(width), screenHeight(height), 
-      camera(glm::vec3(0.0f, 50.0f, 300.0f)), lastX(width/2.0f), lastY(height/2.0f) {}
+Renderer::Renderer(int width, int height)
+    : screenWidth(width), screenHeight(height),
+    camera(glm::vec3(0.0f, 50.0f, 300.0f)), lastX(width / 2.0f), lastY(height / 2.0f) {
+}
 
 Renderer::~Renderer() {
     shutdownUI();
@@ -88,11 +89,11 @@ void Renderer::run() {
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         processInput();
-        
+
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-        
+
         renderUI();
 
         ImGui::Render();
@@ -100,9 +101,9 @@ void Renderer::run() {
         int display_w, display_h;
         glfwGetFramebufferSize(window, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
-        
+
         renderFrame();
-        
+
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
@@ -127,6 +128,14 @@ void Renderer::renderUI() {
                     loadNifModel(filePath);
                 }
             }
+            // NEW: Menu item to set the root directory
+            if (ImGui::MenuItem("Set Root Directory...")) {
+                const char* folderPath = tinyfd_selectFolderDialog("Select Root Data Folder", rootDirectory.c_str());
+                if (folderPath) {
+                    setRootDirectory(folderPath);
+                }
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Exit")) {
                 glfwSetWindowShouldClose(window, true);
             }
@@ -149,10 +158,10 @@ void Renderer::renderFrame() {
     shader.use();
     glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 10000.0f);
     glm::mat4 view = camera.GetViewMatrix();
-    
+
     shader.setMat4("projection", projection);
     shader.setMat4("view", view);
-    
+
     if (model) {
         model->draw(shader);
     }
@@ -165,7 +174,22 @@ void Renderer::loadNifModel(const std::string& path) {
     if (model->load(path)) {
         currentNifPath = path;
         saveLastNifPath(path);
-    } else {
+
+        // --- NEW: Display Textures in Console ---
+        std::cout << "\n--- Textures for " << path << " ---\n";
+        const auto& textures = model->getTextures();
+        if (textures.empty()) {
+            std::cout << "No textures found in this NIF file.\n";
+        }
+        else {
+            for (const auto& texPath : textures) {
+                std::cout << texPath << std::endl;
+            }
+        }
+        std::cout << "---------------------------------------\n" << std::endl;
+
+    }
+    else {
         std::cerr << "Renderer failed to load NIF model." << std::endl;
     }
 }
@@ -176,6 +200,13 @@ void Renderer::setCamera(float posX, float posY, float posZ, float pitch, float 
     camera.Yaw = yaw;
     camera.updateCameraVectors();
 }
+
+// NEW: Setter for the root directory
+void Renderer::setRootDirectory(const std::string& path) {
+    rootDirectory = path;
+    std::cout << "Root directory set to: " << rootDirectory << std::endl;
+}
+
 
 void Renderer::saveToPNG(const std::string& path) {
     std::vector<unsigned char> buffer(screenWidth * screenHeight * 4);
@@ -210,8 +241,9 @@ void Renderer::loadLastNifPath() {
             std::ifstream testFile(path);
             if (testFile.good()) {
                 loadNifModel(path);
-            } else {
-                 std::cout << "Last used NIF not found: " << path << std::endl;
+            }
+            else {
+                std::cout << "Last used NIF not found: " << path << std::endl;
             }
         }
         configFile.close();
@@ -223,8 +255,8 @@ void Renderer::saveLastNifPath(const std::string& path) {
     if (configFile.is_open()) {
         configFile << path;
         configFile.close();
-    } else {
+    }
+    else {
         std::cerr << "Warning: Could not save config file to " << configPath << std::endl;
     }
 }
-

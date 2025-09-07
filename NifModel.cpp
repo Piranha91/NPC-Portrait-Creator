@@ -1,8 +1,10 @@
 #include "NifModel.h"
 #include "Shader.h" // Include Shader header for the draw function
 #include <iostream>
+#include <set>
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <Shaders.hpp> 
 
 // Helper function to get the full world transform of a shape,
 // similar to the original repository's GetShapeTransformToGlobal function.
@@ -53,6 +55,26 @@ bool NifModel::load(const std::string& nifPath) {
         return false;
     }
 
+    // --- Texture Extraction using reference syntax ---
+    std::set<std::string> uniqueTexturePaths;
+    for (const auto& shape : nif.GetShapes()) {
+        const auto shader = nif.GetShader(shape);
+        if (shader && shader->HasTextureSet()) {
+            const auto textureSetRef = shader->TextureSetRef();
+
+            // FIXED: Use the templated GetBlock<T>() function which handles casting internally.
+            if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(textureSetRef)) {
+                for (const auto& tex : textureSet->textures) {
+                    if (auto path = tex.get(); !path.empty()) {
+                        uniqueTexturePaths.insert(path);
+                    }
+                }
+            }
+        }
+    }
+    // Copy unique paths from the set to our member vector
+    texturePaths.assign(uniqueTexturePaths.begin(), uniqueTexturePaths.end());
+
     const auto& shapeList = nif.GetShapes();
     if (shapeList.empty()) {
         std::cerr << "Warning: NIF file contains no shapes." << std::endl;
@@ -70,8 +92,6 @@ bool NifModel::load(const std::string& nifPath) {
 
         std::vector<nifly::Triangle> triangles;
 
-        // Adopting the "ground truth" syntax from OpenGLShape.cpp
-        // The nifly functions return pointers, which we must check.
         const auto* vertices = nif.GetVertsForShape(niShape);
         const auto* normals = nif.GetNormalsForShape(niShape);
         niShape->GetTriangles(triangles);
@@ -88,10 +108,8 @@ bool NifModel::load(const std::string& nifPath) {
         std::vector<Vertex> vertexData;
         vertexData.resize(vertices->size());
         for (size_t i = 0; i < vertices->size(); ++i) {
-            // Correctly dereferencing the pointer to access vector elements
             vertexData[i].pos = glm::vec3((*vertices)[i].x, (*vertices)[i].y, (*vertices)[i].z);
             if (normals && i < normals->size()) {
-                // Correctly dereferencing the pointer to access vector elements
                 vertexData[i].normal = glm::vec3((*normals)[i].x, (*normals)[i].y, (*normals)[i].z);
             }
             else {
@@ -110,12 +128,9 @@ bool NifModel::load(const std::string& nifPath) {
         MeshShape mesh;
         mesh.indexCount = static_cast<GLsizei>(indices.size());
 
-        // Use the helper to get the full world transform
         auto niflyTransform = GetShapeTransformToGlobal(nif, niShape);
-        // The fix is here: remove 'const' to allow use of operator[]
         auto matData = niflyTransform.ToMatrix();
 
-        // This line should now compile correctly
         mesh.transform = glm::transpose(glm::make_mat4(&matData[0]));
 
         glGenVertexArrays(1, &mesh.VAO);
@@ -156,9 +171,9 @@ void NifModel::cleanup() {
         shape.cleanup();
     }
     shapes.clear();
+    texturePaths.clear();
 }
 
-
-
-
-
+std::vector<std::string> NifModel::getTextures() const {
+    return texturePaths;
+}
