@@ -143,6 +143,25 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         if (shader) {
             mesh.isModelSpace = shader->IsModelSpace();
         }
+
+        if (vertices) {
+            if (mesh.isModelSpace) {
+                // For model-space meshes, vertices are already in world-space. Use them directly.
+                for (const auto& vert : *vertices) {
+                    minBounds = glm::min(minBounds, glm::vec3(vert.x, vert.y, vert.z));
+                    maxBounds = glm::max(maxBounds, glm::vec3(vert.x, vert.y, vert.z));
+                }
+            }
+            else {
+                // For regular meshes, we must transform their vertices into world-space.
+                for (const auto& vert : *vertices) {
+                    glm::vec4 transformedVert = mesh.transform * glm::vec4(vert.x, vert.y, vert.z, 1.0f);
+                    minBounds = glm::min(minBounds, glm::vec3(transformedVert));
+                    maxBounds = glm::max(maxBounds, glm::vec3(transformedVert));
+                }
+            }
+        }
+
         if (shader && shader->HasTextureSet()) {
             if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
                 if (!textureSet->textures.empty()) {
@@ -184,11 +203,11 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
 
     if (shapes.empty()) {
         modelCenter = glm::vec3(0.0f, 50.0f, 0.0f);
-        modelSize = 300.0f; // Default size if no shapes
+        modelBoundsSize = glm::vec3(300.0f);  // Default size if no shapes
     }
     else {
         modelCenter = (minBounds + maxBounds) * 0.5f;
-        modelSize = glm::length(maxBounds - minBounds);
+        modelBoundsSize = maxBounds - minBounds;
     }
 
     std::cout << "Successfully loaded " << shapes.size() << " shapes from NIF." << std::endl;

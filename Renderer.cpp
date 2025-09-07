@@ -229,12 +229,41 @@ void Renderer::loadNifModel(const std::string& path) {
         model = std::make_unique<NifModel>();
     }
 
-    // Correctly call the new load function, passing the texture manager
     if (model->load(path, textureManager)) {
         currentNifPath = path;
         saveConfig();
-        // The old texture checking loop is no longer needed here, as
-        // NifModel::load now handles texture loading.
+
+        // --- START: Final Camera Positioning Logic ---
+
+        // 1. Set the camera's rotation target to the model's geometric center.
+        camera.Target = model->getCenter();
+
+        // 2. Calculate the optimal zoom distance.
+        const float fovYRadians = glm::radians(45.0f);
+        const float aspectRatio = (float)screenWidth / (float)screenHeight;
+        const glm::vec3 modelSize = model->getBoundsSize();
+
+        // The model's world space is Z-up before the view matrix conversion.
+        const float modelHeight = modelSize.z;
+        const float modelWidth = modelSize.x;
+        const float modelDepth = modelSize.y; // Depth is along the Y-axis in this space.
+
+        // Calculate the distance needed to fit the model's height and width.
+        float distanceForHeight = (modelHeight / 2.0f) / tan(fovYRadians / 2.0f);
+        float distanceForWidth = (modelWidth / 2.0f) / (tan(fovYRadians / 2.0f) * aspectRatio);
+        float cameraDistance = glm::max(distanceForHeight, distanceForWidth);
+
+        // Add half the model's depth to prevent starting inside the mesh, plus a small buffer.
+        camera.Radius = (cameraDistance + modelDepth / 2.0f) * 1.05f;
+
+        // 3. Set the camera's initial orientation to view the model from the front.
+        camera.Yaw = 90.0f;
+        camera.Pitch = 0.0f;
+
+        // 4. Apply all changes to the camera.
+        camera.updateCameraVectors();
+
+        // --- END: Final Camera Positioning Logic ---
     }
     else {
         std::cerr << "Renderer failed to load NIF model." << std::endl;
