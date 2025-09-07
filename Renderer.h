@@ -17,16 +17,28 @@ public:
 
     // --- Core Methods ---
     void init(bool headless);
-    void run(); // Main loop for GUI mode
+    void run();
     void renderFrame();
     void saveToPNG(const std::string& path);
 
     // --- NIF and Camera Control ---
     void loadNifModel(const std::string& path);
     void setCamera(float posX, float posY, float posZ, float pitch, float yaw);
-
-    // --- New/Updated Methods ---
     void setFallbackRootDirectory(const std::string& path);
+
+    // --- Public Input Handlers ---
+    void HandleMouseButton(int button, int action, int mods);
+    void HandleCursorPosition(double xpos, double ypos);
+    void HandleScroll(double xoffset, double yoffset);
+    void HandleKey(int key, int scancode, int action, int mods);
+
+    // --- Public members for callbacks ---
+    // These are public so the global callback functions can access them.
+    Camera camera;
+    float lastX, lastY;
+    bool firstMouse = true;
+    bool isPanning = false;
+    bool isRotating = false;
 
 private:
     // --- UI Methods ---
@@ -34,9 +46,7 @@ private:
     void renderUI();
     void shutdownUI();
 
-    // --- Input and State ---
-    void processInput();
-    // UPDATED: Unified config methods
+    // --- Config Methods ---
     void loadConfig();
     void saveConfig();
 
@@ -44,17 +54,13 @@ private:
 
     GLFWwindow* window = nullptr;
     Shader shader;
-    Camera camera;
     std::unique_ptr<NifModel> model;
 
     int screenWidth, screenHeight;
-    float lastX, lastY;
-    bool firstMouse = true;
     std::string currentNifPath;
 
-    // UPDATED: Now an 'active' root directory
+    // Directory Management
     std::string rootDirectory;
-    // NEW: Persistent fallback directory
     std::string fallbackRootDirectory;
     TextureManager textureManager;
 };

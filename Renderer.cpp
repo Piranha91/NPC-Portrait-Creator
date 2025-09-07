@@ -4,7 +4,7 @@
 #include <fstream>
 #include <vector>
 #include <algorithm> 
-#include <filesystem> // NEW: Include for checking file paths
+#include <filesystem>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -22,15 +22,20 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-    glViewport(0, 0, width, height);
-}
+// --- Global Callback Prototypes ---
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
+void cursor_position_callback(GLFWwindow* window, double xpos, double ypos);
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 Renderer::Renderer(int width, int height)
     : screenWidth(width), screenHeight(height),
-    camera(glm::vec3(0.0f, 50.0f, 300.0f)), lastX(width / 2.0f), lastY(height / 2.0f),
+    camera(glm::vec3(0.0f, 50.0f, 0.0f)), // Initialize with a target
+    lastX(width / 2.0f), lastY(height / 2.0f),
     fallbackRootDirectory("C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data") {
 }
+
 
 Renderer::~Renderer() {
     shutdownUI();
@@ -44,7 +49,6 @@ void Renderer::init(bool headless) {
     if (!glfwInit()) {
         throw std::runtime_error("Failed to initialize GLFW");
     }
-    const char* glsl_version = "#version 330";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -59,6 +63,13 @@ void Renderer::init(bool headless) {
         throw std::runtime_error("Failed to create GLFW window");
     }
     glfwMakeContextCurrent(window);
+    
+    // --- Register Callbacks ---
+    glfwSetWindowUserPointer(window, this);
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
+    glfwSetCursorPosCallback(window, cursor_position_callback);
+    glfwSetScrollCallback(window, scroll_callback);
+    glfwSetKeyCallback(window, key_callback);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -87,6 +98,7 @@ void Renderer::init(bool headless) {
     }
 }
 
+// --- UI Methods (unchanged) ---
 void Renderer::initUI() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -99,9 +111,18 @@ void Renderer::initUI() {
 }
 
 void Renderer::run() {
+    // --- START: ADD THIS DEBUG CODE ---
+    std::cout << "DEBUG: Entering Renderer::run()." << std::endl;
+    if (glfwWindowShouldClose(window)) {
+        std::cout << "DEBUG: ERROR - Window is already set to close BEFORE the loop starts!" << std::endl;
+    }
+    else {
+        std::cout << "DEBUG: Window is OK. Starting main loop." << std::endl;
+    }
+    // --- END: ADD THIS DEBUG CODE ---
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-        processInput();
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -119,6 +140,8 @@ void Renderer::run() {
 
         glfwSwapBuffers(window);
     }
+
+    std::cout << "DEBUG: Exited main loop in Renderer::run()." << std::endl;
 }
 
 void Renderer::renderUI() {
@@ -158,7 +181,7 @@ void Renderer::renderFrame() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     shader.use();
-    glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 10000.0f);
+    glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)screenWidth / (float)screenHeight, 0.1f, 10000.0f);
     glm::mat4 view = camera.GetViewMatrix();
 
     shader.setMat4("projection", projection);
@@ -169,6 +192,7 @@ void Renderer::renderFrame() {
     }
 }
 
+// --- Model Loading and Util (unchanged) ---
 void Renderer::loadNifModel(const std::string& path) {
     std::string pathLower = path;
     std::transform(pathLower.begin(), pathLower.end(), pathLower.begin(), ::tolower);
@@ -229,19 +253,6 @@ void Renderer::saveToPNG(const std::string& path) {
     }
 }
 
-void Renderer::processInput() {
-    if (ImGui::GetIO().WantCaptureMouse) return;
-
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        camera.ProcessKeyboard(FORWARD, 0.5f);
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        camera.ProcessKeyboard(BACKWARD, 0.5f);
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        camera.ProcessKeyboard(LEFT, 0.5f);
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        camera.ProcessKeyboard(RIGHT, 0.5f);
-}
-
 void Renderer::loadConfig() {
     std::ifstream configFile(configPath);
     if (configFile.is_open()) {
@@ -265,4 +276,85 @@ void Renderer::saveConfig() {
     else {
         std::cerr << "Warning: Could not save config file to " << configPath << std::endl;
     }
+}
+
+// --- NEW PUBLIC HANDLER IMPLEMENTATIONS ---
+void Renderer::HandleMouseButton(int button, int action, int mods) {
+    if (ImGui::GetIO().WantCaptureMouse) return;
+
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        if (action == GLFW_PRESS) {
+            isRotating = true;
+            firstMouse = true;
+        } else if (action == GLFW_RELEASE) {
+            isRotating = false;
+        }
+    }
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        if (action == GLFW_PRESS) {
+            isPanning = true;
+            firstMouse = true;
+        } else if (action == GLFW_RELEASE) {
+            isPanning = false;
+        }
+    }
+}
+
+void Renderer::HandleCursorPosition(double xpos, double ypos) {
+    if (firstMouse) {
+        lastX = xpos;
+        lastY = ypos;
+        firstMouse = false;
+    }
+
+    float xoffset = xpos - lastX;
+    float yoffset = lastY - ypos; 
+
+    lastX = xpos;
+    lastY = ypos;
+
+    if (isRotating) {
+        camera.ProcessMouseOrbit(xoffset, yoffset);
+    }
+    if (isPanning) {
+        camera.ProcessMousePan(xoffset, yoffset);
+    }
+}
+
+void Renderer::HandleScroll(double xoffset, double yoffset) {
+    if (ImGui::GetIO().WantCaptureMouse) return;
+    camera.ProcessMouseScroll(yoffset);
+}
+
+void Renderer::HandleKey(int key, int scancode, int action, int mods) {
+    if (action == GLFW_PRESS) {
+        if (key == GLFW_KEY_0 && mods == GLFW_MOD_CONTROL) {
+            camera.Reset();
+        }
+        if (key == GLFW_KEY_LEFT) camera.ProcessKeyRotation(KeyRotation::LEFT);
+        if (key == GLFW_KEY_RIGHT) camera.ProcessKeyRotation(KeyRotation::RIGHT);
+        if (key == GLFW_KEY_UP) camera.ProcessKeyRotation(KeyRotation::UP);
+        if (key == GLFW_KEY_DOWN) camera.ProcessKeyRotation(KeyRotation::DOWN);
+    }
+}
+
+// --- GLOBAL CALLBACKS (now simple wrappers) ---
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    glViewport(0, 0, width, height);
+}
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+    Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
+    if (renderer) renderer->HandleMouseButton(button, action, mods);
+}
+void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
+    Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
+    if (renderer) renderer->HandleCursorPosition(xpos, ypos);
+}
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
+    if (renderer) renderer->HandleScroll(xoffset, yoffset);
+}
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
+    if (renderer) renderer->HandleKey(key, scancode, action, mods);
 }

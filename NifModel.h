@@ -17,7 +17,7 @@ class TextureManager;
 struct MeshShape {
     GLuint VAO = 0, VBO = 0, EBO = 0;
     GLsizei indexCount = 0;
-    glm::mat4 transform;
+    glm::mat4 transform = glm::mat4(1.0f); // Initialize to identity matrix
     GLuint diffuseTextureID = 0; // Texture ID for the diffuse map
 
     void draw() const;
