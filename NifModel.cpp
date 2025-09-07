@@ -9,10 +9,10 @@
 
 // Helper function to get the full world transform of a shape
 nifly::MatTransform GetShapeTransformToGlobal(const nifly::NifFile& nifFile, nifly::NiShape* niShape) {
-    nifly::MatTransform xform = niShape->transform;
+    nifly::MatTransform xform = niShape->GetTransformToParent();
     nifly::NiNode* parent = nifFile.GetParentNode(niShape);
     while (parent) {
-        xform = parent->transform.ComposeTransforms(xform);
+        xform = parent->GetTransformToParent().ComposeTransforms(xform);
         parent = nifFile.GetParentNode(parent);
     }
     return xform;
@@ -132,10 +132,13 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
 
         auto niflyTransform = GetShapeTransformToGlobal(nif, niShape);
         auto matData = niflyTransform.ToMatrix();
-        mesh.transform = glm::transpose(glm::make_mat4(&matData[0]));
+        mesh.transform = glm::make_mat4(&matData[0]);
 
         // Load texture for this shape using the TextureManager
         const auto shader = nif.GetShader(niShape);
+        if (shader) {
+            mesh.isModelSpace = shader->IsModelSpace();
+        }
         if (shader && shader->HasTextureSet()) {
             if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
                 if (!textureSet->textures.empty()) {
@@ -185,9 +188,16 @@ void NifModel::draw(Shader& shader) {
     shader.setInt("texture_diffuse1", 0);
 
     for (const auto& shape : shapes) {
-        shader.setMat4("model", shape.transform);
+        if (shape.isModelSpace) {
+            // This mesh is already in model space, so don't apply the model transform.
+            // Pass an identity matrix instead.
+            shader.setMat4("model", glm::mat4(1.0f));
+        }
+        else {
+            // For regular meshes, apply the calculated world transform.
+            shader.setMat4("model", shape.transform);
+        }
 
-        // Activate texture unit 0 and bind the correct texture for this shape
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
 
