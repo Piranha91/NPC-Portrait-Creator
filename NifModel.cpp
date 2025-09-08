@@ -22,6 +22,18 @@ nifly::MatTransform GetAVObjectTransformToGlobal(const nifly::NifFile& nifFile, 
     return xform;
 }
 
+inline nifly::MatTransform GetShapeTransformToGlobal(const nifly::NifFile* nifFile,
+    nifly::NiShape* niShape)
+{
+    nifly::MatTransform xform = niShape->GetTransformToParent();
+    nifly::NiNode* parent = nifFile->GetParentNode(niShape);
+    while (parent) {
+        xform = parent->GetTransformToParent().ComposeTransforms(xform);
+        parent = nifFile->GetParentNode(parent);
+    }
+    return xform;
+}
+
 // Helper function at the top of NifModel.cpp to convert NIF blend modes to OpenGL blend modes
 GLenum NifBlendToGL(unsigned int nifBlend) {
     switch (nifBlend) {
@@ -39,6 +51,41 @@ GLenum NifBlendToGL(unsigned int nifBlend) {
     default: return GL_ONE;
     }
 }
+
+// Returns true if 'ancestor' is an ancestor of 'node' in the NIF scene graph.
+static bool IsAncestor(const nifly::NifFile& nif, const nifly::NiNode* ancestor, nifly::NiNode* node) {
+    if (!ancestor || !node) return false;
+    for (nifly::NiNode* p = node; p != nullptr; p = nif.GetParentNode(p)) {
+        if (p == ancestor) return true;
+    }
+    return false;
+}
+
+// Finds the lowest common ancestor of all bones in a NiSkinInstance.
+static nifly::NiNode* FindSkeletonRootLCA(const nifly::NifFile& nif, nifly::NiSkinInstance* si) {
+    if (!si) return nullptr;
+
+    std::vector<nifly::NiNode*> bones;
+    for (auto it = si->boneRefs.begin(); it != si->boneRefs.end(); ++it) {
+        if (auto* b = nif.GetHeader().GetBlock<nifly::NiNode>(*it)) {
+            bones.push_back(b);
+        }
+    }
+    if (bones.empty()) return nullptr;
+
+    for (nifly::NiNode* candidate = bones[0]; candidate != nullptr; candidate = nif.GetParentNode(candidate)) {
+        bool allChildrenFound = true;
+        for (size_t i = 1; i < bones.size(); ++i) {
+            if (!IsAncestor(nif, candidate, bones[i])) {
+                allChildrenFound = false;
+                break;
+            }
+        }
+        if (allChildrenFound) return candidate;
+    }
+    return nif.GetRootNode(); // Fallback
+}
+
 
 
 // --- MeshShape Methods ---
@@ -90,17 +137,8 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
     }
     std::cout << "-------------------------------------\n\n";
 
-    glm::mat4 headRootTransform(1.0f);
-    nifly::NiNode* headRootNode = nif.FindBlockByName<nifly::NiNode>("NPC Head [Head]");
-    if (headRootNode) {
-        // CORRECTED: Call the new, more generic function
-        auto niflyTransform = GetAVObjectTransformToGlobal(nif, headRootNode);
-        headRootTransform = glm::make_mat4(&niflyTransform.ToMatrix()[0]);
-    }
-
     glm::vec3 minBounds(std::numeric_limits<float>::max());
     glm::vec3 maxBounds(std::numeric_limits<float>::lowest());
-
     if (shapeList.empty()) {
         std::cerr << "Warning: NIF file contains no shapes." << std::endl;
         return true;
@@ -109,12 +147,6 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
     for (auto* niShape : shapeList) {
         if (!niShape || (niShape->flags & 1)) {
             continue;
-        }
-
-        if (auto* geomData = niShape->GetGeomData()) {
-            if (!niShape->HasNormals()) {
-                geomData->RecalcNormals();
-            }
         }
 
         const auto* vertices = nif.GetVertsForShape(niShape);
@@ -149,43 +181,106 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
             }
         }
 
-        std::vector<unsigned short> indices;
-        if (!triangles.empty()) {
-            indices.reserve(triangles.size() * 3);
-            for (const auto& tri : triangles) {
-                indices.push_back(tri.p1);
-                indices.push_back(tri.p2);
-                indices.push_back(tri.p3);
+        MeshShape mesh;
+        auto* skinInst = niShape->IsSkinned() ? nif.GetHeader().GetBlock<nifly::NiSkinInstance>(niShape->SkinInstanceRef()) : nullptr;
+
+        if (skinInst && !skinInst->HasType<nifly::BSDismemberSkinInstance>()) {
+            auto* skinData = nif.GetHeader().GetBlock<nifly::NiSkinData>(skinInst->dataRef);
+            auto* skinPartition = nif.GetHeader().GetBlock<nifly::NiSkinPartition>(skinInst->skinPartitionRef);
+
+            if (skinData && skinPartition) {
+                nifly::NiNode* skelRoot = FindSkeletonRootLCA(nif, skinInst);
+                nifly::MatTransform skelRootWorld_n = GetAVObjectTransformToGlobal(nif, skelRoot);
+                glm::mat4 skelRootWorld = glm::transpose(glm::make_mat4(&skelRootWorld_n.ToMatrix()[0]));
+
+                const auto& skinX_n = skinData->skinTransform;
+                glm::mat4 skinTransform = glm::transpose(glm::make_mat4(&skinX_n.ToMatrix()[0]));
+                glm::mat4 skinSpaceToWorld = skelRootWorld * skinTransform;
+                glm::mat4 worldToSkinSpace = glm::inverse(skinSpaceToWorld);
+
+                std::vector<glm::mat4> boneSkinMatrices(skinData->bones.size());
+                auto boneRefIt = skinInst->boneRefs.begin();
+                for (size_t i = 0; i < skinData->bones.size() && boneRefIt != skinInst->boneRefs.end(); ++i, ++boneRefIt) {
+                    auto* boneNode = nif.GetHeader().GetBlock<nifly::NiNode>(*boneRefIt);
+                    if (!boneNode) continue;
+
+                    auto boneWorld_n = GetAVObjectTransformToGlobal(nif, boneNode);
+                    const auto& skinToBone_n = skinData->bones[i].boneTransform;
+                    glm::mat4 boneWorld = glm::transpose(glm::make_mat4(&boneWorld_n.ToMatrix()[0]));
+                    glm::mat4 skinToBone = glm::transpose(glm::make_mat4(&skinToBone_n.ToMatrix()[0]));
+
+                    boneSkinMatrices[i] = worldToSkinSpace * boneWorld * skinToBone;
+                }
+
+                auto originalVertexData = vertexData;
+                std::fill(vertexData.begin(), vertexData.end(), Vertex{});
+                std::vector<float> totalWeights(originalVertexData.size(), 0.0f);
+
+                for (const auto& partition : skinPartition->partitions) {
+                    if (!partition.hasVertexMap || !partition.hasVertexWeights || !partition.hasBoneIndices) continue;
+
+                    for (uint16_t i = 0; i < partition.numVertices; ++i) {
+                        if (i >= partition.vertexMap.size() || i >= partition.vertexWeights.size() || i >= partition.boneIndices.size()) continue;
+
+                        uint16_t originalVertIndex = partition.vertexMap[i];
+                        if (originalVertIndex >= originalVertexData.size()) continue;
+
+                        // Create temporary arrays to access members by index
+                        const float weights[] = { partition.vertexWeights[i].w1, partition.vertexWeights[i].w2, partition.vertexWeights[i].w3, partition.vertexWeights[i].w4 };
+                        const uint8_t indices[] = { partition.boneIndices[i].i1, partition.boneIndices[i].i2, partition.boneIndices[i].i3, partition.boneIndices[i].i4 };
+
+                        for (uint16_t k = 0; k < partition.numWeightsPerVertex; ++k) {
+                            float weight = weights[k];
+                            if (weight <= 0.0f) continue;
+
+                            uint8_t bonePaletteIndex = indices[k];
+                            if (bonePaletteIndex >= partition.bones.size()) continue;
+
+                            uint16_t globalBoneIndex = partition.bones[bonePaletteIndex];
+                            if (globalBoneIndex >= boneSkinMatrices.size()) continue;
+
+                            const glm::mat4& boneMatrix = boneSkinMatrices[globalBoneIndex];
+
+                            vertexData[originalVertIndex].pos += glm::vec3(boneMatrix * glm::vec4(originalVertexData[originalVertIndex].pos, 1.0f)) * weight;
+                            glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(boneMatrix)));
+                            vertexData[originalVertIndex].normal += (normalMatrix * originalVertexData[originalVertIndex].normal) * weight;
+                            totalWeights[originalVertIndex] += weight;
+                        }
+                        vertexData[originalVertIndex].texCoords = originalVertexData[originalVertIndex].texCoords;
+                    }
+                }
+
+                for (size_t i = 0; i < vertexData.size(); ++i) {
+                    if (totalWeights[i] > 0.0f) {
+                        vertexData[i].pos /= totalWeights[i];
+                        vertexData[i].normal = glm::normalize(vertexData[i].normal);
+                    }
+                    else {
+                        vertexData[i] = originalVertexData[i];
+                    }
+                }
+                mesh.transform = skinSpaceToWorld;
+            }
+            else {
+                mesh.transform = glm::mat4(1.0f);
             }
         }
-
-        MeshShape mesh;
-        mesh.indexCount = static_cast<GLsizei>(indices.size());
-
-        if (headRootNode) {
-            mesh.transform = headRootTransform;
-        }
-        else if (niShape->IsSkinned()) {
-            mesh.transform = glm::mat4(1.0f);
-        }
         else {
-            // CORRECTED: Call the new, more generic function
             auto niflyTransform = GetAVObjectTransformToGlobal(nif, niShape);
-            mesh.transform = glm::make_mat4(&niflyTransform.ToMatrix()[0]);
+            glm::mat4 loadedMatrix = glm::make_mat4(&niflyTransform.ToMatrix()[0]);
+            mesh.transform = glm::transpose(loadedMatrix);
         }
 
-        const auto shader = nif.GetShader(niShape);
+        const nifly::NiShader* shader = nif.GetShader(niShape);
         if (shader) {
             mesh.isModelSpace = shader->IsModelSpace();
         }
 
-        if (vertices) {
-            glm::mat4 boundsTransform = mesh.isModelSpace ? glm::mat4(1.0f) : mesh.transform;
-            for (const auto& vert : *vertices) {
-                glm::vec4 transformedVert = boundsTransform * glm::vec4(vert.x, vert.y, vert.z, 1.0f);
-                minBounds = glm::min(minBounds, glm::vec3(transformedVert));
-                maxBounds = glm::max(maxBounds, glm::vec3(transformedVert));
-            }
+        glm::mat4 boundsTransform = mesh.isModelSpace ? glm::mat4(1.0f) : mesh.transform;
+        for (const auto& vert : vertexData) {
+            glm::vec4 transformedVert = boundsTransform * glm::vec4(vert.pos, 1.0f);
+            minBounds = glm::min(minBounds, glm::vec3(transformedVert));
+            maxBounds = glm::max(maxBounds, glm::vec3(transformedVert));
         }
 
         if (shader && shader->HasTextureSet()) {
@@ -207,8 +302,8 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         }
 
         if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
-            mesh.doubleSided = (bslsp->shaderFlags2 & 0x1);
-            mesh.zBufferWrite = (bslsp->shaderFlags2 & 0x2);
+            mesh.doubleSided = (bslsp->shaderFlags2 & (1U << 4));
+            mesh.zBufferWrite = (bslsp->shaderFlags2 & (1U << 0));
             const auto shaderType = bslsp->GetShaderType();
             if (shaderType == nifly::BSLSP_HAIRTINT) {
                 mesh.hasTintColor = true;
@@ -239,9 +334,18 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         glBindVertexArray(mesh.VAO);
         glBindBuffer(GL_ARRAY_BUFFER, mesh.VBO);
         glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(Vertex), vertexData.data(), GL_STATIC_DRAW);
-        if (!indices.empty()) {
+
+        if (!triangles.empty()) {
+            std::vector<unsigned short> final_indices;
+            final_indices.reserve(triangles.size() * 3);
+            for (const auto& tri : triangles) {
+                final_indices.push_back(tri.p1);
+                final_indices.push_back(tri.p2);
+                final_indices.push_back(tri.p3);
+            }
+            mesh.indexCount = static_cast<GLsizei>(final_indices.size());
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.EBO);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned short), indices.data(), GL_STATIC_DRAW);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, final_indices.size() * sizeof(unsigned short), final_indices.data(), GL_STATIC_DRAW);
         }
 
         glEnableVertexAttribArray(0);
@@ -252,7 +356,7 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoords));
         glBindVertexArray(0);
 
-        if (mesh.hasAlphaProperty) {
+        if (mesh.alphaBlend || mesh.alphaTest) {
             transparentShapes.push_back(mesh);
         }
         else {
@@ -263,7 +367,8 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
     modelCenter = (minBounds + maxBounds) * 0.5f;
     modelBoundsSize = maxBounds - minBounds;
     std::cout << "Successfully loaded " << opaqueShapes.size() << " opaque and "
-        << transparentShapes.size() << " transparent shapes from NIF." << std::endl;
+        << transparentShapes.size() << " transparent shapes from NIF."
+        << std::endl;
     return true;
 }
 
