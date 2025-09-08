@@ -6,6 +6,7 @@
 #include <bs_archive.h>
 
 void BsaManager::loadArchives(const std::string& directory) {
+	bool showDebug = false; // Set to true to enable debug output
     bsaPaths.clear();
     fileCache.clear();
 
@@ -37,7 +38,8 @@ void BsaManager::loadArchives(const std::string& directory) {
                     std::replace(filePath.begin(), filePath.end(), '/', '\\');
                     std::transform(filePath.begin(), filePath.end(), filePath.begin(), ::tolower);
 
-                    if (filePath.find("texture") != std::string::npos &&
+					if (showDebug &&
+                        filePath.find("texture") != std::string::npos &&
                         filePath.find("terrain") == std::string::npos &&
                         filePath.find("clutter") == std::string::npos &&
                         filePath.find("architecture") == std::string::npos &&

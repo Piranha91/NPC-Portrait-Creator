@@ -18,7 +18,11 @@ struct MeshShape {
     GLuint VAO = 0, VBO = 0, EBO = 0;
     GLsizei indexCount = 0;
     glm::mat4 transform = glm::mat4(1.0f); // Initialize to identity matrix
-    GLuint diffuseTextureID = 0; // Texture ID for the diffuse map
+    GLuint diffuseTextureID = 0;           // Slot 0: _d.dds or base color
+    GLuint normalTextureID = 0;            // Slot 1: _n.dds or _msn.dds
+    GLuint skinTextureID = 0;              // Slot 2: _sk.dds (Subsurface/Tint)
+    GLuint detailTextureID = 0;            // Slot 3: _detail.dds
+    GLuint specularTextureID = 0;          // Slot 7: _s.dds
     bool isModelSpace = false;
 
     void draw() const;
