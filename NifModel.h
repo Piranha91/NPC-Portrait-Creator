@@ -49,7 +49,7 @@ public:
 
     // Updated signature to accept a TextureManager
     bool load(const std::string& path, TextureManager& textureManager);
-    void draw(Shader& shader);
+    void draw(Shader& shader, const glm::vec3& cameraPos);
     void cleanup();
 
     // This is no longer used by the renderer for loading but can be kept for debugging

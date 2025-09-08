@@ -255,9 +255,8 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
     return true;
 }
 
-void NifModel::draw(Shader& shader) {
+void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     shader.use();
-    // Set samplers once
     shader.setInt("texture_diffuse1", 0);
     shader.setInt("texture_normal", 1);
     shader.setInt("texture_skin", 2);
@@ -265,9 +264,8 @@ void NifModel::draw(Shader& shader) {
     shader.setInt("texture_specular", 4);
 
     // --- PASS 1: OPAQUE OBJECTS ---
-    // These objects are drawn first to establish the scene's depth.
-    // Blending is off, depth writing is on.
     glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     shader.setBool("use_alpha_test", false);
@@ -275,7 +273,6 @@ void NifModel::draw(Shader& shader) {
     for (const auto& shape : opaqueShapes) {
         shader.setMat4("model", shape.isModelSpace ? glm::mat4(1.0f) : shape.transform);
 
-        // Bind textures (only diffuse and normal are typically needed for opaque pass)
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
 
@@ -285,7 +282,6 @@ void NifModel::draw(Shader& shader) {
             glBindTexture(GL_TEXTURE_2D, shape.normalTextureID);
         }
 
-        // All other maps are off for the simple opaque shader
         shader.setBool("has_skin_map", false);
         shader.setBool("has_detail_map", false);
         shader.setBool("has_specular_map", false);
@@ -293,15 +289,26 @@ void NifModel::draw(Shader& shader) {
         shape.draw();
     }
 
+    // --- SORT TRANSPARENT OBJECTS ---
+    std::sort(transparentShapes.begin(), transparentShapes.end(),
+        [&cameraPos](const MeshShape& a, const MeshShape& b) {
+            glm::vec3 posA = glm::vec3(a.transform[3]);
+            glm::vec3 posB = glm::vec3(b.transform[3]);
+
+            glm::vec3 diffA = posA - cameraPos;
+            glm::vec3 diffB = posB - cameraPos;
+            float distA = glm::dot(diffA, diffA);
+            float distB = glm::dot(diffB, diffB);
+
+            return distA > distB;
+        });
+
     // --- PASS 2: TRANSPARENT OBJECTS ---
-    // These objects are drawn second. They test against the existing depth buffer
-    // but don't write to it, and they blend with the colors already drawn.
     for (const auto& shape : transparentShapes) {
         shader.setMat4("model", shape.isModelSpace ? glm::mat4(1.0f) : shape.transform);
 
-        // Set render states specific to this transparent shape
         if (shape.doubleSided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
-        glDepthMask(shape.zBufferWrite ? GL_TRUE : GL_FALSE);
+
         if (shape.alphaBlend) {
             glEnable(GL_BLEND);
             glBlendFunc(shape.srcBlend, shape.dstBlend);
@@ -309,6 +316,7 @@ void NifModel::draw(Shader& shader) {
         else {
             glDisable(GL_BLEND);
         }
+
         if (shape.alphaTest) {
             shader.setBool("use_alpha_test", true);
             shader.setFloat("alpha_threshold", shape.alphaThreshold);
@@ -317,7 +325,18 @@ void NifModel::draw(Shader& shader) {
             shader.setBool("use_alpha_test", false);
         }
 
-        // Bind all textures for the full shader effect
+        // --- CRITICAL CHANGE FOR HAIR ---
+        // For objects with alpha testing (like hair), we MUST write to the depth buffer
+        // to prevent triangles from the same mesh from drawing incorrectly over each other.
+        // We only disable depth write for purely blended objects (like smoke or magic effects)
+        // that do not use alpha testing.
+        if (shape.alphaTest) {
+            glDepthMask(GL_TRUE);
+        }
+        else {
+            glDepthMask(shape.zBufferWrite ? GL_TRUE : GL_FALSE);
+        }
+
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
 

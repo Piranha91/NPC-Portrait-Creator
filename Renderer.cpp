@@ -184,22 +184,19 @@ void Renderer::renderFrame() {
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)screenWidth / (float)screenHeight, 10.0f, 10000.0f);
     glm::mat4 view = camera.GetViewMatrix();
 
-    // --- ADD THIS TRANSFORMATION ---
-    // This matrix converts the NIF's coordinate system (Z-up, different axis directions)
-    // to OpenGL's coordinate system (Y-up). This is the critical missing step.
     glm::mat4 conversionMatrix = glm::mat4(
-        -1.0f, 0.0f, 0.0f, 0.0f,  // Column 1
-        0.0f, 0.0f, 1.0f, 0.0f,  // Column 2
-        0.0f, 1.0f, 0.0f, 0.0f,  // Column 3
-        0.0f, 0.0f, 0.0f, 1.0f   // Column 4
+        -1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
     );
     view = view * conversionMatrix;
-    // --- END OF ADDED CODE ---
 
     shader.setMat4("projection", projection);
     shader.setMat4("view", view);
     if (model) {
-        model->draw(shader);
+        // Update the call to pass the camera position
+        model->draw(shader, camera.Position);
     }
 }
 
