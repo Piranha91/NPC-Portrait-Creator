@@ -22,6 +22,7 @@ struct MeshShape {
     GLuint normalTextureID = 0;            // Slot 1: _n.dds or _msn.dds
     GLuint skinTextureID = 0;              // Slot 2: _sk.dds (Subsurface/Tint)
     GLuint detailTextureID = 0;            // Slot 3: _detail.dds
+    GLuint faceTintColorMaskID = 0;        // Slot 6: Face Tint Mask
     GLuint specularTextureID = 0;          // Slot 7: _s.dds
     bool isModelSpace = false;
 

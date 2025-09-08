@@ -11,18 +11,20 @@ uniform sampler2D texture_normal;
 uniform sampler2D texture_skin;
 uniform sampler2D texture_detail;
 uniform sampler2D texture_specular;
+uniform sampler2D texture_face_tint; // Add this line
 
 // Flags to tell the shader which maps are available for the current mesh
 uniform bool has_normal_map;
 uniform bool has_skin_map;
 uniform bool has_detail_map;
 uniform bool has_specular_map;
+uniform bool has_face_tint_map; // Add this line
 
-// NEW: Uniforms for alpha testing
+// Uniforms for alpha testing
 uniform bool use_alpha_test;
 uniform float alpha_threshold;
 
-// --- NEW: Uniforms for Tinting ---
+// Uniforms for Tinting
 uniform bool has_tint_color;
 uniform vec3 tint_color;
 
@@ -35,17 +37,22 @@ void main()
 {    
     vec4 baseColor = texture(texture_diffuse1, TexCoords);
 
-    // NEW: Alpha Test
-    // If alpha testing is on for this mesh and the pixel's alpha is below the threshold,
-    // discard it completely so it doesn't get rendered.
+    // Alpha Test
     if (use_alpha_test && baseColor.a < alpha_threshold) {
         discard;
     }
 
-    // --- NEW: Apply Tint Color ---
-    // If this mesh has a tint color, multiply it with the base texture color.
+    // Apply Tint Color
     if (has_tint_color) {
         baseColor.rgb *= tint_color;
+    }
+
+    // Apply FaceGen Tint/Makeup
+    if (has_face_tint_map) {
+        // Sample the tint color (makeup, dirt, etc.)
+        vec4 tintSample = texture(texture_face_tint, TexCoords);
+        // Use the tint's alpha channel to blend it over the base skin color
+        baseColor.rgb = mix(baseColor.rgb, tintSample.rgb, tintSample.a);
     }
 
     vec3 normal = normalize(Normal);
