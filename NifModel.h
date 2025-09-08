@@ -33,6 +33,10 @@ struct MeshShape {
     GLenum srcBlend = GL_SRC_ALPHA;
     GLenum dstBlend = GL_ONE_MINUS_SRC_ALPHA;
 
+    // --- Additions for Material Properties ---
+    bool doubleSided = false;
+    bool zBufferWrite = true;
+
     void draw() const;
     void cleanup();
 };
@@ -56,8 +60,10 @@ public:
 
 private:
     nifly::NifFile nif;
-    std::vector<MeshShape> shapes;
-    std::vector<std::string> texturePaths; // Stores texture paths for debugging
+    // Replace the single shapes vector with two separate ones
+    std::vector<MeshShape> opaqueShapes;
+    std::vector<MeshShape> transparentShapes;
+    std::vector<std::string> texturePaths;
     glm::vec3 modelCenter = glm::vec3(0.0f);
     glm::vec3 modelBoundsSize = glm::vec3(0.0f);
 };

@@ -202,26 +202,20 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
             }
         }
 
-        // --- CORRECTED: Read NiAlphaProperty ---
+        if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
+            mesh.doubleSided = (bslsp->shaderFlags2 & 0x1);
+            mesh.zBufferWrite = (bslsp->shaderFlags2 & 0x2);
+        }
+
         if (auto* alphaProp = nif.GetAlphaProperty(niShape)) {
             mesh.hasAlphaProperty = true;
             uint16_t flags = alphaProp->flags;
-
-            // Bit 0: Enables/disables alpha blending
             mesh.alphaBlend = (flags & 1);
-
-            // Bit 9: Enables/disables alpha testing
             mesh.alphaTest = (flags & (1 << 9));
-
-            // The threshold in the NIF is 0-255, so normalize it to 0.0-1.0 for the shader
             mesh.alphaThreshold = static_cast<float>(alphaProp->threshold) / 255.0f;
-
-            // Bits 1-4: Source Blend Mode, Bits 5-8: Destination Blend Mode
             mesh.srcBlend = NifBlendToGL((flags >> 1) & 0x0F);
-
             mesh.dstBlend = NifBlendToGL((flags >> 5) & 0x0F);
         }
-        // --- END CORRECTION ---
 
         glGenVertexArrays(1, &mesh.VAO);
         glGenBuffers(1, &mesh.VBO);
@@ -245,83 +239,103 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
 
         glBindVertexArray(0);
 
-        shapes.push_back(mesh);
+        // Sort the mesh into the correct list for rendering
+        if (mesh.hasAlphaProperty) {
+            transparentShapes.push_back(mesh);
+        }
+        else {
+            opaqueShapes.push_back(mesh);
+        }
     }
 
     modelCenter = (minBounds + maxBounds) * 0.5f;
     modelBoundsSize = maxBounds - minBounds;
-    std::cout << "Successfully loaded " << shapes.size() << " shapes from NIF." << std::endl;
+    std::cout << "Successfully loaded " << opaqueShapes.size() << " opaque and "
+        << transparentShapes.size() << " transparent shapes from NIF." << std::endl;
     return true;
 }
 
 void NifModel::draw(Shader& shader) {
     shader.use();
-    // Set the texture samplers to their corresponding texture units
+    // Set samplers once
     shader.setInt("texture_diffuse1", 0);
     shader.setInt("texture_normal", 1);
     shader.setInt("texture_skin", 2);
     shader.setInt("texture_detail", 3);
     shader.setInt("texture_specular", 4);
 
-    for (const auto& shape : shapes) {
-        if (shape.isModelSpace) {
-            shader.setMat4("model", glm::mat4(1.0f));
-        }
-        else {
-            shader.setMat4("model", shape.transform);
-        }
+    // --- PASS 1: OPAQUE OBJECTS ---
+    // These objects are drawn first to establish the scene's depth.
+    // Blending is off, depth writing is on.
+    glEnable(GL_CULL_FACE);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    shader.setBool("use_alpha_test", false);
 
-        // --- NEW: Set Alpha Properties before drawing ---
-        if (shape.hasAlphaProperty) {
-            if (shape.alphaBlend) {
-                glEnable(GL_BLEND);
-                glBlendFunc(shape.srcBlend, shape.dstBlend);
-            }
-            else {
-                glDisable(GL_BLEND);
-            }
+    for (const auto& shape : opaqueShapes) {
+        shader.setMat4("model", shape.isModelSpace ? glm::mat4(1.0f) : shape.transform);
 
-            if (shape.alphaTest) {
-                shader.setBool("use_alpha_test", true);
-                shader.setFloat("alpha_threshold", shape.alphaThreshold);
-            }
-            else {
-                shader.setBool("use_alpha_test", false);
-            }
-        }
-        else {
-            // Default state for shapes without an alpha property (opaque)
-            glDisable(GL_BLEND);
-            shader.setBool("use_alpha_test", false);
-        }
-        // --- END NEW ---
-
-        // Bind Diffuse Map (Texture Unit 0)
+        // Bind textures (only diffuse and normal are typically needed for opaque pass)
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
 
-        // Bind Normal Map (Texture Unit 1)
         shader.setBool("has_normal_map", shape.normalTextureID != 0);
         if (shape.normalTextureID != 0) {
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D, shape.normalTextureID);
         }
 
-        // Bind Skin Map (Texture Unit 2)
+        // All other maps are off for the simple opaque shader
+        shader.setBool("has_skin_map", false);
+        shader.setBool("has_detail_map", false);
+        shader.setBool("has_specular_map", false);
+
+        shape.draw();
+    }
+
+    // --- PASS 2: TRANSPARENT OBJECTS ---
+    // These objects are drawn second. They test against the existing depth buffer
+    // but don't write to it, and they blend with the colors already drawn.
+    for (const auto& shape : transparentShapes) {
+        shader.setMat4("model", shape.isModelSpace ? glm::mat4(1.0f) : shape.transform);
+
+        // Set render states specific to this transparent shape
+        if (shape.doubleSided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
+        glDepthMask(shape.zBufferWrite ? GL_TRUE : GL_FALSE);
+        if (shape.alphaBlend) {
+            glEnable(GL_BLEND);
+            glBlendFunc(shape.srcBlend, shape.dstBlend);
+        }
+        else {
+            glDisable(GL_BLEND);
+        }
+        if (shape.alphaTest) {
+            shader.setBool("use_alpha_test", true);
+            shader.setFloat("alpha_threshold", shape.alphaThreshold);
+        }
+        else {
+            shader.setBool("use_alpha_test", false);
+        }
+
+        // Bind all textures for the full shader effect
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
+
+        shader.setBool("has_normal_map", shape.normalTextureID != 0);
+        if (shape.normalTextureID != 0) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, shape.normalTextureID);
+        }
         shader.setBool("has_skin_map", shape.skinTextureID != 0);
         if (shape.skinTextureID != 0) {
             glActiveTexture(GL_TEXTURE2);
             glBindTexture(GL_TEXTURE_2D, shape.skinTextureID);
         }
-
-        // Bind Detail Map (Texture Unit 3)
         shader.setBool("has_detail_map", shape.detailTextureID != 0);
         if (shape.detailTextureID != 0) {
             glActiveTexture(GL_TEXTURE3);
             glBindTexture(GL_TEXTURE_2D, shape.detailTextureID);
         }
-
-        // Bind Specular Map (Texture Unit 4)
         shader.setBool("has_specular_map", shape.specularTextureID != 0);
         if (shape.specularTextureID != 0) {
             glActiveTexture(GL_TEXTURE4);
@@ -331,15 +345,23 @@ void NifModel::draw(Shader& shader) {
         shape.draw();
     }
 
-    // Reset to default state after drawing all shapes
+    // Reset to default OpenGL state after drawing all shapes
+    glEnable(GL_CULL_FACE);
+    glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
 }
 
 void NifModel::cleanup() {
-    for (auto& shape : shapes) {
+    for (auto& shape : opaqueShapes) {
         shape.cleanup();
     }
-    shapes.clear();
+    opaqueShapes.clear();
+
+    for (auto& shape : transparentShapes) {
+        shape.cleanup();
+    }
+    transparentShapes.clear();
+
     texturePaths.clear();
 }
 
