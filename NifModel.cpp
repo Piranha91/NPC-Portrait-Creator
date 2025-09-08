@@ -19,6 +19,25 @@ nifly::MatTransform GetShapeTransformToGlobal(const nifly::NifFile& nifFile, nif
     return xform;
 }
 
+// Helper function at the top of NifModel.cpp to convert NIF blend modes to OpenGL blend modes
+GLenum NifBlendToGL(unsigned int nifBlend) {
+    switch (nifBlend) {
+    case 0: return GL_ONE;
+    case 1: return GL_ZERO;
+    case 2: return GL_SRC_COLOR;
+    case 3: return GL_ONE_MINUS_SRC_COLOR;
+    case 4: return GL_DST_COLOR;
+    case 5: return GL_ONE_MINUS_DST_COLOR;
+    case 6: return GL_SRC_ALPHA;
+    case 7: return GL_ONE_MINUS_SRC_ALPHA;
+    case 8: return GL_DST_ALPHA;
+    case 9: return GL_ONE_MINUS_DST_ALPHA;
+    case 10: return GL_SRC_ALPHA_SATURATE;
+    default: return GL_ONE;
+    }
+}
+
+
 // --- MeshShape Methods ---
 
 void MeshShape::draw() const {
@@ -54,9 +73,7 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         return false;
     }
 
-    // --- GET SHAPES FIRST ---
     const auto& shapeList = nif.GetShapes();
-    // --- DEBUG BLOCK MOVED TO HERE ---
     std::cout << "\n--- NIF Block Debug Information ---\n";
     uint32_t numBlocks = nif.GetHeader().GetNumBlocks();
     for (uint32_t i = 0; i < numBlocks; ++i) {
@@ -75,7 +92,6 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         std::cout << std::endl;
     }
     std::cout << "-------------------------------------\n\n";
-    // --- END OF MOVED BLOCK ---
 
     glm::vec3 minBounds(std::numeric_limits<float>::max());
     glm::vec3 maxBounds(std::numeric_limits<float>::lowest());
@@ -88,7 +104,6 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
     }
 
     for (auto* niShape : shapeList) {
-        // The rest of the function remains exactly the same...
         if (!niShape) continue;
         if (niShape->flags & 1) {
             continue;
@@ -170,37 +185,43 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
 
         if (shader && shader->HasTextureSet()) {
             if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
-                // Iterate through the texture paths in the set
                 for (size_t i = 0; i < textureSet->textures.size(); ++i) {
-                    std::string texPath = textureSet->textures[i].get(); 
-                        if (texPath.empty()) {
-                            continue;
-                        }
-
-                    // Load texture based on its conventional slot index
+                    std::string texPath = textureSet->textures[i].get();
+                    if (texPath.empty()) {
+                        continue;
+                    }
                     switch (i) {
-                    case 0: // Diffuse Map
-                        mesh.diffuseTextureID = textureManager.loadTexture(texPath);
-                        break;
-                    case 1: // Normal Map
-                        mesh.normalTextureID = textureManager.loadTexture(texPath);
-                        break;
-                    case 2: // Skin/Subsurface Map (_sk)
-                        mesh.skinTextureID = textureManager.loadTexture(texPath);
-                        break;
-                    case 3: // Detail Map
-                        mesh.detailTextureID = textureManager.loadTexture(texPath);
-                        break;
-                    case 7: // Specular Map
-                        mesh.specularTextureID = textureManager.loadTexture(texPath);
-                        break;
-                    default:
-                        break;
+                    case 0: mesh.diffuseTextureID = textureManager.loadTexture(texPath); break;
+                    case 1: mesh.normalTextureID = textureManager.loadTexture(texPath); break;
+                    case 2: mesh.skinTextureID = textureManager.loadTexture(texPath); break;
+                    case 3: mesh.detailTextureID = textureManager.loadTexture(texPath); break;
+                    case 7: mesh.specularTextureID = textureManager.loadTexture(texPath); break;
+                    default: break;
                     }
                 }
             }
         }
 
+        // --- CORRECTED: Read NiAlphaProperty ---
+        if (auto* alphaProp = nif.GetAlphaProperty(niShape)) {
+            mesh.hasAlphaProperty = true;
+            uint16_t flags = alphaProp->flags;
+
+            // Bit 0: Enables/disables alpha blending
+            mesh.alphaBlend = (flags & 1);
+
+            // Bit 9: Enables/disables alpha testing
+            mesh.alphaTest = (flags & (1 << 9));
+
+            // The threshold in the NIF is 0-255, so normalize it to 0.0-1.0 for the shader
+            mesh.alphaThreshold = static_cast<float>(alphaProp->threshold) / 255.0f;
+
+            // Bits 1-4: Source Blend Mode, Bits 5-8: Destination Blend Mode
+            mesh.srcBlend = NifBlendToGL((flags >> 1) & 0x0F);
+
+            mesh.dstBlend = NifBlendToGL((flags >> 5) & 0x0F);
+        }
+        // --- END CORRECTION ---
 
         glGenVertexArrays(1, &mesh.VAO);
         glGenBuffers(1, &mesh.VBO);
@@ -244,14 +265,36 @@ void NifModel::draw(Shader& shader) {
 
     for (const auto& shape : shapes) {
         if (shape.isModelSpace) {
-            // This mesh is already in model space, so don't apply the model transform.
-            // Pass an identity matrix instead.
             shader.setMat4("model", glm::mat4(1.0f));
         }
         else {
-            // For regular meshes, apply the calculated world transform.
             shader.setMat4("model", shape.transform);
         }
+
+        // --- NEW: Set Alpha Properties before drawing ---
+        if (shape.hasAlphaProperty) {
+            if (shape.alphaBlend) {
+                glEnable(GL_BLEND);
+                glBlendFunc(shape.srcBlend, shape.dstBlend);
+            }
+            else {
+                glDisable(GL_BLEND);
+            }
+
+            if (shape.alphaTest) {
+                shader.setBool("use_alpha_test", true);
+                shader.setFloat("alpha_threshold", shape.alphaThreshold);
+            }
+            else {
+                shader.setBool("use_alpha_test", false);
+            }
+        }
+        else {
+            // Default state for shapes without an alpha property (opaque)
+            glDisable(GL_BLEND);
+            shader.setBool("use_alpha_test", false);
+        }
+        // --- END NEW ---
 
         // Bind Diffuse Map (Texture Unit 0)
         glActiveTexture(GL_TEXTURE0);
@@ -287,6 +330,9 @@ void NifModel::draw(Shader& shader) {
 
         shape.draw();
     }
+
+    // Reset to default state after drawing all shapes
+    glDisable(GL_BLEND);
 }
 
 void NifModel::cleanup() {

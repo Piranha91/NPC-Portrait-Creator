@@ -25,6 +25,14 @@ struct MeshShape {
     GLuint specularTextureID = 0;          // Slot 7: _s.dds
     bool isModelSpace = false;
 
+    // --- Additions for Alpha Properties ---
+    bool hasAlphaProperty = false;
+    bool alphaBlend = false;
+    bool alphaTest = false;
+    float alphaThreshold = 0.5f;
+    GLenum srcBlend = GL_SRC_ALPHA;
+    GLenum dstBlend = GL_ONE_MINUS_SRC_ALPHA;
+
     void draw() const;
     void cleanup();
 };
