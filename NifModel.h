@@ -37,6 +37,10 @@ struct MeshShape {
     bool doubleSided = false;
     bool zBufferWrite = true;
 
+    // --- Additions for Tint
+    bool hasTintColor = false;
+    glm::vec3 tintColor = glm::vec3(1.0f); // Default to white (no tint)
+
     void draw() const;
     void cleanup();
 };

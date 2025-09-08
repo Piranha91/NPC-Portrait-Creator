@@ -22,6 +22,10 @@ uniform bool has_specular_map;
 uniform bool use_alpha_test;
 uniform float alpha_threshold;
 
+// --- NEW: Uniforms for Tinting ---
+uniform bool has_tint_color;
+uniform vec3 tint_color;
+
 // A simple directional light for basic shading
 const vec3 lightDir = normalize(vec3(0.5, 1.0, 0.5));
 const vec3 lightColor = vec3(1.0, 1.0, 1.0);
@@ -36,6 +40,12 @@ void main()
     // discard it completely so it doesn't get rendered.
     if (use_alpha_test && baseColor.a < alpha_threshold) {
         discard;
+    }
+
+    // --- NEW: Apply Tint Color ---
+    // If this mesh has a tint color, multiply it with the base texture color.
+    if (has_tint_color) {
+        baseColor.rgb *= tint_color;
     }
 
     vec3 normal = normalize(Normal);

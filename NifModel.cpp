@@ -205,6 +205,20 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
             mesh.doubleSided = (bslsp->shaderFlags2 & 0x1);
             mesh.zBufferWrite = (bslsp->shaderFlags2 & 0x2);
+
+            // --- CORRECTED TINT LOGIC ---
+            const auto shaderType = bslsp->GetShaderType();
+            if (shaderType == nifly::BSLSP_HAIRTINT) {
+                mesh.hasTintColor = true;
+                const auto& niflyColor = bslsp->hairTintColor;
+                mesh.tintColor = glm::vec3(niflyColor.x, niflyColor.y, niflyColor.z);
+            }
+            else if (shaderType == nifly::BSLSP_SKINTINT || shaderType == nifly::BSLSP_FACE) {
+                mesh.hasTintColor = true;
+                const auto& niflyColor = bslsp->skinTintColor;
+                mesh.tintColor = glm::vec3(niflyColor.x, niflyColor.y, niflyColor.z);
+            }
+            // --- END CORRECTION ---
         }
 
         if (auto* alphaProp = nif.GetAlphaProperty(niShape)) {
@@ -239,7 +253,6 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
 
         glBindVertexArray(0);
 
-        // Sort the mesh into the correct list for rendering
         if (mesh.hasAlphaProperty) {
             transparentShapes.push_back(mesh);
         }
@@ -272,6 +285,12 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
 
     for (const auto& shape : opaqueShapes) {
         shader.setMat4("model", shape.isModelSpace ? glm::mat4(1.0f) : shape.transform);
+
+        // Set tint color uniforms for this shape
+        shader.setBool("has_tint_color", shape.hasTintColor);
+        if (shape.hasTintColor) {
+            shader.setVec3("tint_color", shape.tintColor);
+        }
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
@@ -306,6 +325,12 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     // --- PASS 2: TRANSPARENT OBJECTS ---
     for (const auto& shape : transparentShapes) {
         shader.setMat4("model", shape.isModelSpace ? glm::mat4(1.0f) : shape.transform);
+
+        // Set tint color uniforms for this shape
+        shader.setBool("has_tint_color", shape.hasTintColor);
+        if (shape.hasTintColor) {
+            shader.setVec3("tint_color", shape.tintColor);
+        }
 
         if (shape.doubleSided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
 

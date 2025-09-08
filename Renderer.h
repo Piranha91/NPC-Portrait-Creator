@@ -31,6 +31,7 @@ public:
     void HandleCursorPosition(double xpos, double ypos);
     void HandleScroll(double xoffset, double yoffset);
     void HandleKey(int key, int scancode, int action, int mods);
+    void HandleFramebufferSize(int width, int height);
 
     // --- Public members for callbacks ---
     // These are public so the global callback functions can access them.

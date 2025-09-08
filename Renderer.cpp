@@ -200,6 +200,14 @@ void Renderer::renderFrame() {
     }
 }
 
+void Renderer::HandleFramebufferSize(int width, int height) {
+    // Update the screen dimensions stored in the class
+    screenWidth = width;
+    screenHeight = height;
+    // Update the OpenGL viewport to match the new window size
+    glViewport(0, 0, width, height);
+}
+
 // --- Model Loading and Util (unchanged) ---
 void Renderer::loadNifModel(const std::string& path) {
     std::string pathLower = path;
@@ -377,7 +385,11 @@ void Renderer::HandleKey(int key, int scancode, int action, int mods) {
 
 // --- GLOBAL CALLBACKS (now simple wrappers) ---
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-    glViewport(0, 0, width, height);
+    // This function will now call our new class method
+    Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
+    if (renderer) {
+        renderer->HandleFramebufferSize(width, height);
+    }
 }
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
     Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
