@@ -12,7 +12,7 @@
 
 struct GLFWwindow;
 
-enum class SkeletonType { None, Male, Female, Custom };
+enum class SkeletonType { None, Female, Male, FemaleBeast, MaleBeast, Custom };
 
 class Renderer {
 public:
@@ -28,6 +28,7 @@ public:
     // --- NIF and Camera Control ---
     void loadNifModel(const std::string& path);
     void loadCustomSkeleton(const std::string& path);
+    void detectAndSetSkeleton(const nifly::NifFile& nif);
     void setCamera(float posX, float posY, float posZ, float pitch, float yaw);
     void setFallbackRootDirectory(const std::string& path);
 
@@ -71,9 +72,14 @@ private:
     TextureManager textureManager;
     BsaManager bsaManager;
 
-    Skeleton maleSkeleton;
+    // Skeletons loaded from game data
     Skeleton femaleSkeleton;
+    Skeleton maleSkeleton;
+    Skeleton femaleBeastSkeleton;
+    Skeleton maleBeastSkeleton;
+    // Skeleton loaded by the user at runtime
     Skeleton customSkeleton;
+
     Skeleton* activeSkeleton = nullptr;
     SkeletonType currentSkeletonType = SkeletonType::None;
 };

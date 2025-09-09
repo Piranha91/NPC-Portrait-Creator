@@ -92,40 +92,28 @@ void Renderer::init(bool headless) {
     // Use the fallback directory to load archives
     bsaManager.loadArchives(fallbackRootDirectory);
 
-    // Attempt to load default skeletons from BSAs
-    std::cout << "[Skeleton Load] Attempting to load default skeletons from BSAs...\n";
-    const std::string femaleSkelPath = "actors\\character\\character assets female\\skeleton_female.nif";
+    // --- Load all standard and beast skeletons from BSAs ---
+    std::cout << "[Skeleton Load] Attempting to load all default skeletons from BSAs...\n";
+
+    const std::string femaleSkelPath = "meshes\\actors\\character\\character assets female\\skeleton_female.nif";
     auto femaleData = bsaManager.extractFile(femaleSkelPath);
-    if (!femaleData.empty()) {
-        femaleSkeleton.loadFromMemory(femaleData, femaleSkelPath);
-    }
-    else {
-        std::cout << "[Skeleton Load] Female skeleton not found in BSAs.\n";
-    }
+    if (!femaleData.empty()) femaleSkeleton.loadFromMemory(femaleData, "skeleton_female.nif");
 
-    const std::string maleSkelPath = "actors\\character\\character assets\\skeleton.nif";
+    const std::string maleSkelPath = "meshes\\actors\\character\\character assets\\skeleton.nif";
     auto maleData = bsaManager.extractFile(maleSkelPath);
-    if (!maleData.empty()) {
-        maleSkeleton.loadFromMemory(maleData, maleSkelPath);
-    }
-    else {
-        std::cout << "[Skeleton Load] Male skeleton not found in BSAs.\n";
-    }
+    if (!maleData.empty()) maleSkeleton.loadFromMemory(maleData, "skeleton.nif");
 
-    // Set a default active skeleton
-    if (femaleSkeleton.isLoaded()) {
-        activeSkeleton = &femaleSkeleton;
-        currentSkeletonType = SkeletonType::Female;
-        std::cout << "[Skeleton Load] Default female skeleton loaded and set as active.\n";
-    }
-    else if (maleSkeleton.isLoaded()) {
-        activeSkeleton = &maleSkeleton;
-        currentSkeletonType = SkeletonType::Male;
-        std::cout << "[Skeleton Load] Default male skeleton loaded and set as active.\n";
-    }
-    else {
-        std::cout << "[Skeleton Load] WARNING: No default skeletons could be loaded.\n";
-    }
+    const std::string femaleBeastSkelPath = "meshes\\actors\\character\\character assets female\\skeletonbeast_female.nif";
+    auto femaleBeastData = bsaManager.extractFile(femaleBeastSkelPath);
+    if (!femaleBeastData.empty()) femaleBeastSkeleton.loadFromMemory(femaleBeastData, "skeletonbeast_female.nif");
+
+    const std::string maleBeastSkelPath = "meshes\\actors\\character\\character assets\\skeletonbeast.nif";
+    auto maleBeastData = bsaManager.extractFile(maleBeastSkelPath);
+    if (!maleBeastData.empty()) maleBeastSkeleton.loadFromMemory(maleBeastData, "skeletonbeast.nif");
+
+    // No default skeleton is set at startup; it will be detected when a NIF is loaded.
+    activeSkeleton = nullptr;
+    currentSkeletonType = SkeletonType::None;
 
     model = std::make_unique<NifModel>();
 
@@ -214,7 +202,6 @@ void Renderer::renderUI() {
         }
 
         if (ImGui::BeginMenu("Skeleton")) {
-            // Always available: load a custom skeleton from disk
             if (ImGui::MenuItem("Load Custom Skeleton...")) {
                 const char* filterPatterns[1] = { "*.nif" };
                 const char* skelPath = tinyfd_openFileDialog("Open Skeleton NIF", "", 1, filterPatterns, "NIF Files", 0);
@@ -224,7 +211,6 @@ void Renderer::renderUI() {
             }
             ImGui::Separator();
 
-            // Radio-like selection: None / Female / Male / Custom
             bool sel = (currentSkeletonType == SkeletonType::None);
             if (ImGui::MenuItem("None", nullptr, sel)) {
                 currentSkeletonType = SkeletonType::None;
@@ -236,17 +222,26 @@ void Renderer::renderUI() {
                 currentSkeletonType = SkeletonType::Female;
                 activeSkeleton = &femaleSkeleton;
             }
+            sel = (currentSkeletonType == SkeletonType::FemaleBeast);
+            if (ImGui::MenuItem("Female Beast", nullptr, sel, femaleBeastSkeleton.isLoaded())) {
+                currentSkeletonType = SkeletonType::FemaleBeast;
+                activeSkeleton = &femaleBeastSkeleton;
+            }
 
             sel = (currentSkeletonType == SkeletonType::Male);
             if (ImGui::MenuItem("Male", nullptr, sel, maleSkeleton.isLoaded())) {
                 currentSkeletonType = SkeletonType::Male;
                 activeSkeleton = &maleSkeleton;
             }
+            sel = (currentSkeletonType == SkeletonType::MaleBeast);
+            if (ImGui::MenuItem("Male Beast", nullptr, sel, maleBeastSkeleton.isLoaded())) {
+                currentSkeletonType = SkeletonType::MaleBeast;
+                activeSkeleton = &maleBeastSkeleton;
+            }
 
             sel = (currentSkeletonType == SkeletonType::Custom);
-            const bool customAvailable = customSkeleton.isLoaded();
-            if (ImGui::MenuItem("Custom", nullptr, sel, customAvailable)) {
-                if (customAvailable) {
+            if (ImGui::MenuItem("Custom", nullptr, sel, customSkeleton.isLoaded())) {
+                if (customSkeleton.isLoaded()) {
                     currentSkeletonType = SkeletonType::Custom;
                     activeSkeleton = &customSkeleton;
                 }
@@ -300,13 +295,71 @@ void Renderer::HandleFramebufferSize(int width, int height) {
 
 // --- Model Loading and Util ---
 
-void Renderer::loadCustomSkeleton(const std::string& path) {
-    if (customSkeleton.loadFromFile(path)) {
-        activeSkeleton = &customSkeleton;
-        currentSkeletonType = SkeletonType::Custom;
+void Renderer::detectAndSetSkeleton(const nifly::NifFile& nif) {
+    bool hasFemale = false;
+    bool hasMale = false;
+    bool isBeast = false;
+
+    auto checkString = [&](const std::string& s) {
+        std::string lower_s = s;
+        std::transform(lower_s.begin(), lower_s.end(), lower_s.begin(), ::tolower);
+        if (lower_s.find("female") != std::string::npos) hasFemale = true;
+        if (lower_s.find("male") != std::string::npos) hasMale = true;
+        if (lower_s.find("argonian") != std::string::npos || lower_s.find("khajiit") != std::string::npos) isBeast = true;
+        };
+
+    const auto& shapes = nif.GetShapes();
+
+    // 1. Check shape names
+    for (const auto* shape : shapes) {
+        if (auto* triShape = dynamic_cast<const nifly::BSTriShape*>(shape)) {
+            checkString(triShape->name.get());
+        }
+    }
+
+    // 2. If no gender found, check texture paths
+    if (!hasFemale && !hasMale) {
+        for (const auto* shape : shapes) {
+            const nifly::NiShader* shader = nif.GetShader(const_cast<nifly::NiShape*>(shape));
+            if (shader && shader->HasTextureSet()) {
+                if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
+                    for (const auto& tex : textureSet->textures) {
+                        checkString(tex.get());
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Set skeleton based on findings
+    if (hasFemale) {
+        if (isBeast && femaleBeastSkeleton.isLoaded()) {
+            activeSkeleton = &femaleBeastSkeleton;
+            currentSkeletonType = SkeletonType::FemaleBeast;
+            std::cout << "[Skeleton Detect] Female Beast skeleton auto-selected." << std::endl;
+        }
+        else if (femaleSkeleton.isLoaded()) {
+            activeSkeleton = &femaleSkeleton;
+            currentSkeletonType = SkeletonType::Female;
+            std::cout << "[Skeleton Detect] Female skeleton auto-selected." << std::endl;
+        }
+    }
+    else if (hasMale) {
+        if (isBeast && maleBeastSkeleton.isLoaded()) {
+            activeSkeleton = &maleBeastSkeleton;
+            currentSkeletonType = SkeletonType::MaleBeast;
+            std::cout << "[Skeleton Detect] Male Beast skeleton auto-selected." << std::endl;
+        }
+        else if (maleSkeleton.isLoaded()) {
+            activeSkeleton = &maleSkeleton;
+            currentSkeletonType = SkeletonType::Male;
+            std::cout << "[Skeleton Detect] Male skeleton auto-selected." << std::endl;
+        }
     }
     else {
-        std::cerr << "Failed to load custom skeleton. It will not be available." << std::endl;
+        activeSkeleton = nullptr;
+        currentSkeletonType = SkeletonType::None;
+        std::cout << "[Skeleton Detect] No specific skeleton detected. Set to None." << std::endl;
     }
 }
 
@@ -327,6 +380,17 @@ void Renderer::loadNifModel(const std::string& path) {
     }
     textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory);
 
+    // --- NEW: Perform skeleton detection BEFORE loading the model ---
+    nifly::NifFile tempNif;
+    if (tempNif.Load(path) == 0) {
+        detectAndSetSkeleton(tempNif);
+    }
+    else {
+        std::cerr << "Could not pre-load NIF for skeleton detection." << std::endl;
+        activeSkeleton = nullptr; // Fallback
+        currentSkeletonType = SkeletonType::None;
+    }
+
     if (!model) {
         model = std::make_unique<NifModel>();
     }
@@ -335,46 +399,25 @@ void Renderer::loadNifModel(const std::string& path) {
         currentNifPath = path;
         saveConfig();
 
-        // --- START: REVISED MUGSHOT CAMERA POSITIONING LOGIC ---
         std::cout << "\n--- Calculating Mugshot Camera Position ---\n";
-
-        // 1. Get model metrics in original Z-up space from the NifModel
-        // --- MODIFIED: Use head-only bounds for calculations ---
         glm::vec3 modelMinBounds_Zup = model->getHeadMinBounds();
         glm::vec3 modelMaxBounds_Zup = model->getHeadMaxBounds();
         glm::vec3 eyeCenter_Zup = model->hasEyeCenter() ? model->getEyeCenter() : model->getCenter();
-
-        // 2. Define mugshot parameters
-        const float bottomCropPercentage = 0.15f; // ADJUSTABLE: Crops 15% of the height from the bottom
+        const float bottomCropPercentage = 0.15f;
         const float fovYRadians = glm::radians(45.0f);
-
-        // 3. Convert metrics to OpenGL's Y-up space for camera calculations
         glm::vec3 eyeCenter_Yup = glm::vec3(-eyeCenter_Zup.x, eyeCenter_Zup.z, eyeCenter_Zup.y);
         float modelTop_Yup = modelMaxBounds_Zup.z;
         float modelBottom_Yup = modelMinBounds_Zup.z;
-
-        // 4. Calculate the cropped vertical boundaries of the model
         float totalHeight = modelTop_Yup - modelBottom_Yup;
         float croppedBottom_Yup = modelBottom_Yup + (totalHeight * bottomCropPercentage);
-
-        // 5. Center the camera target on the VISIBLE portion of the model to ensure tight framing.
-        // The horizontal and depth coordinates are still based on the eyes.
         float visibleCenter_Yup = (modelTop_Yup + croppedBottom_Yup) / 2.0f;
         camera.Target.x = eyeCenter_Yup.x;
         camera.Target.y = visibleCenter_Yup;
         camera.Target.z = eyeCenter_Yup.z;
-
-        // 6. Calculate the required frame height based on the visible portion
         float visibleHeight = modelTop_Yup - croppedBottom_Yup;
         float requiredHalfHeight = visibleHeight / 2.0f;
-
-        // 7. Calculate camera distance (Radius) based on fitting the vertical height
         float cameraDistance = requiredHalfHeight / tan(fovYRadians / 2.0f);
-
-        // Add a small buffer to prevent the model from touching the frame edges exactly
         camera.Radius = cameraDistance * 1.05f;
-
-        // 8. Set orientation to look at the front of the face and update camera vectors
         camera.Yaw = 90.0f;
         camera.Pitch = 0.0f;
         camera.updateCameraVectors();
@@ -384,11 +427,20 @@ void Renderer::loadNifModel(const std::string& path) {
         std::cout << "  [Mugshot Debug] Final Camera Radius: " << camera.Radius << std::endl;
         std::cout << "  [Mugshot Debug] Final Camera Position: " << glm::to_string(camera.Position) << std::endl;
         std::cout << "-------------------------------------\n" << std::endl;
-        // --- END: REVISED MUGSHOT CAMERA POSITIONING LOGIC ---
 
     }
     else {
         std::cerr << "Renderer failed to load NIF model." << std::endl;
+    }
+}
+
+void Renderer::loadCustomSkeleton(const std::string& path) {
+    if (customSkeleton.loadFromFile(path)) {
+        activeSkeleton = &customSkeleton;
+        currentSkeletonType = SkeletonType::Custom;
+    }
+    else {
+        std::cerr << "Failed to load custom skeleton. It will not be available." << std::endl;
     }
 }
 
