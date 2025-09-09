@@ -1,3 +1,5 @@
+#define GLM_ENABLE_EXPERIMENTAL
+
 #include "Renderer.h"
 #include <iostream>
 #include <stdexcept>
@@ -10,6 +12,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/string_cast.hpp> // For logging glm::vec3
 
 // --- ImGui Includes ---
 #include "imgui.h"
@@ -228,7 +231,6 @@ void Renderer::loadNifModel(const std::string& path) {
         std::cout << "Could not auto-detect root. Using fallback: " << rootDirectory << std::endl;
     }
 
-    // Update the texture manager with the correct directories for this model
     textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory);
 
     if (!model) {
@@ -239,37 +241,46 @@ void Renderer::loadNifModel(const std::string& path) {
         currentNifPath = path;
         saveConfig();
 
-        // --- START: Final Camera Positioning Logic ---
+        // --- START: CAMERA POSITIONING LOGIC WITH DEBUG LOGGING ---
+        std::cout << "\n--- Calculating Camera Position ---\n";
 
-        // 1. Set the camera's rotation target to the model's geometric center.
-        camera.Target = model->getCenter();
+        // 1. Get the model's center and size in its original Z-up coordinate system.
+        glm::vec3 preConversionCenter = model->getCenter();
+        glm::vec3 preConversionSize = model->getBoundsSize();
+        std::cout << "  [Camera Debug] Pre-conversion Center: " << glm::to_string(preConversionCenter) << std::endl;
+        std::cout << "  [Camera Debug] Pre-conversion Size:   " << glm::to_string(preConversionSize) << std::endl;
 
-        // 2. Calculate the optimal zoom distance.
+        // 2. Convert the Z-up center point to a Y-up target for the OpenGL camera.
+        camera.Target = glm::vec3(-preConversionCenter.x, preConversionCenter.z, preConversionCenter.y);
+        std::cout << "  [Camera Debug] Final Camera Target (Y-up): " << glm::to_string(camera.Target) << std::endl;
+
+        // 3. Calculate the optimal zoom distance.
         const float fovYRadians = glm::radians(45.0f);
         const float aspectRatio = (float)screenWidth / (float)screenHeight;
-        const glm::vec3 modelSize = model->getBoundsSize();
+        const float modelHeight = preConversionSize.z;
+        const float modelWidth = preConversionSize.x;
+        std::cout << "  [Camera Debug] Using Model Height (Z): " << modelHeight << " and Width (X): " << modelWidth << std::endl;
 
-        // The model's world space is Z-up before the view matrix conversion.
-        const float modelHeight = modelSize.z;
-        const float modelWidth = modelSize.x;
-        const float modelDepth = modelSize.y; // Depth is along the Y-axis in this space.
-
-        // Calculate the distance needed to fit the model's height and width.
         float distanceForHeight = (modelHeight / 2.0f) / tan(fovYRadians / 2.0f);
         float distanceForWidth = (modelWidth / 2.0f) / (tan(fovYRadians / 2.0f) * aspectRatio);
+        std::cout << "  [Camera Debug] Calculated Distance for Height: " << distanceForHeight << std::endl;
+        std::cout << "  [Camera Debug] Calculated Distance for Width:  " << distanceForWidth << std::endl;
+
         float cameraDistance = glm::max(distanceForHeight, distanceForWidth);
 
-        // Add half the model's depth to prevent starting inside the mesh, plus a small buffer.
-        camera.Radius = (cameraDistance + modelDepth / 2.0f) * 1.05f;
+        camera.Radius = cameraDistance * 1.15f;
+        std::cout << "  [Camera Debug] Final Camera Radius (Zoom): " << camera.Radius << std::endl;
 
-        // 3. Set the camera's initial orientation to view the model from the front.
+        // 4. Set the camera's initial orientation.
         camera.Yaw = 90.0f;
         camera.Pitch = 0.0f;
+        std::cout << "  [Camera Debug] Setting Yaw=" << camera.Yaw << ", Pitch=" << camera.Pitch << std::endl;
 
-        // 4. Apply all changes to the camera.
+        // 5. Apply all changes and log the final position.
         camera.updateCameraVectors();
-
-        // --- END: Final Camera Positioning Logic ---
+        std::cout << "  [Camera Debug] Final Camera Position: " << glm::to_string(camera.Position) << std::endl;
+        std::cout << "------------------------------------\n" << std::endl;
+        // --- END: CAMERA POSITIONING LOGIC ---
     }
     else {
         std::cerr << "Renderer failed to load NIF model." << std::endl;

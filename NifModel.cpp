@@ -113,18 +113,16 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         return true;
     }
 
-    // --- START: NEW TWO-PASS LOGIC FOR FACEGEN ---
-
     // PASS 1: Find the main head transform and cache it.
     nifly::MatTransform headTransform;
     bool isFaceGen = false;
     for (auto* niShape : shapeList) {
         std::string shapeName = niShape->name.get();
         if (shapeName == "FemaleHeadNord" || shapeName == "MaleHeadNord") {
-            headTransform = GetAVObjectTransformToGlobal(nif, niShape, false); // Get transform quietly
+            headTransform = GetAVObjectTransformToGlobal(nif, niShape, false);
             isFaceGen = true;
             if (debugMode) std::cout << "[Debug] FaceGen head detected. Caching its transform.\n";
-            break; // Found it, no need to continue
+            break;
         }
     }
 
@@ -137,7 +135,6 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
             continue;
         }
 
-        // ... (Vertex loading code is the same as before) ...
         const auto* vertices = nif.GetVertsForShape(niShape);
         const auto* normals = nif.GetNormalsForShape(niShape);
         const auto* uvs = nif.GetUvsForShape(niShape);
@@ -166,7 +163,6 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         }
 
         glm::vec3 originalCentroid = CalculateCentroid(vertexData);
-
         MeshShape mesh;
         auto* skinInst = niShape->IsSkinned() ? nif.GetHeader().GetBlock<nifly::NiSkinInstance>(niShape->SkinInstanceRef()) : nullptr;
 
@@ -180,26 +176,21 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         nifly::MatTransform niflyTransform;
         std::string shapeName = niShape->name.get();
 
-        // If this is a FaceGen file, apply transforms selectively.
         if (isFaceGen) {
-            // Eyes, Mouth, and Brows inherit the main head's transform.
             if (shapeName.find("Eyes") != std::string::npos || shapeName.find("Mouth") != std::string::npos || shapeName.find("Brows") != std::string::npos) {
                 if (debugMode) std::cout << "    [Debug] Inheriting transform from main head part.\n";
                 niflyTransform = headTransform;
             }
             else {
-                // Head and Hair get their own transforms.
                 niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, debugMode);
             }
         }
         else {
-            // For non-FaceGen files, every shape gets its own transform.
             niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, debugMode);
         }
 
         mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
 
-        // ... (Logging, bounding box, texture loading, and VAO setup code remains the same as your last version) ...
         if (debugMode) {
             std::cout << "    [Debug] Calculated world transform. Applying to mesh.\n";
             glm::vec3 transformedCentroid = glm::vec3(mesh.transform * glm::vec4(originalCentroid, 1.0f));
@@ -215,22 +206,19 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
             mesh.isModelSpace = shader->IsModelSpace();
         }
 
+        // --- START: CORRECTED BOUNDING BOX CALCULATION ---
+        // The bounds transform is ALWAYS the mesh's Z-up world transform.
+        // This ensures the entire model's bounding box is calculated in one consistent coordinate space.
         glm::mat4 boundsTransform = mesh.transform;
-        if (mesh.isModelSpace) {
-            glm::mat4 conversionMatrix = glm::mat4(
-                -1.0f, 0.0f, 0.0f, 0.0f,
-                0.0f, 0.0f, 1.0f, 0.0f,
-                0.0f, 1.0f, 0.0f, 0.0f,
-                0.0f, 0.0f, 0.0f, 1.0f
-            );
-            boundsTransform = conversionMatrix * mesh.transform;
-        }
+
+        // The faulty "if (mesh.isModelSpace)" block that caused the inconsistency has been REMOVED from here.
 
         for (const auto& vert : vertexData) {
             glm::vec4 transformedVert = boundsTransform * glm::vec4(vert.pos, 1.0f);
             minBounds = glm::min(minBounds, glm::vec3(transformedVert));
             maxBounds = glm::max(maxBounds, glm::vec3(transformedVert));
         }
+        // --- END: CORRECTED BOUNDING BOX CALCULATION ---
 
         if (shader && shader->HasTextureSet()) {
             if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
