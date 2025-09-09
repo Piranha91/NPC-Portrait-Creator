@@ -10,6 +10,25 @@
 #include <limits>
 #include <glm/gtx/string_cast.hpp> // For printing glm::mat4
 
+// Vertex structure used for processing mesh data
+struct Vertex {
+    glm::vec3 pos;
+    glm::vec3 normal;
+    glm::vec2 texCoords;
+};
+
+// Helper function to calculate the centroid of a set of vertices
+glm::vec3 CalculateCentroid(const std::vector<Vertex>& vertices) {
+    if (vertices.empty()) {
+        return glm::vec3(0.0f);
+    }
+    glm::vec3 sum(0.0f);
+    for (const auto& v : vertices) {
+        sum += v.pos;
+    }
+    return sum / static_cast<float>(vertices.size());
+}
+
 // Helper function to get the full world transform of any scene graph object (Node or Shape)
 nifly::MatTransform GetAVObjectTransformToGlobal(const nifly::NifFile& nifFile, nifly::NiAVObject* obj, bool debugMode = false) {
     if (!obj) {
@@ -103,6 +122,7 @@ void MeshShape::cleanup() {
     }
 }
 
+
 // --- NifModel Methods ---
 
 NifModel::NifModel() {}
@@ -148,12 +168,6 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
             continue;
         }
 
-        struct Vertex {
-            glm::vec3 pos;
-            glm::vec3 normal;
-            glm::vec2 texCoords;
-        };
-
         std::vector<Vertex> vertexData(vertices->size());
         for (size_t i = 0; i < vertices->size(); ++i) {
             vertexData[i].pos = glm::vec3((*vertices)[i].x, (*vertices)[i].y, (*vertices)[i].z);
@@ -170,6 +184,9 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
                 vertexData[i].texCoords = glm::vec2(0.0f, 0.0f);
             }
         }
+
+        // ADDED: Calculate original centroid for logging
+        glm::vec3 originalCentroid = CalculateCentroid(vertexData);
 
         MeshShape mesh;
         auto* skinInst = niShape->IsSkinned() ? nif.GetHeader().GetBlock<nifly::NiSkinInstance>(niShape->SkinInstanceRef()) : nullptr;
@@ -252,22 +269,47 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
                 // MODIFIED: Set transform to identity since vertices are now in world space
                 mesh.transform = glm::mat4(1.0f);
                 if (debugMode) std::cout << "    [Debug] CPU bake complete. Setting mesh transform to identity.\n";
+
+                // ADDED: Logging for skinned mesh transformation
+                if (debugMode) {
+                    glm::vec3 bakedCentroid = CalculateCentroid(vertexData);
+                    std::cout << "    [Debug] --- Mesh Transformation (Skinned Bake) ---\n";
+                    std::cout << "    [Debug] Original Centroid: " << glm::to_string(originalCentroid) << "\n";
+                    std::cout << "    [Debug] Transformation: CPU Vertex Bake (per-vertex weighted bone transforms)\n";
+                    std::cout << "    [Debug] Transformed Centroid: " << glm::to_string(bakedCentroid) << "\n";
+                    std::cout << "    [Debug] ------------------------------------------\n";
+                }
             }
             else {
                 if (debugMode) std::cout << "    [Debug] Skinned shape missing SkinData or SkinPartition, treating as unskinned.\n";
                 auto niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, debugMode);
                 mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
+                // ADDED: Logging for this fallback case
+                if (debugMode) {
+                    glm::vec3 transformedCentroid = glm::vec3(mesh.transform * glm::vec4(originalCentroid, 1.0f));
+                    std::cout << "    [Debug] --- Mesh Transformation (Unskinned Fallback) ---\n";
+                    std::cout << "    [Debug] Original Centroid: " << glm::to_string(originalCentroid) << "\n";
+                    std::cout << "    [Debug] Transformation Matrix:\n" << glm::to_string(mesh.transform) << "\n";
+                    std::cout << "    [Debug] Transformed Centroid: " << glm::to_string(transformedCentroid) << "\n";
+                    std::cout << "    [Debug] ------------------------------------------\n";
+                }
             }
         }
         else {
             if (debugMode) std::cout << "  [Debug] Shape is UNskinned.\n";
             auto niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, debugMode);
+            mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
+
+            // ADDED: Logging for unskinned mesh transformation
             if (debugMode) {
                 std::cout << "    [Debug] Calculated world transform. Applying to mesh.\n";
-                // Optionally print the matrix for deep debugging
-                // std::cout << glm::to_string(glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]))) << std::endl;
+                glm::vec3 transformedCentroid = glm::vec3(mesh.transform * glm::vec4(originalCentroid, 1.0f));
+                std::cout << "    [Debug] --- Mesh Transformation (Unskinned) ---\n";
+                std::cout << "    [Debug] Original Centroid: " << glm::to_string(originalCentroid) << "\n";
+                std::cout << "    [Debug] Transformation Matrix:\n" << glm::to_string(mesh.transform) << "\n";
+                std::cout << "    [Debug] Transformed Centroid: " << glm::to_string(transformedCentroid) << "\n";
+                std::cout << "    [Debug] ------------------------------------------\n";
             }
-            mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
         }
 
         const nifly::NiShader* shader = nif.GetShader(niShape);
