@@ -144,67 +144,87 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
     headMinBounds = glm::vec3(std::numeric_limits<float>::max());
     headMaxBounds = glm::vec3(std::numeric_limits<float>::lowest());
     bHasEyeCenter = false;
+    nifly::MatTransform skeletonRootTransform; // Default constructs to identity
 
     // ===================================================================================
-    // === HEURISTIC: DETERMINE NIF TYPE (Standard vs. Pre-translated)
+    // === HEURISTIC: DETERMINE NIF TYPE (Standard vs. Pre-translated vs. Hybrid)
     // ===================================================================================
     bool useCpuBake = false;
     nifly::MatTransform accessoryOffset;
     nifly::NiShape* headShape = nullptr;
 
-    // 1. Find the main head shape
+    // --- START: CORRECTED HEURISTIC ---
+
+    // 1. First, check for any pre-translated skinned meshes in the entire file.
+    // This catches hybrid models with pre-translated hair/accessories.
+    const float PRETRANSLATED_THRESHOLD = 10.0f;
     for (auto* shape : shapeList) {
-        if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(shape->SkinInstanceRef())) {
-            for (const auto& partition : skinInst->partitions) {
-                if (partition.partID == 30 || partition.partID == 230) { // Standard head part IDs
-                    headShape = shape;
+        if (!shape->IsSkinned()) continue;
+
+        nifly::MatTransform shapeTransform = GetAVObjectTransformToGlobal(nif, shape, false);
+        if (shapeTransform.IsNearlyEqualTo(nifly::MatTransform())) {
+            const auto* vertices = nif.GetVertsForShape(shape);
+            if (vertices && !vertices->empty()) {
+                glm::vec3 sum(0.0f);
+                for (const auto& v : *vertices) {
+                    sum += glm::vec3(v.x, v.y, v.z);
+                }
+                glm::vec3 centroid = sum / static_cast<float>(vertices->size());
+                if (glm::length(centroid) > PRETRANSLATED_THRESHOLD) {
+                    useCpuBake = true;
+                    if (debugMode) std::cout << "[NIF Analysis] DECISION: Hybrid model with pre-translated parts detected (Shape: " << shape->name.get() << "). Forcing CPU Bake strategy.\n";
                     break;
                 }
             }
         }
-        if (headShape) break;
     }
 
-    // 2. If a head was found, analyze it to determine the loading strategy.
-    if (headShape) {
-        if (debugMode) std::cout << "[NIF Analysis] Found main head part: '" << headShape->name.get() << "'\n";
-
-        nifly::MatTransform headNodeTransform = GetAVObjectTransformToGlobal(nif, headShape, false);
-
-        // Calculate the head's local vertex centroid
-        glm::vec3 headLocalCentroid(0.0f);
-        const auto* vertices = nif.GetVertsForShape(headShape);
-        if (vertices && !vertices->empty()) {
-            glm::vec3 sum(0.0f);
-            for (const auto& v : *vertices) {
-                sum += glm::vec3(v.x, v.y, v.z);
+    // 2. If no hybrid parts were found, proceed with the original head-based analysis.
+    if (!useCpuBake) {
+        // Find the main head shape
+        for (auto* shape : shapeList) {
+            if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(shape->SkinInstanceRef())) {
+                for (const auto& partition : skinInst->partitions) {
+                    if (partition.partID == 30 || partition.partID == 230) {
+                        headShape = shape;
+                        break;
+                    }
+                }
             }
-            headLocalCentroid = sum / static_cast<float>(vertices->size());
+            if (headShape) break;
         }
 
-        if (debugMode) {
-            std::cout << "[NIF Analysis] Head Node Transform is " << (headNodeTransform.IsNearlyEqualTo(nifly::MatTransform()) ? "Identity" : "Not Identity") << ".\n";
-            std::cout << "[NIF Analysis] Head Local Centroid length is " << glm::length(headLocalCentroid) << ".\n";
-        }
+        if (headShape) {
+            if (debugMode) std::cout << "[NIF Analysis] Found main head part: '" << headShape->name.get() << "'\n";
+            nifly::MatTransform headNodeTransform = GetAVObjectTransformToGlobal(nif, headShape, false);
+            const auto* vertices = nif.GetVertsForShape(headShape);
+            glm::vec3 headLocalCentroid(0.0f);
+            if (vertices && !vertices->empty()) {
+                glm::vec3 sum(0.0f);
+                for (const auto& v : *vertices) { sum += glm::vec3(v.x, v.y, v.z); }
+                headLocalCentroid = sum / static_cast<float>(vertices->size());
+            }
 
-        // Heuristic: If the node transform is identity BUT the vertices are far from the origin,
-        // it's a pre-translated model that needs CPU baking.
-        const float PRETRANSLATED_THRESHOLD = 10.0f;
-        if (headNodeTransform.IsNearlyEqualTo(nifly::MatTransform()) && glm::length(headLocalCentroid) > PRETRANSLATED_THRESHOLD) {
-            useCpuBake = true;
-            std::cout << "[NIF Analysis] DECISION: Pre-translated model detected. Using CPU Bake strategy.\n";
+            if (debugMode) {
+                std::cout << "[NIF Analysis] Head Node Transform is " << (headNodeTransform.IsNearlyEqualTo(nifly::MatTransform()) ? "Identity" : "Not Identity") << ".\n";
+                std::cout << "[NIF Analysis] Head Local Centroid length is " << glm::length(headLocalCentroid) << ".\n";
+            }
+
+            // This case handles fully pre-translated head NIFs
+            if (headNodeTransform.IsNearlyEqualTo(nifly::MatTransform()) && glm::length(headLocalCentroid) > PRETRANSLATED_THRESHOLD) {
+                useCpuBake = true;
+                std::cout << "[NIF Analysis] DECISION: Pre-translated model detected. Using CPU Bake strategy.\n";
+            }
+            else {
+                useCpuBake = false;
+                std::cout << "[NIF Analysis] DECISION: Standard model detected. Using GPU Transform strategy.\n";
+                accessoryOffset = headNodeTransform;
+            }
         }
         else {
-            useCpuBake = false;
-            std::cout << "[NIF Analysis] DECISION: Standard model detected. Using GPU Transform strategy.\n";
-            // For standard models, calculate the accessory offset now (V1 logic)
-            accessoryOffset = headNodeTransform;
+            useCpuBake = true;
+            std::cout << "[NIF Analysis] No head part found. Defaulting to CPU Bake strategy.\n";
         }
-    }
-    else {
-        // If no head is found, fallback to the more robust CPU bake method as a safety measure.
-        useCpuBake = true;
-        std::cout << "[NIF Analysis] No head part found. Defaulting to CPU Bake strategy.\n";
     }
 
     // ===================================================================================
@@ -364,10 +384,11 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
                     niflyTransform = accessoryOffset;
                 }
                 else {
-                    if (debugMode) std::cout << "    [Debug] Using identity transform for pre-translated part '" << shapeName << "'.\n";
-                    // It has an identity transform and is not a known local part,
-                    // so its vertices are assumed to be pre-translated in world space.
-                    // niflyTransform is already identity, so no change needed.
+                    // FIX: Pre-translated parts are not absolute; they are relative to the
+                    // skeleton root. Apply the skeleton root's transform to move them
+                    // into their final world position along with the rest of the rig.
+                    if (debugMode) std::cout << "    [Debug] Applying skeleton root transform for pre-translated part '" << shapeName << "'.\n";
+                    niflyTransform = skeletonRootTransform;
                 }
             }
             else {
