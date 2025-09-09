@@ -180,7 +180,8 @@ void Renderer::shutdownUI() {
 }
 
 void Renderer::renderFrame() {
-    glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
+    // Convert by dividing each color component by 255.0
+    glClearColor(0.227f, 0.239f, 0.251f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     shader.use();
