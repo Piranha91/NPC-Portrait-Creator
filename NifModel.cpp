@@ -405,12 +405,37 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
 
         // Bounds calculation
         glm::mat4 boundsTransform = mesh.transform;
-        bool isHairPart = (shapeName.find("Hair") != std::string::npos);
+
+        // --- FIX: Exclude accessories by partition ID, with a name-based fallback ---
+        bool isAccessoryPart = false;
+
+        // 1. Prioritize checking the body part partition. This is the most reliable method for standard assets.
+        if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
+            for (const auto& partition : skinInst->partitions) {
+                // SBP_131_HAIR is the standard partition for hair, helmets, and other head accessories.
+                if (partition.partID == 131) {
+                    isAccessoryPart = true;
+                    break; // Found a hair partition, no need to check further for this shape.
+                }
+            }
+        }
+
+        // 2. Fallback to a name-based check for assets that might not use partitions correctly
+        //    (e.g., older mods or unskinned hair meshes).
+        if (!isAccessoryPart) {
+            std::string lowerShapeName = shapeName;
+            std::transform(lowerShapeName.begin(), lowerShapeName.end(), lowerShapeName.begin(), ::tolower);
+            if (lowerShapeName.find("hair") != std::string::npos || lowerShapeName.find("scalp") != std::string::npos) {
+                isAccessoryPart = true;
+            }
+        }
+
         for (const auto& vert : vertexData) {
             glm::vec3 tv3 = glm::vec3(boundsTransform * glm::vec4(vert.pos, 1.0f));
             minBounds = glm::min(minBounds, tv3);
             maxBounds = glm::max(maxBounds, tv3);
-            if (!isHairPart) {
+            // Only include vertices in head bounds if they are not part of an accessory mesh
+            if (!isAccessoryPart) {
                 headMinBounds = glm::min(headMinBounds, tv3);
                 headMaxBounds = glm::max(headMaxBounds, tv3);
             }
