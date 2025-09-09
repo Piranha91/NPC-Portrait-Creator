@@ -119,18 +119,40 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         return true;
     }
 
-    // PASS 1: Find the main head transform and cache it.
-    nifly::MatTransform headTransform;
+    // PASS 1: Find the main head transform.
+    nifly::MatTransform headShapeTransform;
     bool isFaceGen = false;
-    for (auto* niShape : shapeList) {
-        std::string shapeName = niShape->name.get();
-        if (shapeName == "FemaleHeadNord" || shapeName == "MaleHeadNord") {
-            headTransform = GetAVObjectTransformToGlobal(nif, niShape, false);
-            isFaceGen = true;
-            if (debugMode) std::cout << "[Debug] FaceGen head detected. Caching its transform.\n";
-            break;
+    nifly::NiNode* headParentNode = nullptr;
+
+    if (debugMode) std::cout << "\n[Debug] --- Finding Head Shape ---\n";
+    for (auto* shape : shapeList) {
+        if (debugMode) {
+            std::cout << "  [Debug] Checking Shape: " << shape->GetBlockName() << ": " << shape->name.get() << "\n";
+        }
+
+        if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(shape->SkinInstanceRef())) {
+            if (debugMode && !skinInst->partitions.empty()) {
+                std::cout << "    [Debug] Contains Partitions: ";
+                for (size_t i = 0; i < skinInst->partitions.size(); ++i) {
+                    std::cout << skinInst->partitions[i].partID << (i == skinInst->partitions.size() - 1 ? "" : ", ");
+                }
+                std::cout << "\n";
+            }
+
+            for (const auto& partition : skinInst->partitions) {
+                // SBP_230_HEAD corresponds to a body part ID of 230
+                if (partition.partID == 230) {
+                    if (debugMode) std::cout << "    [Debug] ^^^ Found head shape via DismemberSkinInstance partition.\n";
+
+                    headShapeTransform = GetAVObjectTransformToGlobal(nif, shape, false);
+                    headParentNode = nif.GetParentNode(shape);
+                    isFaceGen = true;
+                    // No break here, continue scanning all shapes for logging purposes.
+                }
+            }
         }
     }
+    if (debugMode) std::cout << "[Debug] --- End Head Shape Scan ---\n";
 
     // PASS 2: Process all shapes, applying the cached head transform to face parts.
     for (auto* niShape : shapeList) {
@@ -185,7 +207,7 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         if (isFaceGen) {
             if (shapeName.find("Eyes") != std::string::npos || shapeName.find("Mouth") != std::string::npos || shapeName.find("Brows") != std::string::npos) {
                 if (debugMode) std::cout << "    [Debug] Inheriting transform from main head part.\n";
-                niflyTransform = headTransform;
+                niflyTransform = headShapeTransform;
             }
             else {
                 niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, debugMode);
