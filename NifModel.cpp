@@ -300,47 +300,48 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         else {
             // --- STRATEGY 1: GPU Transform (For Standard NIFs like NPC #1) ---
             nifly::MatTransform niflyTransform;
-            // --- Final Heuristic for Hair ---
-            if (headShape && niShape != headShape && shapeName.find("Hair") != std::string::npos) {
-                nifly::MatTransform ownTransform = GetAVObjectTransformToGlobal(nif, niShape, false);
+            nifly::MatTransform ownTransform = GetAVObjectTransformToGlobal(nif, niShape, false);
 
-                // Case 1: The hair has a valid, non-identity transform in the scene graph. Use it.
-                if (!ownTransform.IsNearlyEqualTo(nifly::MatTransform())) {
-                    if (debugMode) std::cout << "    [Debug] Hair '" << shapeName << "' has its own valid transform. Using it.\n";
-                    niflyTransform = ownTransform;
-                }
-                // Case 2: The hair has an identity transform. We must check its vertex data.
-                else {
+            // Default to using the shape's own transform from the scene graph.
+            niflyTransform = ownTransform;
+
+            // Heuristic: If a face part has an identity transform, it's likely "broken"
+            // and needs to be manually placed using the head's offset. This is common
+            // for eyes, mouth, and brows as your analysis pointed out.
+            if (ownTransform.IsNearlyEqualTo(nifly::MatTransform())) {
+                bool isLocalSpacePart = (
+                    shapeName.find("Eyes") != std::string::npos ||
+                    shapeName.find("Mouth") != std::string::npos ||
+                    shapeName.find("Teeth") != std::string::npos || // Added for clarity
+                    shapeName.find("Brows") != std::string::npos
+                    );
+
+                // This handles the "5 feet above the head" case for hair/scalps that
+                // were exported at the origin without a transform.
+                if (!isLocalSpacePart) {
                     glm::vec3 localCentroid = CalculateCentroid(vertexData);
-                    const float PRETRANSLATED_THRESHOLD = 10.0f;
-
-                    // Case 2a: Vertices are already in world space (pre-translated). Use an identity transform.
-                    if (glm::length(localCentroid) > PRETRANSLATED_THRESHOLD) {
-                        if (debugMode) std::cout << "    [Debug] Hair '" << shapeName << "' is pre-translated. Using identity transform.\n";
-                        niflyTransform = nifly::MatTransform(); // Identity
-                    }
-                    // Case 2b: Vertices are near origin (truly broken). Apply the head's transform as a fix.
-                    else {
-                        if (debugMode) std::cout << "    [Debug] Hair '" << shapeName << "' has missing transform. Applying head offset.\n";
-                        niflyTransform = accessoryOffset;
+                    const float LOCAL_SPACE_THRESHOLD = 1.0f; // A small threshold
+                    if (glm::length(localCentroid) < LOCAL_SPACE_THRESHOLD) {
+                        if (debugMode) std::cout << "    [Debug] Shape '" << shapeName << "' is at origin with no transform. Applying accessory offset as a fix.\n";
+                        isLocalSpacePart = true;
                     }
                 }
+
+                if (isLocalSpacePart) {
+                    if (debugMode) std::cout << "    [Debug] Applying accessory offset for local-space part '" << shapeName << "'.\n";
+                    niflyTransform = accessoryOffset;
+                }
+                else {
+                    if (debugMode) std::cout << "    [Debug] Using identity transform for pre-translated part '" << shapeName << "'.\n";
+                    // It has an identity transform and is not a known local part,
+                    // so its vertices are assumed to be pre-translated in world space.
+                    // niflyTransform is already identity, so no change needed.
+                }
             }
-            // --- Standard Fix for Other Face Parts (which are almost always broken) ---
-            else if (headShape && niShape != headShape && (
-                shapeName.find("Eyes") != std::string::npos ||
-                shapeName.find("Mouth") != std::string::npos ||
-                shapeName.find("Brows") != std::string::npos ||
-                shapeName.find("Scalp") != std::string::npos))
-            {
-                if (debugMode) std::cout << "    [Debug] Applying accessory offset for shape '" << shapeName << "'.\n";
-                niflyTransform = accessoryOffset;
-            }
-            // --- Default Case for Head and other meshes ---
             else {
-                if (debugMode) std::cout << "    [Debug] Using shape's own transform for shape '" << shapeName << "'.\n";
-                niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, debugMode);
+                if (debugMode) std::cout << "    [Debug] Using shape's own scene graph transform for '" << shapeName << "'.\n";
             }
+
             mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
 
             // --- RESTORED LOGGING BLOCK ---
