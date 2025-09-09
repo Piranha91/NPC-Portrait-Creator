@@ -1,3 +1,5 @@
+// NifModel.h
+
 #pragma once
 
 #include <glad/glad.h>
@@ -18,14 +20,13 @@ struct MeshShape {
     GLuint VAO = 0, VBO = 0, EBO = 0;
     GLsizei indexCount = 0;
     glm::mat4 transform = glm::mat4(1.0f); // Initialize to identity matrix
-    GLuint diffuseTextureID = 0;           // Slot 0: _d.dds or base color
-    GLuint normalTextureID = 0;            // Slot 1: _n.dds or _msn.dds
-    GLuint skinTextureID = 0;              // Slot 2: _sk.dds (Subsurface/Tint)
-    GLuint detailTextureID = 0;            // Slot 3: _detail.dds
-    GLuint faceTintColorMaskID = 0;        // Slot 6: Face Tint Mask
-    GLuint specularTextureID = 0;          // Slot 7: _s.dds
+    GLuint diffuseTextureID = 0; // Slot 0: _d.dds or base color
+    GLuint normalTextureID = 0; // Slot 1: _n.dds or _msn.dds
+    GLuint skinTextureID = 0; // Slot 2: _sk.dds (Subsurface/Tint)
+    GLuint detailTextureID = 0; // Slot 3: _detail.dds
+    GLuint faceTintColorMaskID = 0; // Slot 6: Face Tint Mask
+    GLuint specularTextureID = 0; // Slot 7: _s.dds
     bool isModelSpace = false;
-
     // --- Additions for Alpha Properties ---
     bool hasAlphaProperty = false;
     bool alphaBlend = false;
@@ -33,11 +34,9 @@ struct MeshShape {
     float alphaThreshold = 0.5f;
     GLenum srcBlend = GL_SRC_ALPHA;
     GLenum dstBlend = GL_ONE_MINUS_SRC_ALPHA;
-
     // --- Additions for Material Properties ---
     bool doubleSided = false;
     bool zBufferWrite = true;
-
     // --- Additions for Tint
     bool hasTintColor = false;
     glm::vec3 tintColor = glm::vec3(1.0f); // Default to white (no tint)
@@ -46,23 +45,20 @@ struct MeshShape {
     void cleanup();
 };
 
-
 class NifModel {
 public:
     NifModel();
     ~NifModel();
 
-    // Updated signature to accept a TextureManager
     bool load(const std::string& path, TextureManager& textureManager);
     void draw(Shader& shader, const glm::vec3& cameraPos);
     void cleanup();
 
-    // This is no longer used by the renderer for loading but can be kept for debugging
     std::vector<std::string> getTextures() const;
 
+    // --- Restored Accessors from Version 1 ---
     glm::vec3 getMinBounds() const { return minBounds; }
     glm::vec3 getMaxBounds() const { return maxBounds; }
-    // --- NEW: Head-only bounds accessors ---
     glm::vec3 getHeadMinBounds() const { return headMinBounds; }
     glm::vec3 getHeadMaxBounds() const { return headMaxBounds; }
     glm::vec3 getEyeCenter() const { return eyeCenter; }
@@ -72,19 +68,15 @@ public:
 
 private:
     nifly::NifFile nif;
-    // Replace the single shapes vector with two separate ones
     std::vector<MeshShape> opaqueShapes;
     std::vector<MeshShape> transparentShapes;
     std::vector<std::string> texturePaths;
-    glm::vec3 modelCenter = glm::vec3(0.0f);
-    glm::vec3 modelBoundsSize = glm::vec3(0.0f);
+
+    // --- Restored Members from Version 1 ---
     glm::vec3 minBounds;
     glm::vec3 maxBounds;
-
-    // --- NEW: Head-only bounds ---
     glm::vec3 headMinBounds;
     glm::vec3 headMaxBounds;
-
     glm::vec3 eyeCenter;
     bool bHasEyeCenter = false;
 };
