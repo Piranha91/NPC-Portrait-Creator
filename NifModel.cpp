@@ -254,6 +254,7 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
 
                         // --- THE KEY CHANGE IS HERE ---
                         // Prioritize the authoritative skeleton's transform.
+                        if (debugMode) std::cout << "      [Debug] Looking up bone '" << boneName << "' in active skeleton...\n";
                         if (skeleton && skeleton->hasBone(boneName)) {
                             boneWorld = skeleton->getBoneTransform(boneName);
                             if (debugMode) std::cout << "      [Debug] Found bone '" << boneName << "' in loaded skeleton.\n";

@@ -135,10 +135,13 @@ std::vector<char> BsaManager::extractFile(const std::string& relativePath) const
         libbsarch::bs_archive bsa;
         bsa.load_from_disk(bsaFullPath.wstring());
 
-        // Use the original relativePath (libbsarch expects forward slashes),
-        // but normalize here if needed: we can safely pass the original, as
-        // bsa.extract_to_memory handles '/'.
-        libbsarch::memory_blob blob = bsa.extract_to_memory(relativePath);
+        // --- FIX ---
+        // Use the fully normalized path for extraction, but convert backslashes to
+        // forward slashes, which libbsarch expects for its internal lookups.
+        std::string extractionPath = normalizePath(relativePath);
+        std::replace(extractionPath.begin(), extractionPath.end(), '\\', '/');
+
+        libbsarch::memory_blob blob = bsa.extract_to_memory(extractionPath);
         const char* data = static_cast<const char*>(blob.data);
         return std::vector<char>(data, data + blob.size);
     }
@@ -153,7 +156,24 @@ std::string BsaManager::normalizePath(const std::string& p) {
     std::string s = p;
     std::replace(s.begin(), s.end(), '/', '\\');
     std::transform(s.begin(), s.end(), s.begin(), ::tolower);
-    // Remove accidental leading backslash to make rfind("textures\\",0) work
     if (!s.empty() && (s[0] == '\\')) s.erase(0, 1);
+
+    // If the path already has a top-level directory, don't modify it further.
+    if (s.rfind("textures\\", 0) == 0 || s.rfind("meshes\\", 0) == 0) {
+        return s;
+    }
+
+    // Find the file extension to decide on the prefix.
+    size_t dot_pos = s.find_last_of('.');
+    if (dot_pos != std::string::npos) {
+        std::string ext = s.substr(dot_pos);
+        if (ext == ".dds") {
+            s = "textures\\" + s;
+        }
+        else if (ext == ".nif" || ext == ".tri") {
+            s = "meshes\\" + s;
+        }
+    }
+
     return s;
 }

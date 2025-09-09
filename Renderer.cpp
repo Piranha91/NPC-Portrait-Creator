@@ -93,10 +93,14 @@ void Renderer::init(bool headless) {
     bsaManager.loadArchives(fallbackRootDirectory);
 
     // Attempt to load default skeletons from BSAs
+    std::cout << "[Skeleton Load] Attempting to load default skeletons from BSAs...\n";
     const std::string femaleSkelPath = "actors\\character\\character assets female\\skeleton_female.nif";
     auto femaleData = bsaManager.extractFile(femaleSkelPath);
     if (!femaleData.empty()) {
         femaleSkeleton.loadFromMemory(femaleData, femaleSkelPath);
+    }
+    else {
+        std::cout << "[Skeleton Load] Female skeleton not found in BSAs.\n";
     }
 
     const std::string maleSkelPath = "actors\\character\\character assets\\skeleton.nif";
@@ -104,15 +108,23 @@ void Renderer::init(bool headless) {
     if (!maleData.empty()) {
         maleSkeleton.loadFromMemory(maleData, maleSkelPath);
     }
+    else {
+        std::cout << "[Skeleton Load] Male skeleton not found in BSAs.\n";
+    }
 
     // Set a default active skeleton
     if (femaleSkeleton.isLoaded()) {
         activeSkeleton = &femaleSkeleton;
         currentSkeletonType = SkeletonType::Female;
+        std::cout << "[Skeleton Load] Default female skeleton loaded and set as active.\n";
     }
     else if (maleSkeleton.isLoaded()) {
         activeSkeleton = &maleSkeleton;
         currentSkeletonType = SkeletonType::Male;
+        std::cout << "[Skeleton Load] Default male skeleton loaded and set as active.\n";
+    }
+    else {
+        std::cout << "[Skeleton Load] WARNING: No default skeletons could be loaded.\n";
     }
 
     model = std::make_unique<NifModel>();

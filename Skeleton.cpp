@@ -51,6 +51,7 @@ void Skeleton::processNode(nifly::NiNode* node, const nifly::MatTransform& paren
     std::string nodeName = node->name.get();
     if (!nodeName.empty()) {
         boneWorldTransforms[nodeName] = NiflyToGlm(worldTransform);
+        std::cout << "    [Skel Parse] Stored transform for bone: " << nodeName << std::endl;
     }
 
     for (const auto& childRef : node->childRefs) { // Corrected to 'childRefs'
