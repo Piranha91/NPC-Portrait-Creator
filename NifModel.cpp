@@ -1,5 +1,6 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include "NifModel.h"
+#include "Skeleton.h"
 #include "Shader.h"
 #include "TextureManager.h" 
 #include <iostream>
@@ -122,7 +123,7 @@ NifModel::~NifModel() {
     cleanup();
 }
 
-bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) {
+bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton) {
     bool debugMode = true;
 
     cleanup();
@@ -238,21 +239,45 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
                 auto* skinPartition = nif.GetHeader().GetBlock<nifly::NiSkinPartition>(skinInst->skinPartitionRef);
 
                 if (skinData && skinPartition) {
+                    if (debugMode) std::cout << "    [Debug] Baking skinned vertices on CPU...\n";
+
+                    // This vector will hold the final transform for each bone.
                     std::vector<glm::mat4> boneWorldMatrices(skinData->bones.size());
                     auto boneRefIt = skinInst->boneRefs.begin();
+
                     for (size_t i = 0; i < skinData->bones.size() && boneRefIt != skinInst->boneRefs.end(); ++i, ++boneRefIt) {
                         auto* boneNode = nif.GetHeader().GetBlock<nifly::NiNode>(*boneRefIt);
                         if (!boneNode) continue;
-                        auto boneWorld_n = GetAVObjectTransformToGlobal(nif, boneNode, false);
+
+                        std::string boneName = boneNode->name.get();
+                        glm::mat4 boneWorld;
+
+                        // --- THE KEY CHANGE IS HERE ---
+                        // Prioritize the authoritative skeleton's transform.
+                        if (skeleton && skeleton->hasBone(boneName)) {
+                            boneWorld = skeleton->getBoneTransform(boneName);
+                            if (debugMode) std::cout << "      [Debug] Found bone '" << boneName << "' in loaded skeleton.\n";
+                        }
+                        else {
+                            // Fallback to the old method if bone isn't in skeleton or if no skeleton is loaded.
+                            auto boneWorld_n = GetAVObjectTransformToGlobal(nif, boneNode, false);
+                            boneWorld = glm::transpose(glm::make_mat4(&boneWorld_n.ToMatrix()[0]));
+                            if (debugMode) std::cout << "      [Debug] WARN: Bone '" << boneName << "' not in skeleton. Using transform from NIF.\n";
+                        }
+
+                        // Get the skin-to-bone transform from the NIF's skin data.
                         const auto& skinToBone_n = skinData->bones[i].boneTransform;
-                        glm::mat4 boneWorld = glm::transpose(glm::make_mat4(&boneWorld_n.ToMatrix()[0]));
                         glm::mat4 skinToBone = glm::transpose(glm::make_mat4(&skinToBone_n.ToMatrix()[0]));
+
+                        // The final matrix for each vertex is (BoneWorld * SkinToBone)
                         boneWorldMatrices[i] = boneWorld * skinToBone;
                     }
 
+                    // --- The rest of the vertex baking logic remains the same ---
                     auto originalVertexData = vertexData;
                     std::fill(vertexData.begin(), vertexData.end(), Vertex{});
                     std::vector<float> totalWeights(originalVertexData.size(), 0.0f);
+
                     for (const auto& partition : skinPartition->partitions) {
                         if (!partition.hasVertexMap || !partition.hasVertexWeights || !partition.hasBoneIndices) continue;
                         for (uint16_t i = 0; i < partition.numVertices; ++i) {
@@ -261,6 +286,7 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
 
                             const float weights[] = { partition.vertexWeights[i].w1, partition.vertexWeights[i].w2, partition.vertexWeights[i].w3, partition.vertexWeights[i].w4 };
                             const uint8_t indices[] = { partition.boneIndices[i].i1, partition.boneIndices[i].i2, partition.boneIndices[i].i3, partition.boneIndices[i].i4 };
+
                             for (uint16_t k = 0; k < partition.numWeightsPerVertex; ++k) {
                                 float weight = weights[k];
                                 if (weight <= 0.0f) continue;
@@ -269,8 +295,10 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
 
                                 const glm::mat4& boneMatrix = boneWorldMatrices[globalBoneIndex];
                                 vertexData[originalVertIndex].pos += glm::vec3(boneMatrix * glm::vec4(originalVertexData[originalVertIndex].pos, 1.0f)) * weight;
+
                                 glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(boneMatrix)));
                                 vertexData[originalVertIndex].normal += (normalMatrix * originalVertexData[originalVertIndex].normal) * weight;
+
                                 totalWeights[originalVertIndex] += weight;
                             }
                             vertexData[originalVertIndex].texCoords = originalVertexData[originalVertIndex].texCoords;
@@ -283,19 +311,22 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
                             vertexData[i].normal = glm::normalize(vertexData[i].normal);
                         }
                         else {
+                            // If a vertex has no weights, just use its original data.
                             vertexData[i] = originalVertexData[i];
                         }
                     }
-                    mesh.transform = glm::mat4(1.0f); // Vertices are now in world space
+
+                    // Since vertices are now in their final world positions, the mesh's transform is identity.
+                    mesh.transform = glm::mat4(1.0f);
                 }
                 else {
+                    // If there's no skin data, fall back to the object's scene graph transform.
                     mesh.transform = glm::transpose(glm::make_mat4(&GetAVObjectTransformToGlobal(nif, niShape).ToMatrix()[0]));
                 }
             }
             else { // Unskinned shape in a CPU bake model
                 mesh.transform = glm::transpose(glm::make_mat4(&GetAVObjectTransformToGlobal(nif, niShape).ToMatrix()[0]));
             }
-
         }
         else {
             // --- STRATEGY 1: GPU Transform (For Standard NIFs like NPC #1) ---

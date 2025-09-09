@@ -7,8 +7,12 @@
 #include "Camera.h"
 #include "NifModel.h"
 #include "TextureManager.h"
+#include "BsaManager.h"
+#include "Skeleton.h"
 
 struct GLFWwindow;
+
+enum class SkeletonType { None, Male, Female, Custom };
 
 class Renderer {
 public:
@@ -23,6 +27,7 @@ public:
 
     // --- NIF and Camera Control ---
     void loadNifModel(const std::string& path);
+    void loadCustomSkeleton(const std::string& path);
     void setCamera(float posX, float posY, float posZ, float pitch, float yaw);
     void setFallbackRootDirectory(const std::string& path);
 
@@ -64,6 +69,13 @@ private:
     std::string rootDirectory;
     std::string fallbackRootDirectory;
     TextureManager textureManager;
+    BsaManager bsaManager;
+
+    Skeleton maleSkeleton;
+    Skeleton femaleSkeleton;
+    Skeleton customSkeleton;
+    Skeleton* activeSkeleton = nullptr;
+    SkeletonType currentSkeletonType = SkeletonType::None;
 };
 
 #endif // RENDERER_H

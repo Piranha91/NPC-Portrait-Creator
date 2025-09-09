@@ -32,6 +32,8 @@ add_executable(Mugshotter
     BsaManager.cpp
     TextureManager.h
     TextureManager.cpp
+    Skeleton.h
+    Skeleton.cpp
     vendor/tinyfiledialogs/tinyfiledialogs.c
 
     # Manually include the libbsarch C++ source files in the build

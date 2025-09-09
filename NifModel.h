@@ -15,6 +15,7 @@
 // Forward-declare classes to avoid circular dependencies
 class Shader;
 class TextureManager;
+class Skeleton;
 
 struct MeshShape {
     GLuint VAO = 0, VBO = 0, EBO = 0;
@@ -50,7 +51,7 @@ public:
     NifModel();
     ~NifModel();
 
-    bool load(const std::string& path, TextureManager& textureManager);
+    bool load(const std::string& path, TextureManager& textureManager, const Skeleton* skeleton);
     void draw(Shader& shader, const glm::vec3& cameraPos);
     void cleanup();
 

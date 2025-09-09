@@ -8,7 +8,9 @@
 void BsaManager::loadArchives(const std::string& directory) {
 	bool showDebug = false; // Set to true to enable debug output
     bsaPaths.clear();
-    fileCache.clear();
+    anyCache.clear();
+    texturesCache.clear();
+    meshesCache.clear();
 
     if (directory.empty() || !std::filesystem::exists(directory)) {
         return;
@@ -34,9 +36,7 @@ void BsaManager::loadArchives(const std::string& directory) {
                 const std::string bsaFilename = bsaPath.filename().string();
 
                 for (const auto& file : bsa.list_files()) {
-                    std::string filePath = std::string(file);
-                    std::replace(filePath.begin(), filePath.end(), '/', '\\');
-                    std::transform(filePath.begin(), filePath.end(), filePath.begin(), ::tolower);
+                    std::string filePath = normalizePath(std::string(file));
 
 					if (showDebug &&
                         filePath.find("texture") != std::string::npos &&
@@ -53,7 +53,16 @@ void BsaManager::loadArchives(const std::string& directory) {
                         std::cout << "[" << bsaFilename << "]: " << filePath << std::endl;
                     }
 
-                    fileCache[filePath] = bsaFilename;
+                    // Route to the correct cache by top-level folder
+                    if (filePath.rfind("textures\\", 0) == 0) {
+                        texturesCache[filePath] = bsaFilename;
+                    }
+                    else if (filePath.rfind("meshes\\", 0) == 0) {
+                        meshesCache[filePath] = bsaFilename;
+                    }
+                    else {
+                        anyCache[filePath] = bsaFilename;
+                    }
                 }
             }
             catch (const std::exception& e) {
@@ -78,12 +87,24 @@ std::string BsaManager::findFileInArchives(const std::string& relativePath) cons
         return "";
     }
 
-    std::string internalPath = relativePath;
-    std::replace(internalPath.begin(), internalPath.end(), '/', '\\');
-    std::transform(internalPath.begin(), internalPath.end(), internalPath.begin(), ::tolower);
+    std::string internalPath = normalizePath(relativePath);
 
-    auto it = fileCache.find(internalPath);
-    if (it != fileCache.end()) {
+    // If the caller is asking for a texture, only consult the Textures cache.
+    if (internalPath.rfind("textures\\", 0) == 0) {
+        if (auto it = texturesCache.find(internalPath); it != texturesCache.end()) {
+            return it->second;
+        }
+        return "";
+    }
+    // If the caller is asking for a mesh, only consult the Meshes cache.
+    if (internalPath.rfind("meshes\\", 0) == 0) {
+        if (auto it = meshesCache.find(internalPath); it != meshesCache.end()) {
+            return it->second;
+        }
+        return "";
+    }
+    // Otherwise, fall back to the general cache (non-standard top-level folders).
+    if (auto it = anyCache.find(internalPath); it != anyCache.end()) {
         return it->second;
     }
 
@@ -114,6 +135,9 @@ std::vector<char> BsaManager::extractFile(const std::string& relativePath) const
         libbsarch::bs_archive bsa;
         bsa.load_from_disk(bsaFullPath.wstring());
 
+        // Use the original relativePath (libbsarch expects forward slashes),
+        // but normalize here if needed: we can safely pass the original, as
+        // bsa.extract_to_memory handles '/'.
         libbsarch::memory_blob blob = bsa.extract_to_memory(relativePath);
         const char* data = static_cast<const char*>(blob.data);
         return std::vector<char>(data, data + blob.size);
@@ -122,4 +146,14 @@ std::vector<char> BsaManager::extractFile(const std::string& relativePath) const
         std::cerr << "Failed to extract " << relativePath << " from " << bsaName << ": " << e.what() << std::endl;
         return {};
     }
+}
+
+
+std::string BsaManager::normalizePath(const std::string& p) {
+    std::string s = p;
+    std::replace(s.begin(), s.end(), '/', '\\');
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    // Remove accidental leading backslash to make rfind("textures\\",0) work
+    if (!s.empty() && (s[0] == '\\')) s.erase(0, 1);
+    return s;
 }

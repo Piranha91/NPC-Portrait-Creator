@@ -1,6 +1,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 
 #include "Renderer.h"
+#include "BsaManager.h"
+#include "Skeleton.h"
 #include <iostream>
 #include <stdexcept>
 #include <fstream>
@@ -83,9 +85,37 @@ void Renderer::init(bool headless) {
     glViewport(0, 0, screenWidth, screenHeight);
     shader.load("shaders/basic.vert", "shaders/basic.frag");
 
-    model = std::make_unique<NifModel>();
-
+    // --- BSA and Skeleton Loading ---
+    // Load config first to get the fallback directory
     loadConfig();
+
+    // Use the fallback directory to load archives
+    bsaManager.loadArchives(fallbackRootDirectory);
+
+    // Attempt to load default skeletons from BSAs
+    const std::string femaleSkelPath = "actors\\character\\character assets female\\skeleton_female.nif";
+    auto femaleData = bsaManager.extractFile(femaleSkelPath);
+    if (!femaleData.empty()) {
+        femaleSkeleton.loadFromMemory(femaleData, femaleSkelPath);
+    }
+
+    const std::string maleSkelPath = "actors\\character\\character assets\\skeleton.nif";
+    auto maleData = bsaManager.extractFile(maleSkelPath);
+    if (!maleData.empty()) {
+        maleSkeleton.loadFromMemory(maleData, maleSkelPath);
+    }
+
+    // Set a default active skeleton
+    if (femaleSkeleton.isLoaded()) {
+        activeSkeleton = &femaleSkeleton;
+        currentSkeletonType = SkeletonType::Female;
+    }
+    else if (maleSkeleton.isLoaded()) {
+        activeSkeleton = &maleSkeleton;
+        currentSkeletonType = SkeletonType::Male;
+    }
+
+    model = std::make_unique<NifModel>();
 
     if (!headless) {
         initUI();
@@ -106,6 +136,7 @@ void Renderer::initUI() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
+	io.FontGlobalScale = 2.0f; // Scale up for high-DPI displays
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
 
@@ -169,6 +200,48 @@ void Renderer::renderUI() {
             }
             ImGui::EndMenu();
         }
+
+        if (ImGui::BeginMenu("Skeleton")) {
+            // Always available: load a custom skeleton from disk
+            if (ImGui::MenuItem("Load Custom Skeleton...")) {
+                const char* filterPatterns[1] = { "*.nif" };
+                const char* skelPath = tinyfd_openFileDialog("Open Skeleton NIF", "", 1, filterPatterns, "NIF Files", 0);
+                if (skelPath && skelPath[0]) {
+                    loadCustomSkeleton(skelPath);
+                }
+            }
+            ImGui::Separator();
+
+            // Radio-like selection: None / Female / Male / Custom
+            bool sel = (currentSkeletonType == SkeletonType::None);
+            if (ImGui::MenuItem("None", nullptr, sel)) {
+                currentSkeletonType = SkeletonType::None;
+                activeSkeleton = nullptr;
+            }
+
+            sel = (currentSkeletonType == SkeletonType::Female);
+            if (ImGui::MenuItem("Female", nullptr, sel, femaleSkeleton.isLoaded())) {
+                currentSkeletonType = SkeletonType::Female;
+                activeSkeleton = &femaleSkeleton;
+            }
+
+            sel = (currentSkeletonType == SkeletonType::Male);
+            if (ImGui::MenuItem("Male", nullptr, sel, maleSkeleton.isLoaded())) {
+                currentSkeletonType = SkeletonType::Male;
+                activeSkeleton = &maleSkeleton;
+            }
+
+            sel = (currentSkeletonType == SkeletonType::Custom);
+            const bool customAvailable = customSkeleton.isLoaded();
+            if (ImGui::MenuItem("Custom", nullptr, sel, customAvailable)) {
+                if (customAvailable) {
+                    currentSkeletonType = SkeletonType::Custom;
+                    activeSkeleton = &customSkeleton;
+                }
+            }
+            ImGui::EndMenu();
+        }
+
         ImGui::EndMainMenuBar();
     }
 }
@@ -213,7 +286,18 @@ void Renderer::HandleFramebufferSize(int width, int height) {
     glViewport(0, 0, width, height);
 }
 
-// --- Model Loading and Util (unchanged) ---
+// --- Model Loading and Util ---
+
+void Renderer::loadCustomSkeleton(const std::string& path) {
+    if (customSkeleton.loadFromFile(path)) {
+        activeSkeleton = &customSkeleton;
+        currentSkeletonType = SkeletonType::Custom;
+    }
+    else {
+        std::cerr << "Failed to load custom skeleton. It will not be available." << std::endl;
+    }
+}
+
 void Renderer::loadNifModel(const std::string& path) {
     std::string pathLower = path;
     std::transform(pathLower.begin(), pathLower.end(), pathLower.begin(), ::tolower);
@@ -235,7 +319,7 @@ void Renderer::loadNifModel(const std::string& path) {
         model = std::make_unique<NifModel>();
     }
 
-    if (model->load(path, textureManager)) {
+    if (model->load(path, textureManager, activeSkeleton)) {
         currentNifPath = path;
         saveConfig();
 

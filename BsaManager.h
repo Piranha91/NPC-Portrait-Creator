@@ -16,5 +16,10 @@ public:
 
 private:
     std::vector<std::filesystem::path> bsaPaths;
-    std::unordered_map<std::string, std::string> fileCache;
+    // Separate caches so textures-only queries don't scan meshes archives and vice versa.
+    std::unordered_map<std::string, std::string> anyCache;      // fallback / non-standard paths
+    std::unordered_map<std::string, std::string> texturesCache; // keys start with "textures\"
+    std::unordered_map<std::string, std::string> meshesCache;   // keys start with "meshes\"
+
+    static std::string normalizePath(const std::string& p);
 };

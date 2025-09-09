@@ -14,6 +14,7 @@ int main(int argc, char** argv) {
         ("f,file", "Input .nif file", cxxopts::value<std::string>())
         ("o,output", "Output .png file", cxxopts::value<std::string>())
         ("r,root", "Set the fallback root data directory", cxxopts::value<std::string>())
+        ("s,skeleton", "Path to a custom skeleton.nif file", cxxopts::value<std::string>()) // New option
         ("headless", "Run in headless mode without a visible window")
         ("camX", "Camera X position", cxxopts::value<float>()->default_value("0"))
         ("camY", "Camera Y position", cxxopts::value<float>()->default_value("0"))
@@ -37,6 +38,11 @@ int main(int argc, char** argv) {
         }
 
         renderer.init(isHeadless);
+
+        // Load custom skeleton if provided
+        if (result.count("skeleton")) {
+            renderer.loadCustomSkeleton(result["skeleton"].as<std::string>());
+        }
 
         if (isHeadless) {
             std::cout << "DEBUG: Running in HEADLESS mode." << std::endl;
