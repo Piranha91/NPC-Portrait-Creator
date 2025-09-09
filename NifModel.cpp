@@ -1,38 +1,33 @@
+#define GLM_ENABLE_EXPERIMENTAL
 #include "NifModel.h"
 #include "Shader.h"
-#include "TextureManager.h" // Include the new texture manager
+#include "TextureManager.h" 
 #include <iostream>
 #include <set>
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <Shaders.hpp> 
 #include <limits>
+#include <glm/gtx/string_cast.hpp> // For printing glm::mat4
 
 // Helper function to get the full world transform of any scene graph object (Node or Shape)
-nifly::MatTransform GetAVObjectTransformToGlobal(const nifly::NifFile& nifFile, nifly::NiAVObject* obj) {
+nifly::MatTransform GetAVObjectTransformToGlobal(const nifly::NifFile& nifFile, nifly::NiAVObject* obj, bool debugMode = false) {
     if (!obj) {
         return nifly::MatTransform();
     }
+    if (debugMode) std::cout << "      [Debug] GetAVObjectTransformToGlobal for '" << obj->name.get() << "':\n";
+
     nifly::MatTransform xform = obj->GetTransformToParent();
     nifly::NiNode* parent = nifFile.GetParentNode(obj);
     while (parent) {
+        if (debugMode) std::cout << "        - Traversing up to parent: '" << parent->name.get() << "'\n";
         xform = parent->GetTransformToParent().ComposeTransforms(xform);
         parent = nifFile.GetParentNode(parent);
     }
+    if (debugMode) std::cout << "      [Debug] Final world transform calculated.\n";
     return xform;
 }
 
-inline nifly::MatTransform GetShapeTransformToGlobal(const nifly::NifFile* nifFile,
-    nifly::NiShape* niShape)
-{
-    nifly::MatTransform xform = niShape->GetTransformToParent();
-    nifly::NiNode* parent = nifFile->GetParentNode(niShape);
-    while (parent) {
-        xform = parent->GetTransformToParent().ComposeTransforms(xform);
-        parent = nifFile->GetParentNode(parent);
-    }
-    return xform;
-}
 
 // Helper function at the top of NifModel.cpp to convert NIF blend modes to OpenGL blend modes
 GLenum NifBlendToGL(unsigned int nifBlend) {
@@ -117,6 +112,9 @@ NifModel::~NifModel() {
 }
 
 bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) {
+    // DEBUGGING FLAG
+    bool debugMode = true;
+
     cleanup();
     if (nif.Load(nifPath) != 0) {
         std::cerr << "Error: Failed to load NIF file: " << nifPath << std::endl;
@@ -124,18 +122,6 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
     }
 
     const auto& shapeList = nif.GetShapes();
-    std::cout << "\n--- NIF Block Debug Information ---\n";
-    uint32_t numBlocks = nif.GetHeader().GetNumBlocks();
-    for (uint32_t i = 0; i < numBlocks; ++i) {
-        nifly::NiObject* block = nif.GetHeader().GetBlock<nifly::NiObject>(i);
-        if (!block) continue;
-        std::cout << "Block " << i << ": Type = " << block->GetBlockName();
-        if (auto* avObject = dynamic_cast<nifly::NiAVObject*>(block)) {
-            std::cout << ", Name = \"" << avObject->name.get() << "\"";
-        }
-        std::cout << std::endl;
-    }
-    std::cout << "-------------------------------------\n\n";
 
     glm::vec3 minBounds(std::numeric_limits<float>::max());
     glm::vec3 maxBounds(std::numeric_limits<float>::lowest());
@@ -145,7 +131,10 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
     }
 
     for (auto* niShape : shapeList) {
+        if (debugMode) std::cout << "\n--- Processing Shape: " << niShape->name.get() << " ---\n";
+
         if (!niShape || (niShape->flags & 1)) {
+            if (debugMode) std::cout << "  [Debug] Shape is hidden, skipping.\n";
             continue;
         }
 
@@ -155,6 +144,7 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         std::vector<nifly::Triangle> triangles;
         niShape->GetTriangles(triangles);
         if (!vertices || vertices->empty()) {
+            if (debugMode) std::cout << "  [Debug] Shape has no vertices, skipping.\n";
             continue;
         }
 
@@ -184,48 +174,47 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         MeshShape mesh;
         auto* skinInst = niShape->IsSkinned() ? nif.GetHeader().GetBlock<nifly::NiSkinInstance>(niShape->SkinInstanceRef()) : nullptr;
 
-        if (skinInst && !skinInst->HasType<nifly::BSDismemberSkinInstance>()) {
+        if (skinInst) {
+            if (debugMode) std::cout << "  [Debug] Shape is SKINNED. Using " << skinInst->GetBlockName() << ".\n";
+
             auto* skinData = nif.GetHeader().GetBlock<nifly::NiSkinData>(skinInst->dataRef);
             auto* skinPartition = nif.GetHeader().GetBlock<nifly::NiSkinPartition>(skinInst->skinPartitionRef);
 
             if (skinData && skinPartition) {
+                if (debugMode) std::cout << "    [Debug] Found NiSkinData and NiSkinPartition.\n";
                 nifly::NiNode* skelRoot = FindSkeletonRootLCA(nif, skinInst);
-                nifly::MatTransform skelRootWorld_n = GetAVObjectTransformToGlobal(nif, skelRoot);
-                glm::mat4 skelRootWorld = glm::transpose(glm::make_mat4(&skelRootWorld_n.ToMatrix()[0]));
+                if (debugMode) std::cout << "    [Debug] Found skeleton root (LCA): " << (skelRoot ? skelRoot->name.get() : "null") << ".\n";
 
-                const auto& skinX_n = skinData->skinTransform;
-                glm::mat4 skinTransform = glm::transpose(glm::make_mat4(&skinX_n.ToMatrix()[0]));
-                glm::mat4 skinSpaceToWorld = skelRootWorld * skinTransform;
-                glm::mat4 worldToSkinSpace = glm::inverse(skinSpaceToWorld);
-
-                std::vector<glm::mat4> boneSkinMatrices(skinData->bones.size());
                 auto boneRefIt = skinInst->boneRefs.begin();
+                std::vector<glm::mat4> boneWorldMatrices(skinData->bones.size());
+
                 for (size_t i = 0; i < skinData->bones.size() && boneRefIt != skinInst->boneRefs.end(); ++i, ++boneRefIt) {
                     auto* boneNode = nif.GetHeader().GetBlock<nifly::NiNode>(*boneRefIt);
                     if (!boneNode) continue;
 
-                    auto boneWorld_n = GetAVObjectTransformToGlobal(nif, boneNode);
+                    if (debugMode) std::cout << "    [Debug] Processing bone: " << boneNode->name.get() << ".\n";
+                    auto boneWorld_n = GetAVObjectTransformToGlobal(nif, boneNode, debugMode);
                     const auto& skinToBone_n = skinData->bones[i].boneTransform;
+
                     glm::mat4 boneWorld = glm::transpose(glm::make_mat4(&boneWorld_n.ToMatrix()[0]));
                     glm::mat4 skinToBone = glm::transpose(glm::make_mat4(&skinToBone_n.ToMatrix()[0]));
 
-                    boneSkinMatrices[i] = worldToSkinSpace * boneWorld * skinToBone;
+                    // MODIFIED: Bake directly to world space
+                    boneWorldMatrices[i] = boneWorld * skinToBone;
                 }
 
+                if (debugMode) std::cout << "    [Debug] Starting CPU vertex bake...\n";
                 auto originalVertexData = vertexData;
                 std::fill(vertexData.begin(), vertexData.end(), Vertex{});
                 std::vector<float> totalWeights(originalVertexData.size(), 0.0f);
 
                 for (const auto& partition : skinPartition->partitions) {
                     if (!partition.hasVertexMap || !partition.hasVertexWeights || !partition.hasBoneIndices) continue;
-
                     for (uint16_t i = 0; i < partition.numVertices; ++i) {
                         if (i >= partition.vertexMap.size() || i >= partition.vertexWeights.size() || i >= partition.boneIndices.size()) continue;
-
                         uint16_t originalVertIndex = partition.vertexMap[i];
                         if (originalVertIndex >= originalVertexData.size()) continue;
 
-                        // Create temporary arrays to access members by index
                         const float weights[] = { partition.vertexWeights[i].w1, partition.vertexWeights[i].w2, partition.vertexWeights[i].w3, partition.vertexWeights[i].w4 };
                         const uint8_t indices[] = { partition.boneIndices[i].i1, partition.boneIndices[i].i2, partition.boneIndices[i].i3, partition.boneIndices[i].i4 };
 
@@ -237,9 +226,9 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
                             if (bonePaletteIndex >= partition.bones.size()) continue;
 
                             uint16_t globalBoneIndex = partition.bones[bonePaletteIndex];
-                            if (globalBoneIndex >= boneSkinMatrices.size()) continue;
+                            if (globalBoneIndex >= boneWorldMatrices.size()) continue;
 
-                            const glm::mat4& boneMatrix = boneSkinMatrices[globalBoneIndex];
+                            const glm::mat4& boneMatrix = boneWorldMatrices[globalBoneIndex];
 
                             vertexData[originalVertIndex].pos += glm::vec3(boneMatrix * glm::vec4(originalVertexData[originalVertIndex].pos, 1.0f)) * weight;
                             glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(boneMatrix)));
@@ -259,16 +248,26 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
                         vertexData[i] = originalVertexData[i];
                     }
                 }
-                mesh.transform = skinSpaceToWorld;
+
+                // MODIFIED: Set transform to identity since vertices are now in world space
+                mesh.transform = glm::mat4(1.0f);
+                if (debugMode) std::cout << "    [Debug] CPU bake complete. Setting mesh transform to identity.\n";
             }
             else {
-                mesh.transform = glm::mat4(1.0f);
+                if (debugMode) std::cout << "    [Debug] Skinned shape missing SkinData or SkinPartition, treating as unskinned.\n";
+                auto niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, debugMode);
+                mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
             }
         }
         else {
-            auto niflyTransform = GetAVObjectTransformToGlobal(nif, niShape);
-            glm::mat4 loadedMatrix = glm::make_mat4(&niflyTransform.ToMatrix()[0]);
-            mesh.transform = glm::transpose(loadedMatrix);
+            if (debugMode) std::cout << "  [Debug] Shape is UNskinned.\n";
+            auto niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, debugMode);
+            if (debugMode) {
+                std::cout << "    [Debug] Calculated world transform. Applying to mesh.\n";
+                // Optionally print the matrix for deep debugging
+                // std::cout << glm::to_string(glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]))) << std::endl;
+            }
+            mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
         }
 
         const nifly::NiShader* shader = nif.GetShader(niShape);
@@ -283,7 +282,8 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
             maxBounds = glm::max(maxBounds, glm::vec3(transformedVert));
         }
 
-        if (shader && shader->HasTextureSet()) {
+        // Texture loading and property checks... (no changes needed here)
+        if (shader && shader->HasTextureSet()) { //...
             if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
                 for (size_t i = 0; i < textureSet->textures.size(); ++i) {
                     std::string texPath = textureSet->textures[i].get();
@@ -357,18 +357,23 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         glBindVertexArray(0);
 
         if (mesh.alphaBlend || mesh.alphaTest) {
+            if (debugMode) std::cout << "  [Debug] Classifying shape as TRANSPARENT.\n";
             transparentShapes.push_back(mesh);
         }
         else {
+            if (debugMode) std::cout << "  [Debug] Classifying shape as OPAQUE.\n";
             opaqueShapes.push_back(mesh);
         }
     }
 
     modelCenter = (minBounds + maxBounds) * 0.5f;
     modelBoundsSize = maxBounds - minBounds;
-    std::cout << "Successfully loaded " << opaqueShapes.size() << " opaque and "
-        << transparentShapes.size() << " transparent shapes from NIF."
-        << std::endl;
+    if (debugMode) {
+        std::cout << "\n--- Load Complete ---\n";
+        std::cout << "Model Center: (" << modelCenter.x << ", " << modelCenter.y << ", " << modelCenter.z << ")\n";
+        std::cout << "Model Bounds Size: (" << modelBoundsSize.x << ", " << modelBoundsSize.y << ", " << modelBoundsSize.z << ")\n";
+        std::cout << "---------------------\n\n";
+    }
     return true;
 }
 
