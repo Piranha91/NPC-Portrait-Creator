@@ -60,8 +60,15 @@ public:
     // This is no longer used by the renderer for loading but can be kept for debugging
     std::vector<std::string> getTextures() const;
 
-    glm::vec3 getCenter() const { return modelCenter; }
-    glm::vec3 getBoundsSize() const { return modelBoundsSize; }
+    glm::vec3 getMinBounds() const { return minBounds; }
+    glm::vec3 getMaxBounds() const { return maxBounds; }
+    // --- NEW: Head-only bounds accessors ---
+    glm::vec3 getHeadMinBounds() const { return headMinBounds; }
+    glm::vec3 getHeadMaxBounds() const { return headMaxBounds; }
+    glm::vec3 getEyeCenter() const { return eyeCenter; }
+    bool hasEyeCenter() const { return bHasEyeCenter; }
+    glm::vec3 getCenter() const { return (minBounds + maxBounds) * 0.5f; }
+    glm::vec3 getBoundsSize() const { return maxBounds - minBounds; }
 
 private:
     nifly::NifFile nif;
@@ -71,4 +78,13 @@ private:
     std::vector<std::string> texturePaths;
     glm::vec3 modelCenter = glm::vec3(0.0f);
     glm::vec3 modelBoundsSize = glm::vec3(0.0f);
+    glm::vec3 minBounds;
+    glm::vec3 maxBounds;
+
+    // --- NEW: Head-only bounds ---
+    glm::vec3 headMinBounds;
+    glm::vec3 headMaxBounds;
+
+    glm::vec3 eyeCenter;
+    bool bHasEyeCenter = false;
 };

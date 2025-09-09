@@ -106,8 +106,14 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
 
     const auto& shapeList = nif.GetShapes();
 
-    glm::vec3 minBounds(std::numeric_limits<float>::max());
-    glm::vec3 maxBounds(std::numeric_limits<float>::lowest());
+    // Reset bounds and eye tracking for the new model
+    minBounds = glm::vec3(std::numeric_limits<float>::max());
+    maxBounds = glm::vec3(std::numeric_limits<float>::lowest());
+    // --- NEW: Reset head-only bounds ---
+    headMinBounds = glm::vec3(std::numeric_limits<float>::max());
+    headMaxBounds = glm::vec3(std::numeric_limits<float>::lowest());
+
+    bHasEyeCenter = false;
     if (shapeList.empty()) {
         std::cerr << "Warning: NIF file contains no shapes." << std::endl;
         return true;
@@ -191,6 +197,12 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
 
         mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
 
+        // --- NEW: Check for eyes and store center ---
+        if (shapeName.find("Eyes") != std::string::npos) {
+            eyeCenter = glm::vec3(mesh.transform * glm::vec4(originalCentroid, 1.0f));
+            bHasEyeCenter = true;
+        }
+
         if (debugMode) {
             std::cout << "    [Debug] Calculated world transform. Applying to mesh.\n";
             glm::vec3 transformedCentroid = glm::vec3(mesh.transform * glm::vec4(originalCentroid, 1.0f));
@@ -206,19 +218,25 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
             mesh.isModelSpace = shader->IsModelSpace();
         }
 
-        // --- START: CORRECTED BOUNDING BOX CALCULATION ---
-        // The bounds transform is ALWAYS the mesh's Z-up world transform.
-        // This ensures the entire model's bounding box is calculated in one consistent coordinate space.
+        // --- MODIFIED: Bounding box calculation ---
         glm::mat4 boundsTransform = mesh.transform;
-
-        // The faulty "if (mesh.isModelSpace)" block that caused the inconsistency has been REMOVED from here.
+        bool isHairPart = (shapeName.find("Hair") != std::string::npos);
 
         for (const auto& vert : vertexData) {
             glm::vec4 transformedVert = boundsTransform * glm::vec4(vert.pos, 1.0f);
-            minBounds = glm::min(minBounds, glm::vec3(transformedVert));
-            maxBounds = glm::max(maxBounds, glm::vec3(transformedVert));
+            glm::vec3 tv3 = glm::vec3(transformedVert);
+
+            // Update overall bounds for all shapes
+            minBounds = glm::min(minBounds, tv3);
+            maxBounds = glm::max(maxBounds, tv3);
+
+            // Update head-only bounds if it's not a hair part
+            if (!isHairPart) {
+                headMinBounds = glm::min(headMinBounds, tv3);
+                headMaxBounds = glm::max(headMaxBounds, tv3);
+            }
         }
-        // --- END: CORRECTED BOUNDING BOX CALCULATION ---
+        // --- END: MODIFIED BOUNDING BOX CALCULATION ---
 
         if (shader && shader->HasTextureSet()) {
             if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
@@ -303,12 +321,10 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager) 
         }
     }
 
-    modelCenter = (minBounds + maxBounds) * 0.5f;
-    modelBoundsSize = maxBounds - minBounds;
     if (debugMode) {
         std::cout << "\n--- Load Complete ---\n";
-        std::cout << "Model Center: (" << modelCenter.x << ", " << modelCenter.y << ", " << modelCenter.z << ")\n";
-        std::cout << "Model Bounds Size: (" << modelBoundsSize.x << ", " << modelBoundsSize.y << ", " << modelBoundsSize.z << ")\n";
+        std::cout << "Model Center: (" << getCenter().x << ", " << getCenter().y << ", " << getCenter().z << ")\n";
+        std::cout << "Model Bounds Size: (" << getBoundsSize().x << ", " << getBoundsSize().y << ", " << getBoundsSize().z << ")\n";
         std::cout << "---------------------\n\n";
     }
     return true;
@@ -367,7 +383,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
             glActiveTexture(GL_TEXTURE3);
             glBindTexture(GL_TEXTURE_2D, shape.detailTextureID);
         }
-        shader.setBool("has_specular_map", shape.specularTextureID != 0);
+        shader.setBool("has_specular_map", shape.specularTextureID != .0f);
         if (shape.specularTextureID != 0) {
             glActiveTexture(GL_TEXTURE4);
             glBindTexture(GL_TEXTURE_2D, shape.specularTextureID);

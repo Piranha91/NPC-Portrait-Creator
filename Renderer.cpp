@@ -66,7 +66,7 @@ void Renderer::init(bool headless) {
         throw std::runtime_error("Failed to create GLFW window");
     }
     glfwMakeContextCurrent(window);
-    
+
     // --- Register Callbacks ---
     glfwSetWindowUserPointer(window, this);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
@@ -224,13 +224,10 @@ void Renderer::loadNifModel(const std::string& path) {
 
     if (meshesPos != std::string::npos) {
         rootDirectory = path.substr(0, meshesPos);
-        std::cout << "Auto-detected root directory: " << rootDirectory << std::endl;
     }
     else {
         rootDirectory = fallbackRootDirectory;
-        std::cout << "Could not auto-detect root. Using fallback: " << rootDirectory << std::endl;
     }
-
     textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory);
 
     if (!model) {
@@ -241,46 +238,57 @@ void Renderer::loadNifModel(const std::string& path) {
         currentNifPath = path;
         saveConfig();
 
-        // --- START: CAMERA POSITIONING LOGIC WITH DEBUG LOGGING ---
-        std::cout << "\n--- Calculating Camera Position ---\n";
+        // --- START: REVISED MUGSHOT CAMERA POSITIONING LOGIC ---
+        std::cout << "\n--- Calculating Mugshot Camera Position ---\n";
 
-        // 1. Get the model's center and size in its original Z-up coordinate system.
-        glm::vec3 preConversionCenter = model->getCenter();
-        glm::vec3 preConversionSize = model->getBoundsSize();
-        std::cout << "  [Camera Debug] Pre-conversion Center: " << glm::to_string(preConversionCenter) << std::endl;
-        std::cout << "  [Camera Debug] Pre-conversion Size:   " << glm::to_string(preConversionSize) << std::endl;
+        // 1. Get model metrics in original Z-up space from the NifModel
+        // --- MODIFIED: Use head-only bounds for calculations ---
+        glm::vec3 modelMinBounds_Zup = model->getHeadMinBounds();
+        glm::vec3 modelMaxBounds_Zup = model->getHeadMaxBounds();
+        glm::vec3 eyeCenter_Zup = model->hasEyeCenter() ? model->getEyeCenter() : model->getCenter();
 
-        // 2. Convert the Z-up center point to a Y-up target for the OpenGL camera.
-        camera.Target = glm::vec3(-preConversionCenter.x, preConversionCenter.z, preConversionCenter.y);
-        std::cout << "  [Camera Debug] Final Camera Target (Y-up): " << glm::to_string(camera.Target) << std::endl;
-
-        // 3. Calculate the optimal zoom distance.
+        // 2. Define mugshot parameters
+        const float bottomCropPercentage = 0.15f; // ADJUSTABLE: Crops 15% of the height from the bottom
         const float fovYRadians = glm::radians(45.0f);
-        const float aspectRatio = (float)screenWidth / (float)screenHeight;
-        const float modelHeight = preConversionSize.z;
-        const float modelWidth = preConversionSize.x;
-        std::cout << "  [Camera Debug] Using Model Height (Z): " << modelHeight << " and Width (X): " << modelWidth << std::endl;
 
-        float distanceForHeight = (modelHeight / 2.0f) / tan(fovYRadians / 2.0f);
-        float distanceForWidth = (modelWidth / 2.0f) / (tan(fovYRadians / 2.0f) * aspectRatio);
-        std::cout << "  [Camera Debug] Calculated Distance for Height: " << distanceForHeight << std::endl;
-        std::cout << "  [Camera Debug] Calculated Distance for Width:  " << distanceForWidth << std::endl;
+        // 3. Convert metrics to OpenGL's Y-up space for camera calculations
+        glm::vec3 eyeCenter_Yup = glm::vec3(-eyeCenter_Zup.x, eyeCenter_Zup.z, eyeCenter_Zup.y);
+        float modelTop_Yup = modelMaxBounds_Zup.z;
+        float modelBottom_Yup = modelMinBounds_Zup.z;
 
-        float cameraDistance = glm::max(distanceForHeight, distanceForWidth);
+        // 4. Calculate the cropped vertical boundaries of the model
+        float totalHeight = modelTop_Yup - modelBottom_Yup;
+        float croppedBottom_Yup = modelBottom_Yup + (totalHeight * bottomCropPercentage);
 
-        camera.Radius = cameraDistance * 1.15f;
-        std::cout << "  [Camera Debug] Final Camera Radius (Zoom): " << camera.Radius << std::endl;
+        // 5. Center the camera target on the VISIBLE portion of the model to ensure tight framing.
+        // The horizontal and depth coordinates are still based on the eyes.
+        float visibleCenter_Yup = (modelTop_Yup + croppedBottom_Yup) / 2.0f;
+        camera.Target.x = eyeCenter_Yup.x;
+        camera.Target.y = visibleCenter_Yup;
+        camera.Target.z = eyeCenter_Yup.z;
 
-        // 4. Set the camera's initial orientation.
+        // 6. Calculate the required frame height based on the visible portion
+        float visibleHeight = modelTop_Yup - croppedBottom_Yup;
+        float requiredHalfHeight = visibleHeight / 2.0f;
+
+        // 7. Calculate camera distance (Radius) based on fitting the vertical height
+        float cameraDistance = requiredHalfHeight / tan(fovYRadians / 2.0f);
+
+        // Add a small buffer to prevent the model from touching the frame edges exactly
+        camera.Radius = cameraDistance * 1.05f;
+
+        // 8. Set orientation to look at the front of the face and update camera vectors
         camera.Yaw = 90.0f;
         camera.Pitch = 0.0f;
-        std::cout << "  [Camera Debug] Setting Yaw=" << camera.Yaw << ", Pitch=" << camera.Pitch << std::endl;
-
-        // 5. Apply all changes and log the final position.
         camera.updateCameraVectors();
-        std::cout << "  [Camera Debug] Final Camera Position: " << glm::to_string(camera.Position) << std::endl;
-        std::cout << "------------------------------------\n" << std::endl;
-        // --- END: CAMERA POSITIONING LOGIC ---
+
+        std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target) << std::endl;
+        std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << visibleHeight << std::endl;
+        std::cout << "  [Mugshot Debug] Final Camera Radius: " << camera.Radius << std::endl;
+        std::cout << "  [Mugshot Debug] Final Camera Position: " << glm::to_string(camera.Position) << std::endl;
+        std::cout << "-------------------------------------\n" << std::endl;
+        // --- END: REVISED MUGSHOT CAMERA POSITIONING LOGIC ---
+
     }
     else {
         std::cerr << "Renderer failed to load NIF model." << std::endl;
@@ -343,7 +351,8 @@ void Renderer::HandleMouseButton(int button, int action, int mods) {
         if (action == GLFW_PRESS) {
             isRotating = true;
             firstMouse = true;
-        } else if (action == GLFW_RELEASE) {
+        }
+        else if (action == GLFW_RELEASE) {
             isRotating = false;
         }
     }
@@ -351,7 +360,8 @@ void Renderer::HandleMouseButton(int button, int action, int mods) {
         if (action == GLFW_PRESS) {
             isPanning = true;
             firstMouse = true;
-        } else if (action == GLFW_RELEASE) {
+        }
+        else if (action == GLFW_RELEASE) {
             isPanning = false;
         }
     }
@@ -365,7 +375,7 @@ void Renderer::HandleCursorPosition(double xpos, double ypos) {
     }
 
     float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; 
+    float yoffset = lastY - ypos;
 
     lastX = xpos;
     lastY = ypos;
@@ -419,3 +429,4 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
     if (renderer) renderer->HandleKey(key, scancode, action, mods);
 }
+
