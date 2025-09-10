@@ -260,6 +260,11 @@ void Renderer::shutdownUI() {
 }
 
 void Renderer::renderFrame() {
+    // FIX: Add this check to prevent rendering when minimized.
+    if (screenWidth == 0 || screenHeight == 0) {
+        return;
+    }
+
     // Convert by dividing each color component by 255.0
     glClearColor(0.227f, 0.239f, 0.251f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
