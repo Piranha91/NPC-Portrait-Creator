@@ -17,6 +17,7 @@ struct Vertex {
     glm::vec3 pos;
     glm::vec3 normal;
     glm::vec2 texCoords;
+    glm::vec4 color;
 };
 
 // Helper function to calculate the centroid of a set of vertices
@@ -239,6 +240,8 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
         if (!vertices || vertices->empty()) continue;
 
         std::vector<Vertex> vertexData(vertices->size());
+        const auto* colors = nif.GetColorsForShape(niShape->name.get()); // FIX: Get vertex colors
+
         for (size_t i = 0; i < vertices->size(); ++i) {
             vertexData[i].pos = glm::vec3((*vertices)[i].x, (*vertices)[i].y, (*vertices)[i].z);
             const auto* normals = nif.GetNormalsForShape(niShape);
@@ -247,6 +250,15 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
             const auto* uvs = nif.GetUvsForShape(niShape);
             if (uvs && i < uvs->size()) vertexData[i].texCoords = glm::vec2((*uvs)[i].u, (*uvs)[i].v);
             else vertexData[i].texCoords = glm::vec2(0.0f, 0.0f);
+
+            // FIX: Store vertex color, defaulting to white if not present
+            if (colors && i < colors->size()) {
+                const auto& c = (*colors)[i];
+                vertexData[i].color = glm::vec4(c.r, c.g, c.b, c.a);
+            }
+            else {
+                vertexData[i].color = glm::vec4(1.0f);
+            }
         }
 
         MeshShape mesh;
@@ -274,7 +286,6 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
                         glm::mat4 boneWorld;
 
                         // --- THE KEY CHANGE IS HERE ---
-                        // Prioritize the authoritative skeleton's transform.
                         if (debugMode) std::cout << "      [Debug] Looking up bone '" << boneName << "' in active skeleton...\n";
                         if (skeleton && skeleton->hasBone(boneName)) {
                             boneWorld = skeleton->getBoneTransform(boneName);
@@ -324,6 +335,7 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
                                 totalWeights[originalVertIndex] += weight;
                             }
                             vertexData[originalVertIndex].texCoords = originalVertexData[originalVertIndex].texCoords;
+                            vertexData[originalVertIndex].color = originalVertexData[originalVertIndex].color; // FIX: Preserve vertex color
                         }
                     }
 
@@ -513,6 +525,7 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
         glBindVertexArray(mesh.VAO);
         glBindBuffer(GL_ARRAY_BUFFER, mesh.VBO);
         glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(Vertex), vertexData.data(), GL_STATIC_DRAW);
+
         std::vector<nifly::Triangle> triangles;
         niShape->GetTriangles(triangles);
         if (!triangles.empty()) {
@@ -527,12 +540,18 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.EBO);
             glBufferData(GL_ELEMENT_ARRAY_BUFFER, final_indices.size() * sizeof(unsigned short), final_indices.data(), GL_STATIC_DRAW);
         }
+
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, pos));
         glEnableVertexAttribArray(1);
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
         glEnableVertexAttribArray(2);
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoords));
+
+        // FIX: Add vertex attribute for color
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, color));
+
         glBindVertexArray(0);
 
         // Fix: 3 pass rendering depending on transparency and alpha testing
@@ -652,6 +671,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
         }
     }
     shader.setBool("use_alpha_test", false);
+    glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
 
     // --- PASS 3: TRANSPARENT (ALPHA-BLEND) OBJECTS ---
     // Render truly transparent objects last, sorted from back to front.
@@ -703,7 +723,6 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
 }
-
 
 void NifModel::cleanup() {
     for (auto& shape : opaqueShapes) {

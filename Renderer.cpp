@@ -62,6 +62,7 @@ void Renderer::init(bool headless) {
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     }
 
+    glfwWindowHint(GLFW_SAMPLES, 4); // Request 4x MSAA
     window = glfwCreateWindow(screenWidth, screenHeight, "Mugshotter", NULL, NULL);
     if (window == NULL) {
         glfwTerminate();

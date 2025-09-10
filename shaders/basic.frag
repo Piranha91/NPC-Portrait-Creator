@@ -5,6 +5,7 @@ out vec4 FragColor;
 in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoords;
+in vec4 vertexColor; // FIX: Receive vertex color
 
 // --- UNIFORMS ---
 // Samplers for all textures
@@ -44,7 +45,11 @@ void main()
 {    
     vec4 baseColor = texture(texture_diffuse1, TexCoords);
 
-    // Alpha Test
+    // FIX: Modulate the texture's alpha with the vertex alpha.
+    // This allows for soft, faded edges on hair and scalps.
+    baseColor.a *= vertexColor.a;
+
+    // Alpha Test (for cutout materials like hair and eyelashes)
     if (use_alpha_test && baseColor.a < alpha_threshold) {
         discard;
     }
@@ -71,11 +76,9 @@ void main()
         finalNormal = normalize(mat3(view) * modelSpaceNormal);
     } else {
         // --- STANDARD TANGENT-SPACE PATH ---
-        // (This is a simplified implementation for standard objects)
         finalNormal = normalize(Normal);
         if (has_normal_map) {
-            // For a full implementation, this would require a TBN matrix.
-            // For now, we assume the normal map directly perturbs the vertex normal.
+            // This is a simplified implementation. A full implementation would require a TBN matrix.
             finalNormal = normalize(texture(texture_normal, TexCoords).xyz * 2.0 - 1.0);
         }
     }
@@ -105,3 +108,4 @@ void main()
     vec3 finalColor = (ambientColor + diffuse + subsurfaceColor) * baseColor.rgb + (specularStrength * lightColor);
     FragColor = vec4(finalColor, baseColor.a);
 }
+
