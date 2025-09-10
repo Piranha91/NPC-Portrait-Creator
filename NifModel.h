@@ -29,6 +29,7 @@ struct MeshShape {
     GLuint specularTextureID = 0; // Slot 7: _s.dds
     bool isModelSpace = false;
     // --- Additions for Alpha Properties ---
+    std::vector<MeshShape> alphaTestShapes;
     bool hasAlphaProperty = false;
     bool alphaBlend = false;
     bool alphaTest = false;
@@ -71,6 +72,7 @@ private:
     nifly::NifFile nif;
     std::vector<MeshShape> opaqueShapes;
     std::vector<MeshShape> transparentShapes;
+    std::vector<MeshShape> alphaTestShapes;
     std::vector<std::string> texturePaths;
 
     // --- Restored Members from Version 1 ---

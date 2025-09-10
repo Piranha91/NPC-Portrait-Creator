@@ -535,10 +535,17 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoords));
         glBindVertexArray(0);
 
-        // FIX: Only true alpha blending goes in the transparent pass.
-        // Alpha test (cutout) materials are handled in the opaque pass.
-        if (mesh.hasAlphaProperty && mesh.alphaBlend) {
-            transparentShapes.push_back(mesh);
+        // Fix: 3 pass rendering depending on transparency and alpha testing
+        if (mesh.hasAlphaProperty) {
+            if (mesh.alphaBlend) {
+                transparentShapes.push_back(mesh);
+            }
+            else if (mesh.alphaTest) {
+                alphaTestShapes.push_back(mesh);
+            }
+            else {
+                opaqueShapes.push_back(mesh);
+            }
         }
         else {
             opaqueShapes.push_back(mesh);
@@ -555,7 +562,6 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
     return true;
 }
 
-
 void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     shader.use();
     shader.setInt("texture_diffuse1", 0);
@@ -566,15 +572,15 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     shader.setInt("texture_face_tint", 5);
 
     // --- PASS 1: OPAQUE OBJECTS ---
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
+    // Render all fully opaque objects first. They will populate the depth buffer.
+    glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
-    shader.setBool("use_alpha_test", false);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
 
     for (const auto& shape : opaqueShapes) {
         shader.setMat4("model", shape.transform);
-
         shader.setBool("has_tint_color", shape.hasTintColor);
         if (shape.hasTintColor) {
             shader.setVec3("tint_color", shape.tintColor);
@@ -607,121 +613,108 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
             glActiveTexture(GL_TEXTURE5);
             glBindTexture(GL_TEXTURE_2D, shape.faceTintColorMaskID);
         }
-
-        // --- Drawing logic depends on material type ---
-        if (shape.hasAlphaProperty && shape.alphaTest) {
-            // This is an alpha-tested (cutout) material like eyelashes or hair
-            shader.setBool("use_alpha_test", true);
-            shader.setFloat("alpha_threshold", shape.alphaThreshold);
-
-            if (shape.doubleSided) {
-                // For double-sided cutouts, render back faces first, then front faces.
-                // This correctly handles depth testing between the two sides.
-                glCullFace(GL_FRONT);
-                shape.draw();
-                glCullFace(GL_BACK);
-                shape.draw();
-            } else {
-                // Standard single-sided cutout
-                glCullFace(GL_BACK);
-                shape.draw();
-            }
-            shader.setBool("use_alpha_test", false); // Reset for next shape
-        } else {
-            // This is a standard opaque material
-            glCullFace(GL_BACK);
-            shape.draw();
-        }
+        shape.draw();
     }
 
-    // --- SORT TRANSPARENT OBJECTS (back-to-front) ---
-    std::sort(transparentShapes.begin(), transparentShapes.end(),
-        [&cameraPos](const MeshShape& a, const MeshShape& b) {
-            glm::vec3 posA = glm::vec3(a.transform[3]);
-            glm::vec3 posB = glm::vec3(b.transform[3]);
-            return glm::distance2(posA, cameraPos) > glm::distance2(posB, cameraPos);
-        });
-
-    // --- PASS 2: TRANSPARENT OBJECTS ---
-    for (const auto& shape : transparentShapes) {
+    // --- PASS 2: ALPHA-TEST (CUTOUT) OBJECTS ---
+    // Render cutout objects next. They test against the depth buffer and also write to it.
+    // This allows different cutout objects (e.g., hair, eyebrows, eyelashes) to correctly occlude each other.
+    for (const auto& shape : alphaTestShapes) {
         shader.setMat4("model", shape.transform);
-
-        if (shape.doubleSided) glDisable(GL_CULL_FACE); else glEnable(GL_CULL_FACE);
-
-        if (shape.alphaBlend) {
-            glEnable(GL_BLEND);
-            glBlendFunc(shape.srcBlend, shape.dstBlend);
-        }
-        else {
-            glDisable(GL_BLEND);
-        }
-
-        if (shape.alphaTest) {
-            shader.setBool("use_alpha_test", true);
-            shader.setFloat("alpha_threshold", shape.alphaThreshold);
-        }
-        else {
-            shader.setBool("use_alpha_test", false);
-        }
-
-        if (shape.alphaTest) {
-            glDepthMask(GL_TRUE);
-        }
-        else {
-            // FIX: For standard alpha blending, we must disable depth writes.
-            // This prevents incorrectly sorted objects from occluding things behind them.
-            // The zBufferWrite flag from the NIF is ignored in this case, as it causes
-            // the one-sided transparency bug
-            glDepthMask(GL_FALSE);
-        }
-
         shader.setBool("has_tint_color", shape.hasTintColor);
         if (shape.hasTintColor) {
             shader.setVec3("tint_color", shape.tintColor);
         }
+        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
+        if (shape.normalTextureID != 0) { glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, shape.normalTextureID); }
+        if (shape.skinTextureID != 0) { glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, shape.skinTextureID); }
+        if (shape.detailTextureID != 0) { glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, shape.detailTextureID); }
+        if (shape.specularTextureID != 0) { glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, shape.specularTextureID); }
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
-        shader.setBool("has_normal_map", shape.normalTextureID != 0);
-        if (shape.normalTextureID != 0) {
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, shape.normalTextureID);
-        }
-        shader.setBool("has_skin_map", shape.skinTextureID != 0);
-        if (shape.skinTextureID != 0) {
-            glActiveTexture(GL_TEXTURE2);
-            glBindTexture(GL_TEXTURE_2D, shape.skinTextureID);
-        }
-        shader.setBool("has_detail_map", shape.detailTextureID != 0);
-        if (shape.detailTextureID != 0) {
-            glActiveTexture(GL_TEXTURE3);
-            glBindTexture(GL_TEXTURE_2D, shape.detailTextureID);
-        }
-        shader.setBool("has_specular_map", shape.specularTextureID != 0);
-        if (shape.specularTextureID != 0) {
-            glActiveTexture(GL_TEXTURE4);
-            glBindTexture(GL_TEXTURE_2D, shape.specularTextureID);
-        }
         shader.setBool("has_face_tint_map", shape.faceTintColorMaskID != 0);
         if (shape.faceTintColorMaskID != 0) {
             glActiveTexture(GL_TEXTURE5);
             glBindTexture(GL_TEXTURE_2D, shape.faceTintColorMaskID);
         }
 
-        shape.draw();
+        shader.setBool("use_alpha_test", true);
+        shader.setFloat("alpha_threshold", shape.alphaThreshold);
+
+        if (shape.doubleSided) {
+            glCullFace(GL_FRONT); // Pass 1: Draw back faces
+            shape.draw();
+            glCullFace(GL_BACK);  // Pass 2: Draw front faces
+            shape.draw();
+        }
+        else {
+            glCullFace(GL_BACK);
+            shape.draw();
+        }
+    }
+    shader.setBool("use_alpha_test", false);
+
+    // --- PASS 3: TRANSPARENT (ALPHA-BLEND) OBJECTS ---
+    // Render truly transparent objects last, sorted from back to front.
+    // They test against the depth buffer but do not write to it.
+    if (!transparentShapes.empty()) {
+        std::sort(transparentShapes.begin(), transparentShapes.end(),
+            [&cameraPos](const MeshShape& a, const MeshShape& b) {
+                glm::vec3 posA = glm::vec3(a.transform[3]);
+                glm::vec3 posB = glm::vec3(b.transform[3]);
+                return glm::distance2(posA, cameraPos) > glm::distance2(posB, cameraPos);
+            });
+
+        glEnable(GL_BLEND);
+        glDepthMask(GL_FALSE); // CRITICAL: Disable depth writes
+
+        for (const auto& shape : transparentShapes) {
+            shader.setMat4("model", shape.transform);
+            shader.setBool("has_tint_color", shape.hasTintColor);
+            if (shape.hasTintColor) shader.setVec3("tint_color", shape.tintColor);
+
+            glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
+            if (shape.normalTextureID != 0) { glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, shape.normalTextureID); }
+            if (shape.skinTextureID != 0) { glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, shape.skinTextureID); }
+            if (shape.detailTextureID != 0) { glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, shape.detailTextureID); }
+            if (shape.specularTextureID != 0) { glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, shape.specularTextureID); }
+
+            shader.setBool("has_face_tint_map", shape.faceTintColorMaskID != 0);
+            if (shape.faceTintColorMaskID != 0) {
+                glActiveTexture(GL_TEXTURE5);
+                glBindTexture(GL_TEXTURE_2D, shape.faceTintColorMaskID);
+            }
+
+            glBlendFunc(shape.srcBlend, shape.dstBlend);
+            if (shape.doubleSided) {
+                glDisable(GL_CULL_FACE);
+            }
+            else {
+                glEnable(GL_CULL_FACE);
+                glCullFace(GL_BACK);
+            }
+
+            shape.draw();
+        }
     }
 
-    // Reset to default OpenGL state after drawing all shapes
-    glEnable(GL_CULL_FACE);
+    // --- Reset to default OpenGL state after drawing all shapes ---
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
 }
+
 
 void NifModel::cleanup() {
     for (auto& shape : opaqueShapes) {
         shape.cleanup();
     }
     opaqueShapes.clear();
+
+    for (auto& shape : alphaTestShapes) {
+        shape.cleanup();
+    }
+    alphaTestShapes.clear();
 
     for (auto& shape : transparentShapes) {
         shape.cleanup();
