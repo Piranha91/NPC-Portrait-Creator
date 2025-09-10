@@ -42,7 +42,7 @@ uniform vec3 viewPos;
 // Light is defined in world space
 const vec3 lightDir_world = normalize(vec3(0.5, 0.5, 1.0));
 const vec3 lightColor = vec3(1.0, 1.0, 1.0);
-const vec3 ambientColor = vec3(0.4, 0.4, 0.4);
+const vec3 ambientColor = vec3(0.15, 0.15, 0.15);
 
 void main()
 {    
