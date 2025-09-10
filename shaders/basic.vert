@@ -2,30 +2,32 @@
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aTexCoords;
-layout (location = 3) in vec4 aColor; // FIX: Accept vertex color
+layout (location = 3) in vec4 aColor;
 
-out vec3 FragPos;
-out vec3 Normal;
+// NEW: Outputs are now in view space for consistent lighting
+out vec3 FragPos_ViewSpace;
+out vec3 Normal_ViewSpace;
+
 out vec2 TexCoords;
-out vec4 vertexColor; // FIX: Pass color to fragment shader
+out vec4 vertexColor;
 
-uniform mat4 model; // Use this for the object's world transform
+uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
 void main()
 {
-    // The final position is a simple, standard calculation.
-    // model contains the correct world space for each mesh part.
-    gl_Position = projection * view * model * vec4(aPos, 1.0);
+    // Transform vertex position to view space
+    vec4 pos_view = view * model * vec4(aPos, 1.0);
+    FragPos_ViewSpace = vec3(pos_view);
 
-    // Calculate fragment position in world space for lighting
-    FragPos = vec3(model * vec4(aPos, 1.0));
+    // Transform vertex normal to view space
+    Normal_ViewSpace = mat3(transpose(inverse(view * model))) * aNormal;
 
-    // For lighting, transform the normal from model space to world space.
-    // The mat3() cast removes translation from the matrix.
-    Normal = mat3(transpose(inverse(model))) * aNormal;
-
+    // Final clip space position
+    gl_Position = projection * pos_view;
+    
+    // Pass texture coordinates and color through
     TexCoords = aTexCoords;
-    vertexColor = aColor; // FIX: Pass vertex color through
+    vertexColor = aColor;
 }

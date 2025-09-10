@@ -286,6 +286,12 @@ void Renderer::renderFrame() {
 
     shader.setMat4("projection", projection);
     shader.setMat4("view", view);
+    // --- FIX: Pass camera position to the shader for specular lighting ---
+    shader.setVec3("viewPos", camera.Position);
+
+    if (model) {
+        model->draw(shader, camera.Position);
+    }
     if (model) {
         model->draw(shader, camera.Position);
     }

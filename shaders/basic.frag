@@ -35,6 +35,9 @@ uniform vec3 tint_color;
 uniform bool is_model_space;
 uniform mat4 view; // The view matrix is now needed here
 
+// --- Add a new uniform for the camera/view position ---
+uniform vec3 viewPos;
+
 // --- LIGHTING ---
 // Light is defined in world space
 const vec3 lightDir_world = normalize(vec3(0.5, 0.5, 1.0));
@@ -45,7 +48,10 @@ void main()
 {    
     vec4 baseColor = texture(texture_diffuse1, TexCoords);
 
-    // FIX: Modulate the texture's alpha with the vertex alpha.
+    // --- FIX: APPLY VERTEX COLOR TINT ---
+    // Multiply the texture color by the vertex's RGB color.
+    baseColor.rgb *= vertexColor.rgb;
+
     // This allows for soft, faded edges on hair and scalps.
     baseColor.a *= vertexColor.a;
 
@@ -71,7 +77,7 @@ void main()
         // --- MODEL-SPACE NORMAL PATH ---
         // 1. Sample the normal map, which contains normals in the model's local space.
         // 2. The .rbg swizzle is required to match Skyrim's format.
-        vec3 modelSpaceNormal = texture(texture_normal, TexCoords).rbg * 2.0 - 1.0;
+        vec3 modelSpaceNormal = texture(texture_normal, TexCoords).rgb * 2.0 - 1.0;
         // 3. Transform the normal directly from model space to view space.
         finalNormal = normalize(mat3(view) * modelSpaceNormal);
     } else {
@@ -89,9 +95,20 @@ void main()
     float diffuseStrength = max(dot(finalNormal, lightDir_view), 0.0);
     vec3 diffuse = diffuseStrength * lightColor;
 
-    float specularStrength = 0.0;
+    // --- FIX: REWORK SPECULAR CALCULATION ---
+    vec3 specular = vec3(0.0);
     if (has_specular_map) {
-        specularStrength = texture(texture_specular, TexCoords).r;
+        float specularStrength = texture(texture_specular, TexCoords).r;
+
+        // We need the view direction in the same space as the normal and light (view space)
+        // Since FragPos is in world space, transform it to view space first.
+        vec3 fragPos_view = vec3(view * vec4(FragPos, 1.0));
+        vec3 viewDir = normalize(-fragPos_view); // The view vector is from the fragment to the camera (which is at 0,0,0 in view space)
+
+        // Blinn-Phong calculation
+        vec3 halfwayDir = normalize(lightDir_view + viewDir);
+        float specAmount = pow(max(dot(finalNormal, halfwayDir), 0.0), 32.0); // 32.0 is the "shininess" factor. Higher is smaller/sharper.
+        specular = specAmount * specularStrength * lightColor;
     }
     
     vec3 subsurfaceColor = vec3(0.0);
@@ -105,7 +122,7 @@ void main()
     }
 
     // Final color assembly
-    vec3 finalColor = (ambientColor + diffuse + subsurfaceColor) * baseColor.rgb + (specularStrength * lightColor);
+    vec3 finalColor = (ambientColor + diffuse + subsurfaceColor) * baseColor.rgb + specular; // Add the new specular component
     FragColor = vec4(finalColor, baseColor.a);
 }
 
