@@ -10,6 +10,7 @@
 #include <Shaders.hpp> 
 #include <limits>
 #include <glm/gtx/string_cast.hpp>
+#include <glm/gtx/norm.hpp>  // gives length2() and distance2()
 
 // Vertex structure used for processing mesh data
 struct Vertex {
@@ -534,7 +535,9 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, texCoords));
         glBindVertexArray(0);
 
-        if (mesh.alphaBlend || mesh.alphaTest) {
+        // FIX: Only true alpha blending goes in the transparent pass.
+        // Alpha test (cutout) materials are handled in the opaque pass.
+        if (mesh.hasAlphaProperty && mesh.alphaBlend) {
             transparentShapes.push_back(mesh);
         }
         else {
@@ -605,17 +608,38 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
             glBindTexture(GL_TEXTURE_2D, shape.faceTintColorMaskID);
         }
 
-        shape.draw();
+        // --- Drawing logic depends on material type ---
+        if (shape.hasAlphaProperty && shape.alphaTest) {
+            // This is an alpha-tested (cutout) material like eyelashes or hair
+            shader.setBool("use_alpha_test", true);
+            shader.setFloat("alpha_threshold", shape.alphaThreshold);
+
+            if (shape.doubleSided) {
+                // For double-sided cutouts, render back faces first, then front faces.
+                // This correctly handles depth testing between the two sides.
+                glCullFace(GL_FRONT);
+                shape.draw();
+                glCullFace(GL_BACK);
+                shape.draw();
+            } else {
+                // Standard single-sided cutout
+                glCullFace(GL_BACK);
+                shape.draw();
+            }
+            shader.setBool("use_alpha_test", false); // Reset for next shape
+        } else {
+            // This is a standard opaque material
+            glCullFace(GL_BACK);
+            shape.draw();
+        }
     }
 
-    // --- SORT TRANSPARENT OBJECTS ---
+    // --- SORT TRANSPARENT OBJECTS (back-to-front) ---
     std::sort(transparentShapes.begin(), transparentShapes.end(),
         [&cameraPos](const MeshShape& a, const MeshShape& b) {
             glm::vec3 posA = glm::vec3(a.transform[3]);
             glm::vec3 posB = glm::vec3(b.transform[3]);
-            glm::vec3 diffA = posA - cameraPos;
-            glm::vec3 diffB = posB - cameraPos;
-            return glm::dot(diffA, diffA) > glm::dot(diffB, diffB);
+            return glm::distance2(posA, cameraPos) > glm::distance2(posB, cameraPos);
         });
 
     // --- PASS 2: TRANSPARENT OBJECTS ---
@@ -644,7 +668,11 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
             glDepthMask(GL_TRUE);
         }
         else {
-            glDepthMask(shape.zBufferWrite ? GL_TRUE : GL_FALSE);
+            // FIX: For standard alpha blending, we must disable depth writes.
+            // This prevents incorrectly sorted objects from occluding things behind them.
+            // The zBufferWrite flag from the NIF is ignored in this case, as it causes
+            // the one-sided transparency bug
+            glDepthMask(GL_FALSE);
         }
 
         shader.setBool("has_tint_color", shape.hasTintColor);
