@@ -269,7 +269,11 @@ void Renderer::renderFrame() {
     }
 
     // Convert by dividing each color component by 255.0
-    glClearColor(0.227f, 0.239f, 0.251f, 1.0f);
+    // The original sRGB values (0.227, 0.239, 0.251) must be converted to linear space.
+    // pow(0.227, 2.2) = 0.041
+    // pow(0.239, 2.2) = 0.046
+    // pow(0.251, 2.2) = 0.051
+    glClearColor(0.041f, 0.046f, 0.051f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     shader.use();

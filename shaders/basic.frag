@@ -68,18 +68,21 @@ void main()
         discard;
     }
 
-    // --- TINTING LOGIC ---
-    // Apply FaceGen Tint/Makeup OR generic Tint Color
+    // Apply Tint for NPC FaceGen or other parts
     if (has_face_tint_map) {
-        // For faces, use the tint map's alpha to blend between the
-        // original base color and the base color multiplied by the skin tone.
-        // The RGB channels of the tint map are masks for other features and are ignored for now.
-        vec4 tintSample = texture(texture_face_tint, TexCoords);
-        vec3 tintedColor = baseColor.rgb * tint_color;
-        baseColor.rgb = mix(baseColor.rgb, tintedColor, tintSample.a);
+        // This path is for NPC faces which use a colored tint texture.
+        // The texture's RGB provides the color and its Alpha provides the blend strength.
+        vec4 overlay = texture(texture_face_tint, TexCoords);
+
+        // "Modulated Overlay" method: Multiply the tint color with the base skin color
+        // to preserve underlying texture detail.
+        vec3 tinted = baseColor.rgb * overlay.rgb;
+        
+        // Blend between the original color and the tinted color using the overlay's alpha.
+        baseColor.rgb = mix(baseColor.rgb, tinted, overlay.a);
     }
     else if (has_tint_color) {
-        // For non-face parts (like hair), just apply a uniform tint.
+        // This path is for non-face parts (like hair) that use a simple uniform tint.
         baseColor.rgb *= tint_color;
     }
 
