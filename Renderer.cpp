@@ -57,6 +57,7 @@ void Renderer::init(bool headless) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SRGB_CAPABLE, GL_TRUE); // Request an sRGB-capable framebuffer
 
     if (headless) {
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
@@ -83,6 +84,7 @@ void Renderer::init(bool headless) {
     }
 
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_FRAMEBUFFER_SRGB);
     glViewport(0, 0, screenWidth, screenHeight);
     shader.load("shaders/basic.vert", "shaders/basic.frag");
 
