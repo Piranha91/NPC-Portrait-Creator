@@ -28,6 +28,7 @@ struct MeshShape {
     GLuint faceTintColorMaskID = 0; // Slot 6: Face Tint Mask
     GLuint specularTextureID = 0; // Slot 7: _s.dds
     bool isModelSpace = false;
+    bool isEye = false; // NEW: Flag for eye-specific shader logic
     // --- Additions for Alpha Properties ---
     bool hasAlphaProperty = false;
     bool alphaBlend = false;

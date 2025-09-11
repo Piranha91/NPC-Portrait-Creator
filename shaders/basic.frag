@@ -31,6 +31,11 @@ uniform float alpha_threshold;
 uniform bool has_tint_color;
 uniform vec3 tint_color;
 
+// --- UNIFORMS FOR EYE SHADING ---
+uniform bool is_eye;
+uniform float eye_fresnel_strength;
+uniform float eye_spec_power;
+
 // New uniforms for model-space normal (MSN) logic
 uniform bool is_model_space;
 uniform mat4 model; // The model matrix is now needed here
@@ -126,7 +131,25 @@ void main()
     }
 
     // Final color assembly
-    vec3 finalColor = (ambientColor + diffuse + subsurfaceColor) * baseColor.rgb + specular; // Add the new specular component
+    vec3 finalColor = (ambientColor + diffuse + subsurfaceColor) * baseColor.rgb + specular;
+    
+    // --- NEW: EYE SHADING LOGIC ---
+    if (is_eye) {
+        // V is the view vector (from fragment to camera) in view space
+        vec3 V = normalize(-FragPos); 
+
+        // Fresnel term makes edges more reflective
+        float fresnel = pow(1.0 - max(dot(finalNormal, V), 0.0), 5.0);
+
+        // A tighter, stronger specular highlight for the "wet" look
+        vec3 halfwayDir = normalize(lightDir_view + V);
+        float specAmount = pow(max(dot(finalNormal, halfwayDir), 0.0), eye_spec_power);
+        vec3 eyeSpecular = specAmount * lightColor;
+
+        // Additively blend the effects onto the final color
+        finalColor += fresnel * eye_fresnel_strength + eyeSpecular * 0.5;
+    }
+
     FragColor = vec4(finalColor, baseColor.a);
 }
 
