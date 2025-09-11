@@ -4,7 +4,8 @@ out vec4 FragColor;
 // Data received from the vertex shader
 in vec3 FragPos;
 in vec3 Normal;
-in vec4 Tangent;
+in vec3 Tangent_View;        // NEW: Receive view-space tangent
+in float TangentHandedness;  // NEW: Receive handedness
 in vec2 TexCoords;
 in vec4 vertexColor; // FIX: Receive vertex color
 
@@ -86,6 +87,7 @@ void main()
     vec3 finalNormal;
     if (is_model_space) {
         // --- MODEL-SPACE NORMAL PATH ---
+        // Path for FaceGen head model-space normals (_msn.dds)
         // 1. Sample the normal map, which contains normals in the model's local space.
         // 2. The .rbg swizzle is required to match Skyrim's format.
         vec3 modelSpaceNormal = texture(texture_normal, TexCoords).rgb * 2.0 - 1.0;
@@ -93,24 +95,24 @@ void main()
         // 3. Transform the normal from model space to view space using the full normal matrix.
         mat3 normalMatrix = mat3(transpose(inverse(view * model)));
         finalNormal = normalize(normalMatrix * modelSpaceNormal);
-    } else {
-        // --- STANDARD TANGENT-SPACE PATH ---
+    } 
+    else if (has_normal_map) {
+        // Path for standard tangent-space normal maps (hair, eyes, etc.)
         vec3 N = normalize(Normal);
-        if (has_normal_map) {
-            // Sample normal from map (in tangent space)
-            vec3 n_ts = texture(texture_normal, TexCoords).xyz * 2.0 - 1.0;
+        vec3 T = normalize(Tangent_View);
+        vec3 B = normalize(cross(N, T)) * TangentHandedness;
+        mat3 TBN = mat3(T, B, N);
 
-            // Create TBN matrix to transform from tangent to view space
-            vec3 T = normalize(Tangent.xyz);
-            vec3 B = normalize(cross(N, T)) * Tangent.w; // Use handedness
-            mat3 TBN = mat3(T, B, N);
+        vec3 n_ts = texture(texture_normal, TexCoords).xyz * 2.0 - 1.0;
 
-            // Transform normal and re-normalize
-            finalNormal = normalize(TBN * n_ts);
-        } else {
-            // No normal map, just use vertex normal
-            finalNormal = N;
-        }
+        // Flip the green channel for DirectX-style normal maps
+        n_ts.y = -n_ts.y;
+
+        finalNormal = normalize(TBN * n_ts);
+    } 
+    else {
+        // Path for meshes with no normal map
+        finalNormal = normalize(Normal);
     }
     
     // --- LIGHTING CALCULATIONS ---
