@@ -62,15 +62,19 @@ void main()
         discard;
     }
 
-    // Apply Tint Color
-    if (has_tint_color) {
-        baseColor.rgb *= tint_color;
-    }
-
-    // Apply FaceGen Tint/Makeup
+    // --- TINTING LOGIC ---
+    // Apply FaceGen Tint/Makeup OR generic Tint Color
     if (has_face_tint_map) {
+        // For faces, use the tint map's alpha to blend between the
+        // original base color and the base color multiplied by the skin tone.
+        // The RGB channels of the tint map are masks for other features and are ignored for now.
         vec4 tintSample = texture(texture_face_tint, TexCoords);
-        baseColor.rgb = mix(baseColor.rgb, tintSample.rgb, tintSample.a);
+        vec3 tintedColor = baseColor.rgb * tint_color;
+        baseColor.rgb = mix(baseColor.rgb, tintedColor, tintSample.a);
+    }
+    else if (has_tint_color) {
+        // For non-face parts (like hair), just apply a uniform tint.
+        baseColor.rgb *= tint_color;
     }
 
     // --- NORMAL CALCULATION ---
