@@ -9,15 +9,16 @@ TextureManager::~TextureManager() {
     cleanup();
 }
 
-void TextureManager::setActiveDirectories(const std::string& rootDir, const std::string& fallbackDir) {
+void TextureManager::setActiveDirectories(const std::string& rootDir, const std::string& fallbackDir, const std::string& cacheDir) {
     rootDirectory = rootDir;
     fallbackRootDirectory = fallbackDir;
 
-    // The caching logic can be removed from BsaManager now if you wish,
-    // as this manager handles its own texture cache.
-    // For now, we'll leave it for debug logging.
-    rootBsaManager.loadArchives(rootDirectory);
-    fallbackBsaManager.loadArchives(fallbackRootDirectory);
+    if (!rootDirectory.empty()) {
+        rootBsaManager.loadArchives(rootDirectory, cacheDir);
+    }
+    if (!fallbackRootDirectory.empty()) {
+        fallbackBsaManager.loadArchives(fallbackRootDirectory, cacheDir);
+    }
 }
 
 GLuint TextureManager::loadTexture(const std::string& relativePath) {

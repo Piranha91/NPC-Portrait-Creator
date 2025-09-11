@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <cxxopts.hpp>
+#include <filesystem>
 
 int main(int argc, char** argv) {
     cxxopts::Options options("Mugshotter", "NIF file renderer and thumbnail generator");
@@ -32,7 +33,12 @@ int main(int argc, char** argv) {
 
     bool isHeadless = result.count("headless") > 0;
     try {
-        Renderer renderer(1280, 720);
+        // Get the directory where the executable is running
+        std::filesystem::path exePath(argv[0]);
+        std::filesystem::path exeDir = exePath.parent_path();
+
+        // Pass this path to the Renderer's constructor
+        Renderer renderer(1280, 720, exeDir.string());
         if (result.count("root")) {
             renderer.setFallbackRootDirectory(result["root"].as<std::string>());
         }

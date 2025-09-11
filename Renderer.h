@@ -16,7 +16,7 @@ enum class SkeletonType { None, Female, Male, FemaleBeast, MaleBeast, Custom };
 
 class Renderer {
 public:
-    Renderer(int width, int height);
+    Renderer(int width, int height, const std::string& app_dir);
     ~Renderer();
 
     // --- Core Methods ---
@@ -57,7 +57,7 @@ private:
     void loadConfig();
     void saveConfig();
 
-    std::string configPath = "mugshotter_config.txt";
+    std::string configPath;
 
     GLFWwindow* window = nullptr;
     Shader shader;
@@ -71,6 +71,7 @@ private:
     std::string fallbackRootDirectory;
     TextureManager textureManager;
     BsaManager bsaManager;
+    std::string appDirectory;
 
     // Skeletons loaded from game data
     Skeleton femaleSkeleton;

@@ -34,13 +34,15 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
-Renderer::Renderer(int width, int height)
+Renderer::Renderer(int width, int height, const std::string& app_dir)
     : screenWidth(width), screenHeight(height),
-    camera(glm::vec3(0.0f, 50.0f, 0.0f)), // Initialize with a target
+    camera(glm::vec3(0.0f, 50.0f, 0.0f)),
     lastX(width / 2.0f), lastY(height / 2.0f),
-    fallbackRootDirectory("C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data") {
-}
+    fallbackRootDirectory("C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data"),
+    appDirectory(app_dir) { 
 
+    configPath = (std::filesystem::path(appDirectory) / "mugshotter_config.txt").string();
+}
 
 Renderer::~Renderer() {
     shutdownUI();
@@ -91,7 +93,7 @@ void Renderer::init(bool headless) {
     loadConfig();
 
     // Use the fallback directory to load archives
-    bsaManager.loadArchives(fallbackRootDirectory);
+    bsaManager.loadArchives(fallbackRootDirectory, appDirectory);
 
     // --- Load all standard and beast skeletons from BSAs ---
     std::cout << "[Skeleton Load] Attempting to load all default skeletons from BSAs...\n";
@@ -387,7 +389,7 @@ void Renderer::loadNifModel(const std::string& path) {
     else {
         rootDirectory = fallbackRootDirectory;
     }
-    textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory);
+    textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory, appDirectory);
 
     // --- NEW: Perform skeleton detection BEFORE loading the model ---
     nifly::NifFile tempNif;
@@ -462,7 +464,7 @@ void Renderer::setCamera(float posX, float posY, float posZ, float pitch, float 
 
 void Renderer::setFallbackRootDirectory(const std::string& path) {
     fallbackRootDirectory = path;
-    textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory);
+    textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory, appDirectory);
     std::cout << "Fallback root directory set to: " << fallbackRootDirectory << std::endl;
     saveConfig();
 }

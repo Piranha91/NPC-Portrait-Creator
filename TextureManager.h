@@ -11,7 +11,7 @@ public:
     TextureManager() = default;
     ~TextureManager();
 
-    void setActiveDirectories(const std::string& rootDir, const std::string& fallbackDir);
+    void setActiveDirectories(const std::string& rootDir, const std::string& fallbackDir, const std::string& cacheDir);
     GLuint loadTexture(const std::string& relativePath);
 
 private:

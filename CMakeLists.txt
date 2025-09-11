@@ -17,6 +17,7 @@ find_package(nifly REQUIRED)
 find_package(gli REQUIRED)
 find_package(cxxopts REQUIRED)
 find_package(imgui REQUIRED CONFIG)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 add_executable(Mugshotter
     main.cpp
@@ -63,6 +64,7 @@ target_link_libraries(Mugshotter PRIVATE
     imgui::imgui  
     cxxopts::cxxopts
     libbsarch
+    nlohmann_json::nlohmann_json
 )
 
 add_library(glad STATIC "${PROJECT_SOURCE_DIR}/vendor/glad/src/glad.c")
