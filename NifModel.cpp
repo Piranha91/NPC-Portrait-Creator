@@ -638,6 +638,9 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     // --- PASS 2: ALPHA-TEST (CUTOUT) OBJECTS ---
     // Render cutout objects next. They test against the depth buffer and also write to it.
     // This allows different cutout objects (e.g., hair, eyebrows, eyelashes) to correctly occlude each other.
+
+    glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE); // Enable to improve anti-aliasing on hair edges
+
     for (const auto& shape : alphaTestShapes) {
         shader.setMat4("model", shape.transform);
         shader.setBool("has_tint_color", shape.hasTintColor);
