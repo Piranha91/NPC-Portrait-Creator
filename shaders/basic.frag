@@ -32,6 +32,7 @@ uniform float alpha_threshold;
 // Uniforms for tinting
 uniform bool has_tint_color;
 uniform vec3 tint_color;
+uniform bool use_vertex_colors;
 
 // --- UNIFORMS FOR EYE SHADING ---
 uniform bool is_eye;
@@ -50,7 +51,7 @@ uniform vec3 viewPos;
 // Light is defined in world space
 const vec3 lightDir_world = normalize(vec3(0.5, 0.5, 1.0));
 const vec3 lightColor = vec3(1.0, 1.0, 1.0);
-const vec3 ambientColor = vec3(0.15, 0.15, 0.15);
+const vec3 ambientColor = vec3(0.25, 0.25, 0.25); // NUDGED UP from 0.15
 
 void main()
 {    
@@ -58,10 +59,15 @@ void main()
 
     // --- FIX: APPLY VERTEX COLOR TINT ---
     // Multiply the texture color by the vertex's RGB color.
-    baseColor.rgb *= vertexColor.rgb;
+    // --- FIX: APPLY VERTEX COLOR TINT (sRGB -> linear for RGB) ---
+    if (use_vertex_colors) {
+        // Vertex colors in NIFs are authored in sRGB; convert to linear before multiplying.
+        vec3 vcolLinear = pow(clamp(vertexColor.rgb, 0.0, 1.0), vec3(2.2));
+        baseColor.rgb *= vcolLinear;
 
-    // This allows for soft, faded edges on hair and scalps.
-    baseColor.a *= vertexColor.a;
+        // Alpha is a mask, not color—leave it linear.
+        baseColor.a   *= vertexColor.a;
+    }
 
     // Alpha Test (for cutout materials like hair and eyelashes)
     if (use_alpha_test && baseColor.a < alpha_threshold) {
@@ -123,6 +129,10 @@ void main()
     vec3 lightDir_view = normalize(mat3(view) * lightDir_world);
     float diffuseStrength = max(dot(finalNormal, lightDir_view), 0.0);
     vec3 diffuse = diffuseStrength * lightColor;
+
+    // NEW: Add a second fill light from the opposite direction
+    vec3 lightDir2_view = normalize(mat3(view) * vec3(-0.4, 0.2, 0.7));
+    diffuse += max(dot(finalNormal, lightDir2_view), 0.0) * lightColor * 0.6; // 60% strength
 
     // --- FIX: REWORK SPECULAR CALCULATION ---
     vec3 specular = vec3(0.0);

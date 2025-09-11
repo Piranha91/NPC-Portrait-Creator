@@ -564,11 +564,10 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
                     bool isColor = false;
                     switch (i) {
                     case 0: // Diffuse
-                    case 2: // Skin
                     case 6: // Face Tint Mask
                         isColor = true;
                         break;
-                    default: // Normal, Specular, Detail, etc.
+                    default: // Normal, Skin, Specular, Detail, etc.
                         isColor = false;
                         break;
                     }
@@ -586,6 +585,7 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
             }
         }
         if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
+            mesh.useVertexColors = (bslsp->shaderFlags1 & (1U << 12));
             mesh.doubleSided = (bslsp->shaderFlags2 & (1U << 4));
             mesh.zBufferWrite = (bslsp->shaderFlags2 & (1U << 0));
             const auto shaderType = bslsp->GetShaderType();
@@ -719,6 +719,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     for (const auto& shape : opaqueShapes) {
         shader.setMat4("model", shape.transform);
         shader.setBool("is_eye", shape.isEye);
+        shader.setBool("use_vertex_colors", shape.useVertexColors);
         shader.setBool("has_tint_color", shape.hasTintColor);
         if (shape.hasTintColor) {
             shader.setVec3("tint_color", shape.tintColor);
@@ -762,6 +763,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
 
     for (const auto& shape : alphaTestShapes) {
         shader.setMat4("model", shape.transform);
+        shader.setBool("use_vertex_colors", shape.useVertexColors);
         shader.setBool("has_tint_color", shape.hasTintColor);
         if (shape.hasTintColor) {
             shader.setVec3("tint_color", shape.tintColor);
@@ -810,6 +812,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
 
         for (const auto& shape : transparentShapes) {
             shader.setMat4("model", shape.transform);
+            shader.setBool("use_vertex_colors", shape.useVertexColors);
             shader.setBool("has_tint_color", shape.hasTintColor);
             if (shape.hasTintColor) shader.setVec3("tint_color", shape.tintColor);
 

@@ -52,6 +52,7 @@ struct MeshShape {
     // --- Additions for Tint
     bool hasTintColor = false;
     glm::vec3 tintColor = glm::vec3(1.0f); // Default to white (no tint)
+    bool useVertexColors = false;
 
     void draw() const;
     void cleanup();
