@@ -33,6 +33,7 @@ uniform vec3 tint_color;
 
 // New uniforms for model-space normal (MSN) logic
 uniform bool is_model_space;
+uniform mat4 model; // The model matrix is now needed here
 uniform mat4 view; // The view matrix is now needed here
 
 // --- Add a new uniform for the camera/view position ---
@@ -78,13 +79,16 @@ void main()
         // 1. Sample the normal map, which contains normals in the model's local space.
         // 2. The .rbg swizzle is required to match Skyrim's format.
         vec3 modelSpaceNormal = texture(texture_normal, TexCoords).rgb * 2.0 - 1.0;
-        // 3. Transform the normal directly from model space to view space.
-        finalNormal = normalize(mat3(view) * modelSpaceNormal);
+        
+        // 3. Transform the normal from model space to view space using the full normal matrix.
+        mat3 normalMatrix = mat3(transpose(inverse(view * model)));
+        finalNormal = normalize(normalMatrix * modelSpaceNormal);
     } else {
         // --- STANDARD TANGENT-SPACE PATH ---
         finalNormal = normalize(Normal);
         if (has_normal_map) {
-            // This is a simplified implementation. A full implementation would require a TBN matrix.
+            // This is a simplified implementation.
+            // A full implementation would require a TBN matrix.
             finalNormal = normalize(texture(texture_normal, TexCoords).xyz * 2.0 - 1.0);
         }
     }
