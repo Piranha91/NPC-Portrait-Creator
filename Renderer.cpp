@@ -270,10 +270,8 @@ void Renderer::renderFrame() {
 
     // Convert by dividing each color component by 255.0
     // The original sRGB values (0.227, 0.239, 0.251) must be converted to linear space.
-    // pow(0.227, 2.2) = 0.041
-    // pow(0.239, 2.2) = 0.046
-    // pow(0.251, 2.2) = 0.051
-    glClearColor(0.041f, 0.046f, 0.051f, 1.0f);
+    auto srgb_to_linear = [](float c) { return (c <= 0.04045f) ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f); };
+    glClearColor(srgb_to_linear(0.227f), srgb_to_linear(0.239f), srgb_to_linear(0.251f), 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     shader.use();

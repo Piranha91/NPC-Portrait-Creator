@@ -315,9 +315,18 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
 
         // Safely check for eye data via dynamic_cast
         if (const auto* triShape = dynamic_cast<const nifly::BSTriShape*>(niShape)) {
-            if (triShape->HasEyeData()) { // HasEyeData() checks the VF_EYEDATA flag
+            if (triShape->HasEyeData()) {
+                std::cout << "  [Eye Detection] SUCCESS: Shape '" << shapeName << "' has the VF_EYEDATA flag and is tagged as an eye." << std::endl;
                 mesh.isEye = true;
             }
+            else {
+                mesh.isEye = false;
+                std::cout << "  [Eye Detection] INFO: Shape '" << shapeName << "' does not have the VF_EYEDATA flag." << std::endl;
+			}
+        }
+        else
+        {
+            std::cout << "  [Eye Detection] FAIL: Shape '" << shapeName << "' cannot be cast to BSTriShape." << std::endl;
         }
 
         if (useCpuBake) {
