@@ -313,6 +313,13 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
         MeshShape mesh;
         std::string shapeName = niShape->name.get();
 
+        // Safely check for eye data via dynamic_cast
+        if (const auto* triShape = dynamic_cast<const nifly::BSTriShape*>(niShape)) {
+            if (triShape->HasEyeData()) { // HasEyeData() checks the VF_EYEDATA flag
+                mesh.isEye = true;
+            }
+        }
+
         if (useCpuBake) {
             // --- STRATEGY 2: CPU Vertex Bake (For Pre-translated NIFs like NPC #2) ---
             auto* skinInst = niShape->IsSkinned() ? nif.GetHeader().GetBlock<nifly::NiSkinInstance>(niShape->SkinInstanceRef()) : nullptr;
@@ -661,6 +668,10 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     shader.setInt("texture_specular", 4);
     shader.setInt("texture_face_tint", 5);
 
+    // Set eye-specific shader parameters
+    shader.setFloat("eye_fresnel_strength", 0.3f);
+    shader.setFloat("eye_spec_power", 80.0f);
+
     // --- PASS 1: OPAQUE OBJECTS ---
     // Render all fully opaque objects first. They will populate the depth buffer.
     glEnable(GL_DEPTH_TEST);
@@ -671,6 +682,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
 
     for (const auto& shape : opaqueShapes) {
         shader.setMat4("model", shape.transform);
+        shader.setBool("is_eye", shape.isEye);
         shader.setBool("has_tint_color", shape.hasTintColor);
         if (shape.hasTintColor) {
             shader.setVec3("tint_color", shape.tintColor);
