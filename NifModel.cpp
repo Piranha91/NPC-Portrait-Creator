@@ -559,13 +559,27 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
                 for (size_t i = 0; i < textureSet->textures.size(); ++i) {
                     std::string texPath = textureSet->textures[i].get();
                     if (texPath.empty()) continue;
+
+                    // NEW: Determine if the texture slot contains color data
+                    bool isColor = false;
                     switch (i) {
-                    case 0: mesh.diffuseTextureID = textureManager.loadTexture(texPath); break;
-                    case 1: mesh.normalTextureID = textureManager.loadTexture(texPath); break;
-                    case 2: mesh.skinTextureID = textureManager.loadTexture(texPath); break;
-                    case 3: mesh.detailTextureID = textureManager.loadTexture(texPath); break;
-                    case 6: mesh.faceTintColorMaskID = textureManager.loadTexture(texPath); break;
-                    case 7: mesh.specularTextureID = textureManager.loadTexture(texPath); break;
+                    case 0: // Diffuse
+                    case 2: // Skin
+                    case 6: // Face Tint Mask
+                        isColor = true;
+                        break;
+                    default: // Normal, Specular, Detail, etc.
+                        isColor = false;
+                        break;
+                    }
+
+                    switch (i) {
+                    case 0: mesh.diffuseTextureID = textureManager.loadTexture(texPath, isColor); break;
+                    case 1: mesh.normalTextureID = textureManager.loadTexture(texPath, isColor); break;
+                    case 2: mesh.skinTextureID = textureManager.loadTexture(texPath, isColor); break;
+                    case 3: mesh.detailTextureID = textureManager.loadTexture(texPath, isColor); break;
+                    case 6: mesh.faceTintColorMaskID = textureManager.loadTexture(texPath, isColor); break;
+                    case 7: mesh.specularTextureID = textureManager.loadTexture(texPath, isColor); break;
                     default: break;
                     }
                 }

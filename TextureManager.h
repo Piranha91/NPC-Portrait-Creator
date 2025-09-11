@@ -12,10 +12,12 @@ public:
     ~TextureManager();
 
     void setActiveDirectories(const std::string& rootDir, const std::string& fallbackDir);
-    GLuint loadTexture(const std::string& relativePath);
+    // Add a boolean parameter to indicate if the texture contains color data
+    GLuint loadTexture(const std::string& relativePath, bool isColorData);
 
 private:
-    GLuint uploadDDSToGPU(const std::vector<char>& data);
+    // Pass the boolean down to the upload function
+    GLuint uploadDDSToGPU(const std::vector<char>& data, const std::string& texturePath, bool isColorData);
     void cleanup();
 
     std::string rootDirectory;

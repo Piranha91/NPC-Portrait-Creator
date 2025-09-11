@@ -129,10 +129,9 @@ void main()
     if (has_specular_map) {
         float specularStrength = texture(texture_specular, TexCoords).r;
 
-        // We need the view direction in the same space as the normal and light (view space)
-        // Since FragPos is in world space, transform it to view space first.
-        vec3 fragPos_view = vec3(view * vec4(FragPos, 1.0));
-        vec3 viewDir = normalize(-fragPos_view); // The view vector is from the fragment to the camera (which is at 0,0,0 in view space)
+        // The view vector is from the fragment to the camera (at 0,0,0 in view space)
+        // FragPos is already in view space, so -FragPos is the vector to the camera.
+        vec3 viewDir = normalize(-FragPos); 
 
         // Blinn-Phong calculation
         vec3 halfwayDir = normalize(lightDir_view + viewDir);

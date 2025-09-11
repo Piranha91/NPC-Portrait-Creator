@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <gli/gli.hpp>
+#include <string>
 
 TextureManager::~TextureManager() {
     cleanup();
@@ -20,7 +21,30 @@ void TextureManager::setActiveDirectories(const std::string& rootDir, const std:
     fallbackBsaManager.loadArchives(fallbackRootDirectory);
 }
 
-GLuint TextureManager::loadTexture(const std::string& relativePath) {
+std::string GetGLFormatName(GLenum format) {
+    switch (format) {
+        // sRGB Formats
+    case GL_SRGB8: return "GL_SRGB8";
+    case GL_SRGB8_ALPHA8: return "GL_SRGB8_ALPHA8";
+    case GL_COMPRESSED_SRGB_S3TC_DXT1_EXT: return "GL_COMPRESSED_SRGB_S3TC_DXT1_EXT";
+    case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT: return "GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT";
+    case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT: return "GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT";
+    case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT: return "GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT";
+    case 36492: return "GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM (BC7)"; // Common format for newer mods
+
+        // Linear Formats
+    case GL_RGBA8: return "GL_RGBA8";
+    case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT: return "GL_COMPRESSED_RGBA_S3TC_DXT1_EXT";
+    case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT: return "GL_COMPRESSED_RGBA_S3TC_DXT3_EXT";
+    case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT: return "GL_COMPRESSED_RGBA_S3TC_DXT5_EXT";
+    case 36491: return "GL_COMPRESSED_RGBA_BPTC_UNORM (BC7)";
+
+    default: return "Unknown GLFormat (Enum: " + std::to_string(format) + ")";
+    }
+}
+
+
+GLuint TextureManager::loadTexture(const std::string& relativePath, bool isColorData) {
     if (relativePath.empty()) {
         return 0;
     }
@@ -59,7 +83,8 @@ GLuint TextureManager::loadTexture(const std::string& relativePath) {
 
     // 3. If we found data, upload it to the GPU
     if (!fileData.empty()) {
-        GLuint textureID = uploadDDSToGPU(fileData);
+        std::cout << "[loadTexture]: Handling " << relativePath << "..." << std::endl;
+        GLuint textureID = uploadDDSToGPU(fileData, relativePath, isColorData);
         if (textureID != 0) {
             textureCache[relativePath] = textureID; // Cache the new texture
             return textureID;
@@ -71,7 +96,7 @@ GLuint TextureManager::loadTexture(const std::string& relativePath) {
     return 0;
 }
 
-GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
+GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data, const std::string& texturePath, bool isColorData) {
     gli::texture tex = gli::load(data.data(), data.size());
     if (tex.empty()) {
         return 0;
@@ -80,6 +105,33 @@ GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
     gli::gl gl(gli::gl::PROFILE_GL33);
     gli::gl::format const format = gl.translate(tex.format(), tex.swizzles());
     GLenum target = gl.translate(tex.target());
+
+    // --- NEW: INTELLIGENT FORMAT OVERRIDE ---
+    GLenum internalFormat = format.Internal;
+    if (isColorData) {
+        // If this is a color texture but the file is missing the sRGB flag,
+        // force the GPU to treat it as sRGB anyway.
+        switch (internalFormat) {
+        case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
+            internalFormat = GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT;
+            break;
+        case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
+            internalFormat = GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT;
+            break;
+        case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
+            internalFormat = GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT;
+            break;
+        case GL_RGBA8:
+            internalFormat = GL_SRGB8_ALPHA8;
+            break;
+        case 36491: // GL_COMPRESSED_RGBA_BPTC_UNORM (BC7 Linear)
+            internalFormat = 36492; // GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM (BC7 sRGB)
+            break;
+        }
+    }
+
+    std::cout << "[uploadDDSToGPU]: Handling " << texturePath << " as " << GetGLFormatName(internalFormat) << std::endl;
+    std::cout << "[uploadDDSToGPU]: isColorData " << texturePath << ": " << isColorData << std::endl;
 
     GLuint textureID = 0;
     glGenTextures(1, &textureID);
@@ -96,17 +148,17 @@ GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
 
     switch (tex.target()) {
     case gli::TARGET_1D:
-        glTexStorage1D(target, static_cast<GLint>(tex.levels()), format.Internal, extent.x);
+        glTexStorage1D(target, static_cast<GLint>(tex.levels()), internalFormat, extent.x);
         break;
     case gli::TARGET_1D_ARRAY:
     case gli::TARGET_2D:
     case gli::TARGET_CUBE:
-        glTexStorage2D(target, static_cast<GLint>(tex.levels()), format.Internal, extent.x, extent.y);
+        glTexStorage2D(target, static_cast<GLint>(tex.levels()), internalFormat, extent.x, extent.y);
         break;
     case gli::TARGET_2D_ARRAY:
     case gli::TARGET_3D:
     case gli::TARGET_CUBE_ARRAY:
-        glTexStorage3D(target, static_cast<GLint>(tex.levels()), format.Internal, extent.x, extent.y, extent.z);
+        glTexStorage3D(target, static_cast<GLint>(tex.levels()), internalFormat, extent.x, extent.y, extent.z);
         break;
     default:
         return 0;
