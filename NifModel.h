@@ -21,6 +21,7 @@ struct MeshShape {
     GLuint VAO = 0, VBO = 0, EBO = 0;
     GLsizei indexCount = 0;
     glm::mat4 transform = glm::mat4(1.0f); // Initialize to identity matrix
+    glm::vec3 boundsCenter = glm::vec3(0.0f); // Store the world-space center of the mesh bounds
     GLuint diffuseTextureID = 0; // Slot 0: _d.dds or base color
     GLuint normalTextureID = 0; // Slot 1: _n.dds or _msn.dds
     GLuint skinTextureID = 0; // Slot 2: _sk.dds (Subsurface/Tint)

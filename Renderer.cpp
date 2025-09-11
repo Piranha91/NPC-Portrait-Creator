@@ -292,9 +292,6 @@ void Renderer::renderFrame() {
     if (model) {
         model->draw(shader, camera.Position);
     }
-    if (model) {
-        model->draw(shader, camera.Position);
-    }
 }
 
 void Renderer::HandleFramebufferSize(int width, int height) {

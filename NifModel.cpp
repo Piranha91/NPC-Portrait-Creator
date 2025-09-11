@@ -447,6 +447,10 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
         // Bounds calculation
         glm::mat4 boundsTransform = mesh.transform;
 
+        // Calculate per-shape bounds
+        glm::vec3 shapeMinBounds(std::numeric_limits<float>::max());
+        glm::vec3 shapeMaxBounds(std::numeric_limits<float>::lowest());
+
         // --- FIX: Exclude accessories by partition ID, with a name-based fallback ---
         bool isAccessoryPart = false;
 
@@ -473,14 +477,23 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
 
         for (const auto& vert : vertexData) {
             glm::vec3 tv3 = glm::vec3(boundsTransform * glm::vec4(vert.pos, 1.0f));
+            // Update model-total bounds
             minBounds = glm::min(minBounds, tv3);
             maxBounds = glm::max(maxBounds, tv3);
+
+            // Update per-shape bounds
+            shapeMinBounds = glm::min(shapeMinBounds, tv3);
+            shapeMaxBounds = glm::max(shapeMaxBounds, tv3);
+
             // Only include vertices in head bounds if they are not part of an accessory mesh
             if (!isAccessoryPart) {
                 headMinBounds = glm::min(headMinBounds, tv3);
                 headMaxBounds = glm::max(headMaxBounds, tv3);
             }
         }
+
+        // Store the calculated center for this shape
+        mesh.boundsCenter = (shapeMinBounds + shapeMaxBounds) * 0.5f;
 
         // Texture and material property loading (same for both paths)
         if (shader && shader->HasTextureSet()) {
@@ -692,11 +705,10 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     // Render truly transparent objects last, sorted from back to front.
     // They test against the depth buffer but do not write to it.
     if (!transparentShapes.empty()) {
+        // CORRECTED: Sort by the distance to the mesh's calculated bounds center
         std::sort(transparentShapes.begin(), transparentShapes.end(),
             [&cameraPos](const MeshShape& a, const MeshShape& b) {
-                glm::vec3 posA = glm::vec3(a.transform[3]);
-                glm::vec3 posB = glm::vec3(b.transform[3]);
-                return glm::distance2(posA, cameraPos) > glm::distance2(posB, cameraPos);
+                return glm::distance2(a.boundsCenter, cameraPos) > glm::distance2(b.boundsCenter, cameraPos);
             });
 
         glEnable(GL_BLEND);
