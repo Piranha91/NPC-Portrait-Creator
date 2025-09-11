@@ -1,4 +1,5 @@
-// TextureManager.cpp
+// In TextureManager.cpp
+
 #include "TextureManager.h"
 #include <iostream>
 #include <filesystem>
@@ -30,19 +31,20 @@ std::string GetGLFormatName(GLenum format) {
     case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT: return "GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT";
     case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT: return "GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT";
     case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT: return "GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT";
-    case 36492: return "GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM (BC7)"; // Common format for newer mods
+    case 36493: return "GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM (BC7 sRGB)"; // Correct enum
 
         // Linear Formats
+    case GL_RGB8: return "GL_RGB8";
     case GL_RGBA8: return "GL_RGBA8";
+    case GL_COMPRESSED_RGB_S3TC_DXT1_EXT: return "GL_COMPRESSED_RGB_S3TC_DXT1_EXT";
     case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT: return "GL_COMPRESSED_RGBA_S3TC_DXT1_EXT";
     case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT: return "GL_COMPRESSED_RGBA_S3TC_DXT3_EXT";
     case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT: return "GL_COMPRESSED_RGBA_S3TC_DXT5_EXT";
-    case 36491: return "GL_COMPRESSED_RGBA_BPTC_UNORM (BC7)";
+    case 36492: return "GL_COMPRESSED_RGBA_BPTC_UNORM (BC7 Linear)";
 
     default: return "Unknown GLFormat (Enum: " + std::to_string(format) + ")";
     }
 }
-
 
 GLuint TextureManager::loadTexture(const std::string& relativePath, bool isColorData) {
     if (relativePath.empty()) {
@@ -108,25 +110,22 @@ GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data, const std::
 
     // --- NEW: INTELLIGENT FORMAT OVERRIDE ---
     GLenum internalFormat = format.Internal;
+
+    // FIX #2 & #3: Correctly map linear formats to their sRGB counterparts
     if (isColorData) {
-        // If this is a color texture but the file is missing the sRGB flag,
-        // force the GPU to treat it as sRGB anyway.
         switch (internalFormat) {
+        case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
+            internalFormat = GL_COMPRESSED_SRGB_S3TC_DXT1_EXT; break;
         case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-            internalFormat = GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT;
-            break;
+            internalFormat = GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT; break;
         case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
-            internalFormat = GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT;
-            break;
+            internalFormat = GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT; break;
         case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
-            internalFormat = GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT;
-            break;
+            internalFormat = GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT; break;
         case GL_RGBA8:
-            internalFormat = GL_SRGB8_ALPHA8;
-            break;
-        case 36491: // GL_COMPRESSED_RGBA_BPTC_UNORM (BC7 Linear)
-            internalFormat = 36492; // GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM (BC7 sRGB)
-            break;
+            internalFormat = GL_SRGB8_ALPHA8; break;
+        case 36492: // GL_COMPRESSED_RGBA_BPTC_UNORM (BC7 linear)
+            internalFormat = 36493; break; // GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM (BC7 sRGB)
         }
     }
 
@@ -144,41 +143,25 @@ GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data, const std::
     glTexParameteri(target, GL_TEXTURE_SWIZZLE_A, format.Swizzles[3]);
 
     glm::tvec3<GLsizei> const extent(tex.extent());
-    GLsizei const faceTotal = static_cast<GLsizei>(tex.layers() * tex.faces());
 
-    switch (tex.target()) {
-    case gli::TARGET_1D:
-        glTexStorage1D(target, static_cast<GLint>(tex.levels()), internalFormat, extent.x);
-        break;
-    case gli::TARGET_1D_ARRAY:
-    case gli::TARGET_2D:
-    case gli::TARGET_CUBE:
-        glTexStorage2D(target, static_cast<GLint>(tex.levels()), internalFormat, extent.x, extent.y);
-        break;
-    case gli::TARGET_2D_ARRAY:
-    case gli::TARGET_3D:
-    case gli::TARGET_CUBE_ARRAY:
-        glTexStorage3D(target, static_cast<GLint>(tex.levels()), internalFormat, extent.x, extent.y, extent.z);
-        break;
-    default:
-        return 0;
-    }
+    // Allocate immutable storage with the final format
+    glTexStorage2D(target, static_cast<GLint>(tex.levels()), internalFormat, extent.x, extent.y);
 
+    // Upload the texture data for each mipmap level
     for (std::size_t layer = 0; layer < tex.layers(); ++layer) {
         for (std::size_t face = 0; face < tex.faces(); ++face) {
             for (std::size_t level = 0; level < tex.levels(); ++level) {
-                GLsizei const layerGL = static_cast<GLsizei>(layer);
-                glm::tvec3<GLsizei> extent(tex.extent(level));
-                target = gli::is_target_cube(tex.target())
-                    ? static_cast<GLenum>(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face)
-                    : target;
+                glm::tvec3<GLsizei> levelExtent(tex.extent(level));
+                GLenum currentTarget = gli::is_target_cube(tex.target()) ? static_cast<GLenum>(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face) : target;
 
                 if (gli::is_compressed(tex.format())) {
-                    glCompressedTexSubImage2D(target, static_cast<GLint>(level), 0, 0, extent.x, extent.y,
-                        format.Internal, static_cast<GLsizei>(tex.size(level)), tex.data(layer, face, level));
+                    // FIX #1: Use the final internalFormat for the upload, NOT format.Internal
+                    glCompressedTexSubImage2D(target, static_cast<GLint>(level), 0, 0, levelExtent.x, levelExtent.y,
+                        internalFormat,
+                        static_cast<GLsizei>(tex.size(level)), tex.data(layer, face, level));
                 }
                 else {
-                    glTexSubImage2D(target, static_cast<GLint>(level), 0, 0, extent.x, extent.y,
+                    glTexSubImage2D(target, static_cast<GLint>(level), 0, 0, levelExtent.x, levelExtent.y,
                         format.External, format.Type, tex.data(layer, face, level));
                 }
             }
