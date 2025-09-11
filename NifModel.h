@@ -17,6 +17,15 @@ class Shader;
 class TextureManager;
 class Skeleton;
 
+// Vertex structure used for processing mesh data
+struct Vertex {
+    glm::vec3 pos;
+    glm::vec3 normal;
+    glm::vec2 texCoords;
+    glm::vec4 color;
+    glm::vec4 tangent; // xyz = tangent, w = handedness
+};
+
 struct MeshShape {
     GLuint VAO = 0, VBO = 0, EBO = 0;
     GLsizei indexCount = 0;
@@ -45,6 +54,8 @@ struct MeshShape {
     void draw() const;
     void cleanup();
 };
+
+
 
 class NifModel {
 public:

@@ -3,11 +3,12 @@ layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aTexCoords;
 layout (location = 3) in vec4 aColor;
+layout (location = 4) in vec4 aTangent;
 
 // NEW: Outputs are now in view space for consistent lighting
 out vec3 FragPos;
 out vec3 Normal;
-
+out vec4 Tangent;
 out vec2 TexCoords;
 out vec4 vertexColor;
 
@@ -22,7 +23,12 @@ void main()
     FragPos = vec3(pos_view);
 
     // Transform vertex normal to view space
-    Normal = mat3(transpose(inverse(view * model))) * aNormal;
+    mat3 normalMatrix = mat3(transpose(inverse(view * model)));
+    Normal = normalMatrix * aNormal;
+    
+    // NEW: Transform tangent to view space and pass handedness
+    Tangent.xyz = normalMatrix * aTangent.xyz;
+    Tangent.w = aTangent.w;
 
     // Final clip space position
     gl_Position = projection * pos_view;

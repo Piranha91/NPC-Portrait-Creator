@@ -12,14 +12,6 @@
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/norm.hpp>  // gives length2() and distance2()
 
-// Vertex structure used for processing mesh data
-struct Vertex {
-    glm::vec3 pos;
-    glm::vec3 normal;
-    glm::vec2 texCoords;
-    glm::vec4 color;
-};
-
 // Helper function to calculate the centroid of a set of vertices
 glm::vec3 CalculateCentroid(const std::vector<Vertex>& vertices) {
     if (vertices.empty()) {
@@ -47,6 +39,63 @@ nifly::MatTransform GetAVObjectTransformToGlobal(const nifly::NifFile& nifFile, 
     }
     if (debugMode) std::cout << "      [Debug] Final world transform calculated.\n";
     return xform;
+}
+
+// --- NEW HELPER FUNCTION: Calculate Tangents and Bitangents ---
+void CalculateTangents(std::vector<Vertex>& vertices, const std::vector<nifly::Triangle>& triangles) {
+    if (vertices.empty() || triangles.empty()) return;
+
+    // Create temporary storage for tangents and bitangents
+    std::vector<glm::vec3> tempTangents(vertices.size(), glm::vec3(0.0f));
+    std::vector<glm::vec3> tempBitangents(vertices.size(), glm::vec3(0.0f));
+
+    // Iterate over all triangles
+    for (const auto& tri : triangles) {
+        // Get the vertices of the triangle
+        Vertex& v0 = vertices[tri.p1];
+        Vertex& v1 = vertices[tri.p2];
+        Vertex& v2 = vertices[tri.p3];
+
+        // Calculate edges and delta UVs
+        glm::vec3 edge1 = v1.pos - v0.pos;
+        glm::vec3 edge2 = v2.pos - v0.pos;
+        glm::vec2 deltaUV1 = v1.texCoords - v0.texCoords;
+        glm::vec2 deltaUV2 = v2.texCoords - v0.texCoords;
+
+        // Calculate tangent and bitangent
+        float f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
+        glm::vec3 tangent, bitangent;
+
+        tangent.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
+        tangent.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
+        tangent.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
+
+        bitangent.x = f * (-deltaUV2.x * edge1.x + deltaUV1.x * edge2.x);
+        bitangent.y = f * (-deltaUV2.x * edge1.y + deltaUV1.x * edge2.y);
+        bitangent.z = f * (-deltaUV2.x * edge1.z + deltaUV1.x * edge2.z);
+
+        // Accumulate for each vertex
+        tempTangents[tri.p1] += tangent;
+        tempTangents[tri.p2] += tangent;
+        tempTangents[tri.p3] += tangent;
+        tempBitangents[tri.p1] += bitangent;
+        tempBitangents[tri.p2] += bitangent;
+        tempBitangents[tri.p3] += bitangent;
+    }
+
+    // Orthonormalize and calculate handedness
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        const glm::vec3& n = vertices[i].normal;
+        const glm::vec3& t = tempTangents[i];
+
+        // Gram-Schmidt orthonormalize
+        glm::vec3 tangent = glm::normalize(t - n * glm::dot(n, t));
+
+        // Calculate handedness (w component)
+        float handedness = (glm::dot(glm::cross(n, tangent), tempBitangents[i]) < 0.0f) ? -1.0f : 1.0f;
+
+        vertices[i].tangent = glm::vec4(tangent, handedness);
+    }
 }
 
 // Helper to convert NIF blend modes to OpenGL blend modes
@@ -528,6 +577,23 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
 
         std::vector<nifly::Triangle> triangles;
         niShape->GetTriangles(triangles);
+
+        // --- Calculate tangents after loading vertex data ---
+        bool hasTangentSpaceNormalMap = false;
+        if (shader && shader->HasTextureSet() && !shader->IsModelSpace()) {
+            // Get the texture set associated with the shader
+            if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
+                // The normal map is in texture slot 1. Check if it exists and has a non-empty path.
+                if (textureSet->textures.size() > 1 && !textureSet->textures[1].get().empty()) {
+                    hasTangentSpaceNormalMap = true;
+                }
+            }
+        }
+
+        if (hasTangentSpaceNormalMap) {
+            CalculateTangents(vertexData, triangles);
+        }
+
         if (!triangles.empty()) {
             std::vector<unsigned short> final_indices;
             final_indices.reserve(triangles.size() * 3);
@@ -551,6 +617,11 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
         // FIX: Add vertex attribute for color
         glEnableVertexAttribArray(3);
         glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, color));
+
+        // --- Add vertex attribute for tangent ---
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, tangent));
+
 
         glBindVertexArray(0);
 

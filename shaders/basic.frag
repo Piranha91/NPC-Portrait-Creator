@@ -4,6 +4,7 @@ out vec4 FragColor;
 // Data received from the vertex shader
 in vec3 FragPos;
 in vec3 Normal;
+in vec4 Tangent;
 in vec2 TexCoords;
 in vec4 vertexColor; // FIX: Receive vertex color
 
@@ -85,11 +86,21 @@ void main()
         finalNormal = normalize(normalMatrix * modelSpaceNormal);
     } else {
         // --- STANDARD TANGENT-SPACE PATH ---
-        finalNormal = normalize(Normal);
+        vec3 N = normalize(Normal);
         if (has_normal_map) {
-            // This is a simplified implementation.
-            // A full implementation would require a TBN matrix.
-            finalNormal = normalize(texture(texture_normal, TexCoords).xyz * 2.0 - 1.0);
+            // Sample normal from map (in tangent space)
+            vec3 n_ts = texture(texture_normal, TexCoords).xyz * 2.0 - 1.0;
+
+            // Create TBN matrix to transform from tangent to view space
+            vec3 T = normalize(Tangent.xyz);
+            vec3 B = normalize(cross(N, T)) * Tangent.w; // Use handedness
+            mat3 TBN = mat3(T, B, N);
+
+            // Transform normal and re-normalize
+            finalNormal = normalize(TBN * n_ts);
+        } else {
+            // No normal map, just use vertex normal
+            finalNormal = N;
         }
     }
     
