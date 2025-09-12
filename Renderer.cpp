@@ -27,6 +27,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#include <chrono>
+
 // --- Global Callback Prototypes ---
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
@@ -125,6 +127,10 @@ void Renderer::init(bool headless) {
         if (!currentNifPath.empty()) {
             std::ifstream testFile(currentNifPath);
             if (testFile.good()) {
+                // Start the timer for the auto-loaded model
+                nifLoadStartTime = std::chrono::high_resolution_clock::now();
+                newModelLoaded = true;
+
                 loadNifModel(currentNifPath);
             }
             else {
@@ -175,6 +181,15 @@ void Renderer::run() {
         renderFrame();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+        // --- STOP the timer and log the total duration ---
+        if (newModelLoaded) {
+            auto endTime = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - nifLoadStartTime);
+            std::cout << "\n--- [Total Load Time] From file selection to first render: "
+                << duration.count() << " ms ---\n" << std::endl;
+            newModelLoaded = false; // Reset the flag for the next time
+        }
+
         glfwSwapBuffers(window);
     }
 
@@ -188,6 +203,9 @@ void Renderer::renderUI() {
                 const char* filterPatterns[1] = { "*.nif" };
                 const char* filePath = tinyfd_openFileDialog("Open NIF File", "", 1, filterPatterns, "NIF Files", 0);
                 if (filePath) {
+                    nifLoadStartTime = std::chrono::high_resolution_clock::now();
+                    newModelLoaded = true;
+
                     loadNifModel(filePath);
                 }
             }

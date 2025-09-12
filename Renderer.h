@@ -9,6 +9,7 @@
 #include "TextureManager.h"
 #include "BsaManager.h"
 #include "Skeleton.h"
+#include <chrono> 
 
 struct GLFWwindow;
 
@@ -83,6 +84,10 @@ private:
 
     Skeleton* activeSkeleton = nullptr;
     SkeletonType currentSkeletonType = SkeletonType::None;
+
+    // --- Add these for high-level load profiling ---
+    std::chrono::high_resolution_clock::time_point nifLoadStartTime;
+    bool newModelLoaded = false;
 };
 
 #endif // RENDERER_H
