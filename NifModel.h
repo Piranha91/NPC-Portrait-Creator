@@ -30,6 +30,11 @@ struct MeshShape {
     GLuint specularTextureID = 0; // Slot 7: _s.dds
     bool isModelSpace = false;
     bool isEye = false; // NEW: Flag for eye-specific shader logic
+
+    // --- Additions for GPU Skinning ---
+    bool isSkinned = false;
+    std::vector<glm::mat4> boneMatrices;
+
     // --- Additions for Alpha Properties ---
     bool hasAlphaProperty = false;
     bool alphaBlend = false;
