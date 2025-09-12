@@ -64,8 +64,14 @@ void main()
     // --- NORMAL CALCULATION ---
     vec3 finalNormal;
     if (has_normal_map) {
-        // Sample the normal map. For Skyrim, the green channel is often inverted.
-        vec3 normal_tangent = texture(texture_normal, TexCoords).rgb * 2.0 - 1.0;
+        // Sample the normal map. 
+        vec3 normal_tangent = texture(texture_normal, TexCoords).rgb;
+        
+        // For Skyrim's DirectX-style normal maps, the green channel must be inverted for OpenGL.
+        normal_tangent.g = 1.0 - normal_tangent.g;
+
+        // Unpack from [0,1] range to [-1,1] range
+        normal_tangent = normal_tangent * 2.0 - 1.0;
         
         if (is_model_space) {
              // Model-Space Normal Path (_msn.dds)
