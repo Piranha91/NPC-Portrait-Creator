@@ -194,7 +194,6 @@ found_head:
             if (skinInst && skinData && skinPartition) {
                 if (debugMode) std::cout << "    [Debug] Extracting skinning data for GPU...\n";
 
-                // 1. Build the final bone matrix palette for this mesh
                 mesh.boneMatrices.resize(skinData->bones.size());
                 auto boneRefIt = skinInst->boneRefs.begin();
                 for (size_t i = 0; i < skinData->bones.size() && boneRefIt != skinInst->boneRefs.end(); ++i, ++boneRefIt) {
@@ -215,7 +214,6 @@ found_head:
                     mesh.boneMatrices[i] = boneWorld * skinToBone;
                 }
 
-                // 2. Assign bone indices and weights to each vertex
                 for (const auto& partition : skinPartition->partitions) {
                     if (!partition.hasVertexMap || !partition.hasVertexWeights || !partition.hasBoneIndices) continue;
                     for (uint16_t i = 0; i < partition.numVertices; ++i) {
@@ -237,27 +235,54 @@ found_head:
             }
         }
 
-        // --- COMMON LOGIC ---
-
-        if (shapeName.find("Eyes") != std::string::npos) {
-            glm::vec3 originalCentroid = CalculateCentroid(vertexData);
-            eyeCenter = glm::vec3(mesh.transform * glm::vec4(originalCentroid, 1.0f));
-            bHasEyeCenter = true;
-        }
-
         const nifly::NiShader* shader = nif.GetShader(niShape);
         if (shader) {
             mesh.isModelSpace = shader->IsModelSpace();
         }
 
-        // Bounds calculation (performed on un-skinned vertices; might not be perfectly accurate after posing)
-        glm::mat4 boundsTransform = mesh.transform;
+        // --- POSE-AWARE BOUNDS CALCULATION ---
+        // To get accurate camera framing, we must calculate the bounds of all parts
+        // using their final, posed positions. We do a temporary CPU-skinning pass here
+        // for that purpose. The original, un-skinned vertex data is still sent to the GPU for rendering.
+        glm::mat4 shapeBaseTransform = mesh.transform;
         glm::vec3 shapeMinBounds(std::numeric_limits<float>::max());
         glm::vec3 shapeMaxBounds(std::numeric_limits<float>::lowest());
+
+        std::vector<glm::vec3> posedVertices;
+        posedVertices.reserve(vertexData.size());
+
+        if (mesh.isSkinned) {
+            // If the mesh is skinned, calculate the final position of each vertex on the CPU.
+            for (const auto& vert : vertexData) {
+                glm::vec4 originalPos(vert.pos, 1.0f);
+                glm::vec4 finalPos(0.0f);
+
+                float totalWeight = vert.weights.x + vert.weights.y + vert.weights.z + vert.weights.w;
+                if (totalWeight > 0.0f) {
+                    glm::mat4 skinMatrix = (vert.weights.x * mesh.boneMatrices[vert.boneIDs.x] +
+                        vert.weights.y * mesh.boneMatrices[vert.boneIDs.y] +
+                        vert.weights.z * mesh.boneMatrices[vert.boneIDs.z] +
+                        vert.weights.w * mesh.boneMatrices[vert.boneIDs.w]) / totalWeight;
+                    finalPos = skinMatrix * originalPos;
+                }
+                else {
+                    finalPos = originalPos; // Vertex has no weights, not affected by skinning
+                }
+                posedVertices.push_back(glm::vec3(shapeBaseTransform * finalPos));
+            }
+        }
+        else {
+            // If not skinned, just apply the object's transform to each vertex.
+            for (const auto& vert : vertexData) {
+                posedVertices.push_back(glm::vec3(shapeBaseTransform * glm::vec4(vert.pos, 1.0f)));
+            }
+        }
+
+        // Determine if this shape is part of the head or an accessory (like hair)
         bool isAccessoryPart = false;
         if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
             for (const auto& partition : skinInst->partitions) {
-                if (partition.partID == 131) {
+                if (partition.partID == 131) { // SBP_131_HAIR
                     isAccessoryPart = true;
                     break;
                 }
@@ -271,18 +296,30 @@ found_head:
             }
         }
 
-        for (const auto& vert : vertexData) {
-            glm::vec3 tv3 = glm::vec3(boundsTransform * glm::vec4(vert.pos, 1.0f));
-            minBounds = glm::min(minBounds, tv3);
-            maxBounds = glm::max(maxBounds, tv3);
-            shapeMinBounds = glm::min(shapeMinBounds, tv3);
-            shapeMaxBounds = glm::max(shapeMaxBounds, tv3);
+        // Now, use the calculated 'posedVertices' to update the bounds.
+        for (const auto& pos : posedVertices) {
+            minBounds = glm::min(minBounds, pos);
+            maxBounds = glm::max(maxBounds, pos);
+            shapeMinBounds = glm::min(shapeMinBounds, pos);
+            shapeMaxBounds = glm::max(shapeMaxBounds, pos);
             if (!isAccessoryPart) {
-                headMinBounds = glm::min(headMinBounds, tv3);
-                headMaxBounds = glm::max(headMaxBounds, tv3);
+                headMinBounds = glm::min(headMinBounds, pos);
+                headMaxBounds = glm::max(headMaxBounds, pos);
             }
         }
         mesh.boundsCenter = (shapeMinBounds + shapeMaxBounds) * 0.5f;
+
+        // Update eye center using posed vertices if this is an eye mesh
+        if (mesh.isEye) {
+            glm::vec3 sum(0.0f);
+            if (!posedVertices.empty()) {
+                for (const auto& pos : posedVertices) {
+                    sum += pos;
+                }
+                eyeCenter = sum / static_cast<float>(posedVertices.size());
+            }
+            bHasEyeCenter = true;
+        }
 
         // Texture and material property loading
         if (shader && shader->HasTextureSet()) {
@@ -527,5 +564,4 @@ void NifModel::cleanup() {
 std::vector<std::string> NifModel::getTextures() const {
     return texturePaths;
 }
-
 
