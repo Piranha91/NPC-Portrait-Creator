@@ -41,7 +41,7 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
     camera(glm::vec3(0.0f, 50.0f, 0.0f)),
     lastX(width / 2.0f), lastY(height / 2.0f),
     fallbackRootDirectory("C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data"),
-    appDirectory(app_dir) { 
+    appDirectory(app_dir) {
 
     configPath = (std::filesystem::path(appDirectory) / "mugshotter_config.txt").string();
 }
@@ -145,7 +145,7 @@ void Renderer::initUI() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
-	io.FontGlobalScale = 2.0f; // Scale up for high-DPI displays
+    io.FontGlobalScale = 2.0f; // Scale up for high-DPI displays
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
 
@@ -154,16 +154,6 @@ void Renderer::initUI() {
 }
 
 void Renderer::run() {
-    // --- START: ADD THIS DEBUG CODE ---
-    std::cout << "DEBUG: Entering Renderer::run()." << std::endl;
-    if (glfwWindowShouldClose(window)) {
-        std::cout << "DEBUG: ERROR - Window is already set to close BEFORE the loop starts!" << std::endl;
-    }
-    else {
-        std::cout << "DEBUG: Window is OK. Starting main loop." << std::endl;
-    }
-    // --- END: ADD THIS DEBUG CODE ---
-
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
@@ -192,8 +182,6 @@ void Renderer::run() {
 
         glfwSwapBuffers(window);
     }
-
-    std::cout << "DEBUG: Exited main loop in Renderer::run()." << std::endl;
 }
 
 void Renderer::renderUI() {
@@ -281,12 +269,10 @@ void Renderer::shutdownUI() {
 }
 
 void Renderer::renderFrame() {
-    // FIX: Add this check to prevent rendering when minimized.
     if (screenWidth == 0 || screenHeight == 0) {
         return;
     }
 
-    // Convert by dividing each color component by 255.0
     glClearColor(0.227f, 0.239f, 0.251f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -294,19 +280,16 @@ void Renderer::renderFrame() {
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)screenWidth / (float)screenHeight, 10.0f, 10000.0f);
     glm::mat4 view = camera.GetViewMatrix();
 
-    // Add this matrix
     glm::mat4 conversionMatrix = glm::mat4(
         -1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f
     );
-    // Apply the conversion
     view = view * conversionMatrix;
 
     shader.setMat4("projection", projection);
     shader.setMat4("view", view);
-    // --- FIX: Pass camera position to the shader for specular lighting ---
     shader.setVec3("viewPos", camera.Position);
 
     if (model) {
@@ -315,10 +298,8 @@ void Renderer::renderFrame() {
 }
 
 void Renderer::HandleFramebufferSize(int width, int height) {
-    // Update the screen dimensions stored in the class
     screenWidth = width;
     screenHeight = height;
-    // Update the OpenGL viewport to match the new window size
     glViewport(0, 0, width, height);
 }
 
@@ -339,14 +320,12 @@ void Renderer::detectAndSetSkeleton(const nifly::NifFile& nif) {
 
     const auto& shapes = nif.GetShapes();
 
-    // 1. Check shape names
     for (const auto* shape : shapes) {
         if (auto* triShape = dynamic_cast<const nifly::BSTriShape*>(shape)) {
             checkString(triShape->name.get());
         }
     }
 
-    // 2. If no gender found, check texture paths
     if (!hasFemale && !hasMale) {
         for (const auto* shape : shapes) {
             const nifly::NiShader* shader = nif.GetShader(const_cast<nifly::NiShape*>(shape));
@@ -360,7 +339,6 @@ void Renderer::detectAndSetSkeleton(const nifly::NifFile& nif) {
         }
     }
 
-    // 3. Set skeleton based on findings
     if (hasFemale) {
         if (isBeast && femaleBeastSkeleton.isLoaded()) {
             activeSkeleton = &femaleBeastSkeleton;
@@ -409,7 +387,6 @@ void Renderer::loadNifModel(const std::string& path) {
     }
     textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory, appDirectory);
 
-    // --- NEW: Perform skeleton detection BEFORE loading the model ---
     nifly::NifFile tempNif;
     if (tempNif.Load(path) == 0) {
         detectAndSetSkeleton(tempNif);
@@ -429,34 +406,61 @@ void Renderer::loadNifModel(const std::string& path) {
         saveConfig();
 
         std::cout << "\n--- Calculating Mugshot Camera Position ---\n";
-        glm::vec3 modelMinBounds_Zup = model->getHeadMinBounds();
-        glm::vec3 modelMaxBounds_Zup = model->getHeadMaxBounds();
-        glm::vec3 eyeCenter_Zup = model->hasEyeCenter() ? model->getEyeCenter() : model->getCenter();
-        const float bottomCropPercentage = 0.15f;
+
+        // 1. Get all necessary bounds from the model
+        glm::vec3 headMinBounds_Zup = model->getHeadMinBounds();
+        glm::vec3 headMaxBounds_Zup = model->getHeadMaxBounds();
+        glm::vec3 totalMinBounds_Zup = model->getMinBounds();
+        glm::vec3 totalMaxBounds_Zup = model->getMaxBounds();
+
+        // 2. Convert coordinates from Skyrim's Z-up to our renderer's Y-up
+        float headTop_Yup = headMaxBounds_Zup.z;
+        float headBottom_Yup = headMinBounds_Zup.z;
+        float totalTop_Yup = totalMaxBounds_Zup.z;
+
+        // Calculate horizontal center based on HEAD bounds to ensure a straight-on view,
+        // ignoring any minor rotation in the model's bind pose.
+        float headCenterX_Yup = -(headMinBounds_Zup.x + headMaxBounds_Zup.x) / 2.0f;
+        float headCenterZ_Yup = (headMinBounds_Zup.y + headMaxBounds_Zup.y) / 2.0f;
+
+        // 3. Define the vertical frame for the mugshot
+        float headHeight = headTop_Yup - headBottom_Yup;
+        const float neckToShowPercentage = -0.15f;
+        float frameBottom_Yup = headBottom_Yup + (headHeight * neckToShowPercentage);
+        float frameTop_Yup = totalTop_Yup; // Use the highest point of the whole model (hair)
+        float frameHeight = frameTop_Yup - frameBottom_Yup;
+        float frameCenterY = (frameTop_Yup + frameBottom_Yup) / 2.0f;
+
+        // 4. Define the horizontal frame
+        float frameLeft_Yup = -totalMaxBounds_Zup.x;
+        float frameRight_Yup = -totalMinBounds_Zup.x;
+        float frameWidth = frameRight_Yup - frameLeft_Yup;
+
+        // 5. Calculate required camera distance for both height and width
         const float fovYRadians = glm::radians(45.0f);
-        glm::vec3 eyeCenter_Yup = glm::vec3(-eyeCenter_Zup.x, eyeCenter_Zup.z, eyeCenter_Zup.y);
-        float modelTop_Yup = modelMaxBounds_Zup.z;
-        float modelBottom_Yup = modelMinBounds_Zup.z;
-        float totalHeight = modelTop_Yup - modelBottom_Yup;
-        float croppedBottom_Yup = modelBottom_Yup + (totalHeight * bottomCropPercentage);
-        float visibleCenter_Yup = (modelTop_Yup + croppedBottom_Yup) / 2.0f;
-        camera.Target.x = eyeCenter_Yup.x;
-        camera.Target.y = visibleCenter_Yup;
-        camera.Target.z = eyeCenter_Yup.z;
-        float visibleHeight = modelTop_Yup - croppedBottom_Yup;
-        float requiredHalfHeight = visibleHeight / 2.0f;
-        float cameraDistance = requiredHalfHeight / tan(fovYRadians / 2.0f);
-        camera.Radius = cameraDistance * 1.05f;
-        camera.Yaw = 90.0f;
+        float aspect = (float)screenWidth / (float)screenHeight;
+
+        // Distance needed to fit the height of the frame
+        float distanceForHeight = (frameHeight / 2.0f) / tan(fovYRadians / 2.0f);
+
+        // Distance needed to fit the width of the frame
+        float fovXRadians = 2.0f * atan(tan(fovYRadians / 2.0f) * aspect);
+        float distanceForWidth = (frameWidth / 2.0f) / tan(fovXRadians / 2.0f);
+
+        // 6. Set camera properties
+        // The final distance is the larger of the two, to ensure everything fits.
+        camera.Radius = std::max(distanceForHeight, distanceForWidth) * 1.05f; // Add 5% padding
+        camera.Target = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
+        camera.Yaw = 90.0f; // Use 90 for a direct front-on view (looking down -Z after conversion)
         camera.Pitch = 0.0f;
         camera.updateCameraVectors();
 
         std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target) << std::endl;
-        std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << visibleHeight << std::endl;
+        std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << frameHeight << std::endl;
+        std::cout << "  [Mugshot Debug] Visible Width (Y-up): " << frameWidth << std::endl;
         std::cout << "  [Mugshot Debug] Final Camera Radius: " << camera.Radius << std::endl;
         std::cout << "  [Mugshot Debug] Final Camera Position: " << glm::to_string(camera.Position) << std::endl;
         std::cout << "-------------------------------------\n" << std::endl;
-
     }
     else {
         std::cerr << "Renderer failed to load NIF model." << std::endl;
