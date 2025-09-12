@@ -404,8 +404,9 @@ void Renderer::loadNifModel(const std::string& path) {
     if (model->load(path, textureManager, activeSkeleton)) {
         currentNifPath = path;
         saveConfig();
-
         std::cout << "\n--- Calculating Mugshot Camera Position ---\n";
+        std::cout << "  [Mugshot Config] headTopOffset: " << headTopOffset << " (" << headTopOffset * 100.0f << "%)\n";
+        std::cout << "  [Mugshot Config] headBottomOffset: " << headBottomOffset << " (" << headBottomOffset * 100.0f << "%)\n";
 
         // 1. Get all necessary bounds from the model
         glm::vec3 headMinBounds_Zup = model->getHeadMinBounds();
@@ -421,30 +422,34 @@ void Renderer::loadNifModel(const std::string& path) {
 
         // 3. Define the vertical frame for the mugshot based on the HEAD MESH ONLY
         float headHeight = headTop_Yup - headBottom_Yup;
-        float frameBottom_Yup = headBottom_Yup; // Absolute cutoff
-        float frameTop_Yup = headTop_Yup + (headHeight * 0.15f); // Top of head + 15% margin
+
+        // --- MODIFICATION START: Use configurable offsets ---
+        float frameBottom_Yup = headBottom_Yup + (headHeight * headBottomOffset); // Apply bottom offset
+        float frameTop_Yup = headTop_Yup + (headHeight * headTopOffset); // Apply top offset
+        // --- MODIFICATION END ---
+
         float frameHeight = frameTop_Yup - frameBottom_Yup;
         float frameCenterY = (frameTop_Yup + frameBottom_Yup) / 2.0f;
 
         // 4. Calculate required camera distance based on the vertical frame ONLY
-        const float fovYRadians = glm::radians(45.0f);
-        float distanceForHeight = (frameHeight / 2.0f) / tan(fovYRadians / 2.0f);
-
+        const float fovYRadians = glm::radians(45.0f); 
+            float distanceForHeight = (frameHeight / 2.0f) / tan(fovYRadians / 2.0f);
         // 5. Set camera properties
-        camera.Radius = distanceForHeight; // No padding, for a perfect fit
-        camera.Target = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
+        camera.Radius = distanceForHeight; 
+            camera.Target = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
         camera.Yaw = 90.0f; // Use 90 for a direct front-on view
-        camera.Pitch = 0.0f;
-        camera.updateCameraVectors();
+        camera.Pitch = 0.0f; 
+            camera.updateCameraVectors(); 
 
         std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target) << std::endl;
         std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << frameHeight << std::endl;
         std::cout << "  [Mugshot Debug] Final Camera Radius: " << camera.Radius << std::endl;
         std::cout << "  [Mugshot Debug] Final Camera Position: " << glm::to_string(camera.Position) << std::endl;
-        std::cout << "-------------------------------------\n" << std::endl;
+        std::cout << "-------------------------------------\n" << std::endl; 
     }
     else {
-        std::cerr << "Renderer failed to load NIF model." << std::endl;
+        std::cerr << "Renderer failed to load NIF model."
+            << std::endl;
     }
 }
 
@@ -486,6 +491,15 @@ void Renderer::loadConfig() {
     if (configFile.is_open()) {
         std::getline(configFile, currentNifPath);
         std::getline(configFile, fallbackRootDirectory);
+        std::string line;
+        if (std::getline(configFile, line)) {
+            try { headTopOffset = std::stof(line); }
+            catch (const std::exception&) { /* Ignore error, use default */ }
+        }
+        if (std::getline(configFile, line)) {
+            try { headBottomOffset = std::stof(line); }
+            catch (const std::exception&) { /* Ignore error, use default */ }
+        }
         configFile.close();
 
         if (fallbackRootDirectory.empty()) {
@@ -499,6 +513,8 @@ void Renderer::saveConfig() {
     if (configFile.is_open()) {
         configFile << currentNifPath << std::endl;
         configFile << fallbackRootDirectory << std::endl;
+        configFile << headTopOffset << std::endl;
+        configFile << headBottomOffset << std::endl;
         configFile.close();
     }
     else {

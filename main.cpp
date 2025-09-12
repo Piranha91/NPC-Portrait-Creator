@@ -22,6 +22,8 @@ int main(int argc, char** argv) {
         ("camZ", "Camera Z position", cxxopts::value<float>()->default_value("5.0"))
         ("pitch", "Camera pitch angle", cxxopts::value<float>()->default_value("0"))
         ("yaw", "Camera yaw angle", cxxopts::value<float>()->default_value("-90.0"))
+        ("head-top-offset", "Top margin for head as a percentage (e.g., 0.15 for 15%)", cxxopts::value<float>())
+        ("head-bottom-offset", "Bottom margin for head as a percentage (e.g., -0.02 for -2%)", cxxopts::value<float>())
         ("h,help", "Print usage");
 
     auto result = options.parse(argc, argv);
@@ -44,6 +46,15 @@ int main(int argc, char** argv) {
         }
 
         renderer.init(isHeadless);
+
+        // This is done *after* init() so CLI args override config file settings
+
+        if (result.count("head-top-offset")) {
+            renderer.setMugshotTopOffset(result["head-top-offset"].as<float>());
+        }
+        if (result.count("head-bottom-offset")) {
+            renderer.setMugshotBottomOffset(result["head-bottom-offset"].as<float>());
+        }
 
         // Load custom skeleton if provided
         if (result.count("skeleton")) {

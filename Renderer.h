@@ -12,26 +12,26 @@
 #include <chrono> 
 
 struct GLFWwindow;
-
 enum class SkeletonType { None, Female, Male, FemaleBeast, MaleBeast, Custom };
-
 class Renderer {
 public:
     Renderer(int width, int height, const std::string& app_dir);
     ~Renderer();
-
     // --- Core Methods ---
     void init(bool headless);
     void run();
     void renderFrame();
     void saveToPNG(const std::string& path);
-
     // --- NIF and Camera Control ---
     void loadNifModel(const std::string& path);
     void loadCustomSkeleton(const std::string& path);
     void detectAndSetSkeleton(const nifly::NifFile& nif);
     void setCamera(float posX, float posY, float posZ, float pitch, float yaw);
     void setFallbackRootDirectory(const std::string& path);
+
+    // --- NEW: Public setters for mugshot offsets ---
+    void setMugshotTopOffset(float offset) { headTopOffset = offset; }
+    void setMugshotBottomOffset(float offset) { headBottomOffset = offset; }
 
     // --- Public Input Handlers ---
     void HandleMouseButton(int button, int action, int mods);
@@ -47,13 +47,11 @@ public:
     bool firstMouse = true;
     bool isPanning = false;
     bool isRotating = false;
-
 private:
     // --- UI Methods ---
     void initUI();
     void renderUI();
     void shutdownUI();
-
     // --- Config Methods ---
     void loadConfig();
     void saveConfig();
@@ -84,6 +82,10 @@ private:
 
     Skeleton* activeSkeleton = nullptr;
     SkeletonType currentSkeletonType = SkeletonType::None;
+
+    // --- NEW: Mugshot framing offsets ---
+    float headTopOffset = 0.15f;    // Default: 15% margin at the top
+    float headBottomOffset = -0.02f; // Default: -2% margin (overshoot) at the bottom
 
     // --- Add these for high-level load profiling ---
     std::chrono::high_resolution_clock::time_point nifLoadStartTime;
