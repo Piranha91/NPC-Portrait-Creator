@@ -408,9 +408,23 @@ void Renderer::loadNifModel(const std::string& path) {
         std::cout << "  [Mugshot Config] headTopOffset: " << headTopOffset << " (" << headTopOffset * 100.0f << "%)\n";
         std::cout << "  [Mugshot Config] headBottomOffset: " << headBottomOffset << " (" << headBottomOffset * 100.0f << "%)\n";
 
-        // 1. Get all necessary bounds from the model
-        glm::vec3 headMinBounds_Zup = model->getHeadMinBounds();
-        glm::vec3 headMaxBounds_Zup = model->getHeadMaxBounds();
+        // 1. Get bounds from the model, preferring the specific head shape
+        glm::vec3 headMinBounds_Zup;
+        glm::vec3 headMaxBounds_Zup;
+
+        // --- MODIFICATION START: Prioritize partition bounds, then fall back ---
+        if (model->hasHeadShapeBounds()) {
+            headMinBounds_Zup = model->getHeadShapeMinBounds();
+            headMaxBounds_Zup = model->getHeadShapeMaxBounds();
+            std::cout << "  [Mugshot Info] Using specific head partition bounds for framing.\n";
+        }
+        else {
+            // Fallback for models with no head partition
+            headMinBounds_Zup = model->getHeadMinBounds();
+            headMaxBounds_Zup = model->getHeadMaxBounds();
+            std::cout << "  [Mugshot Warning] No head partition found. Falling back to aggregate head bounds.\n";
+        }
+        // --- MODIFICATION END ---
 
         // 2. Convert coordinates from Skyrim's Z-up to our renderer's Y-up
         float headTop_Yup = headMaxBounds_Zup.z;

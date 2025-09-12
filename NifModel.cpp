@@ -150,6 +150,12 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
     }
     headMinBounds = glm::vec3(std::numeric_limits<float>::max());
     headMaxBounds = glm::vec3(std::numeric_limits<float>::lowest());
+
+    // --- MODIFICATION: Initialize new head shape bound members ---
+    headShapeMinBounds = glm::vec3(std::numeric_limits<float>::max());
+    headShapeMaxBounds = glm::vec3(std::numeric_limits<float>::lowest());
+    bHasHeadShapeBounds = false;
+
     bHasEyeCenter = false;
 
     // --- HEURISTIC TO DETECT NIF TYPE (Standard vs. Hybrid) ---
@@ -398,6 +404,24 @@ found_head:
             if (!isAccessoryPart) {
                 headMinBounds = glm::min(headMinBounds, pos);
                 headMaxBounds = glm::max(headMaxBounds, pos);
+            }
+        }
+
+        // --- MODIFICATION START: Check for the head partition and store its specific bounds ---
+        if (!bHasHeadShapeBounds) { // Only capture the first one found
+            if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
+                for (const auto& partition : skinInst->partitions) {
+                    // SBP_30_HEAD or SBP_230_HEAD (beast)
+                    if (partition.partID == 30 || partition.partID == 230) {
+                        headShapeMinBounds = shapeMinBounds;
+                        headShapeMaxBounds = shapeMaxBounds;
+                        bHasHeadShapeBounds = true;
+                        if (debugMode) {
+                            std::cout << "    [Head Bounds] Captured specific bounds from '" << shapeName << "' via partition ID " << partition.partID << ".\n";
+                        }
+                        break; // Found the head partition for this shape
+                    }
+                }
             }
         }
 

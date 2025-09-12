@@ -67,8 +67,14 @@ public:
     // --- Restored Accessors from Version 1 ---
     glm::vec3 getMinBounds() const { return minBounds; }
     glm::vec3 getMaxBounds() const { return maxBounds; }
+    // The aggregate bounds, calculated by excluding accessories by name
     glm::vec3 getHeadMinBounds() const { return headMinBounds; }
     glm::vec3 getHeadMaxBounds() const { return headMaxBounds; }
+
+    // The specific bounds of the shape with the SBP_HEAD partition, if found
+    glm::vec3 getHeadShapeMinBounds() const { return headShapeMinBounds; }
+    glm::vec3 getHeadShapeMaxBounds() const { return headShapeMaxBounds; }
+    bool hasHeadShapeBounds() const { return bHasHeadShapeBounds; }
     glm::vec3 getEyeCenter() const { return eyeCenter; }
     bool hasEyeCenter() const { return bHasEyeCenter; }
     glm::vec3 getCenter() const { return (minBounds + maxBounds) * 0.5f; }
@@ -86,6 +92,11 @@ private:
     glm::vec3 maxBounds;
     glm::vec3 headMinBounds;
     glm::vec3 headMaxBounds;
+
+    // --- MODIFICATION: New members for partition-identified head shape ---
+    glm::vec3 headShapeMinBounds;
+    glm::vec3 headShapeMaxBounds;
+    bool bHasHeadShapeBounds = false;
     glm::vec3 eyeCenter;
     bool bHasEyeCenter = false;
 };
