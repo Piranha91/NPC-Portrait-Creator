@@ -5,57 +5,51 @@ layout (location = 2) in vec2 aTexCoords;
 layout (location = 3) in vec4 aColor;
 layout (location = 4) in ivec4 aBoneIDs;
 layout (location = 5) in vec4 aWeights;
+layout (location = 6) in vec3 aTangent;
+layout (location = 7) in vec3 aBitangent;
 
-// Outputs to fragment shader
 out vec3 FragPos;
-out vec3 Normal; // The original vertex normal, transformed to world space
 out vec2 TexCoords;
 out vec4 vertexColor;
-// Pass the per-vertex normal transformation matrix for model-space normal maps
-out mat3 NormalMatrix;
+out mat3 TBN;           // For tangent-space normal mapping
+out mat3 NormalMatrix;  // For model-space normal mapping
 
-// Uniforms
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
-// Skinning Uniforms
-const int MAX_BONES = 80;
 uniform bool uIsSkinned;
+const int MAX_BONES = 80;
 uniform mat4 uBoneMatrices[MAX_BONES];
 
 void main()
 {
     mat4 skinMatrix = mat4(1.0);
-    if (uIsSkinned) {
-        // Normalize weights to ensure they sum to 1.0
+    if(uIsSkinned)
+    {
+        // Normalize weights to ensure they sum to 1
         float totalWeight = aWeights.x + aWeights.y + aWeights.z + aWeights.w;
-        vec4 normalizedWeights = (totalWeight > 0.0) ? aWeights / totalWeight : vec4(0.0);
-
-        skinMatrix = normalizedWeights.x * uBoneMatrices[aBoneIDs.x] +
-                     normalizedWeights.y * uBoneMatrices[aBoneIDs.y] +
-                     normalizedWeights.z * uBoneMatrices[aBoneIDs.z] +
-                     normalizedWeights.w * uBoneMatrices[aBoneIDs.w];
+        if (totalWeight > 0.0) {
+           skinMatrix = (aWeights.x * uBoneMatrices[aBoneIDs.x] +
+                         aWeights.y * uBoneMatrices[aBoneIDs.y] +
+                         aWeights.z * uBoneMatrices[aBoneIDs.z] +
+                         aWeights.w * uBoneMatrices[aBoneIDs.w]) / totalWeight;
+        }
     }
+    
+    mat4 viewModel = view * model * skinMatrix;
+    gl_Position = projection * viewModel * vec4(aPos, 1.0);
+    FragPos = vec3(viewModel * vec4(aPos, 1.0));
 
-    // The final world matrix combines the object's transform and the per-vertex skinning transform
-    mat4 finalModelMatrix = model * skinMatrix;
+    // Calculate the Normal Matrix for transforming normals to view space
+    NormalMatrix = mat3(transpose(inverse(viewModel)));
 
-    // Transform position to world space
-    vec4 worldPos = finalModelMatrix * vec4(aPos, 1.0);
-    FragPos = vec3(worldPos);
+    // Create the TBN matrix for transforming tangent-space normals to view space
+    vec3 T = normalize(NormalMatrix * aTangent);
+    vec3 B = normalize(NormalMatrix * aBitangent);
+    vec3 N = normalize(NormalMatrix * aNormal);
+    TBN = mat3(T, B, N);
     
-    // Calculate the normal matrix and pass it to the fragment shader
-    // This matrix transforms normals from model space to world space correctly, even with non-uniform scaling.
-    NormalMatrix = mat3(transpose(inverse(finalModelMatrix)));
-    
-    // Transform the base vertex normal to world space and pass it
-    Normal = NormalMatrix * aNormal;
-    
-    // Final clip space position
-    gl_Position = projection * view * worldPos;
-    
-    // Pass texture coordinates and color through
     TexCoords = aTexCoords;
     vertexColor = aColor;
 }

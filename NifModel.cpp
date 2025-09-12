@@ -13,7 +13,7 @@
 #include <glm/gtx/norm.hpp>  // gives length2() and distance2()
 #include <chrono>
 
-// Vertex structure used for processing mesh data, now includes skinning info
+// Vertex structure used for processing mesh data, now includes skinning and tangent space info
 struct Vertex {
     glm::vec3 pos;
     glm::vec3 normal;
@@ -21,6 +21,8 @@ struct Vertex {
     glm::vec4 color;
     glm::ivec4 boneIDs = glm::ivec4(0);
     glm::vec4 weights = glm::vec4(0.0f);
+    glm::vec3 tangent = glm::vec3(0.0f);
+    glm::vec3 bitangent = glm::vec3(0.0f);
 };
 
 // Helper function to calculate the centroid of a set of vertices
@@ -40,15 +42,12 @@ nifly::MatTransform GetAVObjectTransformToGlobal(const nifly::NifFile& nifFile, 
     if (!obj) {
         return nifly::MatTransform();
     }
-    if (debugMode) std::cout << "      [Debug] GetAVObjectTransformToGlobal for '" << obj->name.get() << "':\n";
     nifly::MatTransform xform = obj->GetTransformToParent();
     nifly::NiNode* parent = nifFile.GetParentNode(obj);
     while (parent) {
-        if (debugMode) std::cout << "        - Traversing up to parent: '" << parent->name.get() << "'\n";
         xform = parent->GetTransformToParent().ComposeTransforms(xform);
         parent = nifFile.GetParentNode(parent);
     }
-    if (debugMode) std::cout << "      [Debug] Final world transform calculated.\n";
     return xform;
 }
 
@@ -136,7 +135,6 @@ found_head:
         if (!niShape || (niShape->flags & 1)) continue;
 
         // --- Stage 1: Nifly Vertex/Property Parsing ---
-        // This stage measures the time taken by the nifly library to extract raw geometry data.
         auto start_stage1 = std::chrono::high_resolution_clock::now();
         const auto* vertices = nif.GetVertsForShape(niShape);
         if (!vertices || vertices->empty()) continue;
@@ -144,10 +142,11 @@ found_head:
         const auto* colors = nif.GetColorsForShape(niShape->name.get());
         const auto* normals = nif.GetNormalsForShape(niShape);
         const auto* uvs = nif.GetUvsForShape(niShape);
+        const auto* tangents = nif.GetTangentsForShape(niShape);
+        const auto* bitangents = nif.GetBitangentsForShape(niShape);
         auto end_stage1 = std::chrono::high_resolution_clock::now();
 
         // --- Stage 2: Copying Data to Local Buffers ---
-        // This stage is typically very fast and just involves copying the extracted data.
         auto start_stage2 = std::chrono::high_resolution_clock::now();
         std::vector<Vertex> vertexData(vertices->size());
         for (size_t i = 0; i < vertices->size(); ++i) {
@@ -163,6 +162,8 @@ found_head:
             else {
                 vertexData[i].color = glm::vec4(1.0f);
             }
+            if (tangents && i < tangents->size()) vertexData[i].tangent = glm::vec3((*tangents)[i].x, (*tangents)[i].y, (*tangents)[i].z);
+            if (bitangents && i < bitangents->size()) vertexData[i].bitangent = glm::vec3((*bitangents)[i].x, (*bitangents)[i].y, (*bitangents)[i].z);
         }
         auto end_stage2 = std::chrono::high_resolution_clock::now();
 
@@ -407,6 +408,12 @@ found_head:
         glVertexAttribIPointer(4, 4, GL_INT, sizeof(Vertex), (void*)offsetof(Vertex, boneIDs));
         glEnableVertexAttribArray(5);
         glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, weights));
+
+        // Add Tangent and Bitangent attributes
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, tangent));
+        glEnableVertexAttribArray(7);
+        glVertexAttribPointer(7, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, bitangent));
 
         glBindVertexArray(0);
         auto end_stage6 = std::chrono::high_resolution_clock::now();
