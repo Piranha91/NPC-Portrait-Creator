@@ -114,8 +114,28 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
     headMaxBounds = glm::vec3(std::numeric_limits<float>::lowest());
     bHasEyeCenter = false;
 
-    // Determine a shared 'accessory offset' transform from the head shape, if it exists.
-    // This helps correctly place parts like eyes/brows that have no transform of their own.
+    // --- HEURISTIC TO DETECT NIF TYPE (Standard vs. Hybrid) ---
+    // This logic is crucial for handling different ways NIF files are authored.
+    bool isHybridModel = false;
+    const float PRETRANSLATED_THRESHOLD = 10.0f;
+    for (auto* shape : shapeList) {
+        if (!shape->IsSkinned()) continue;
+        nifly::MatTransform shapeTransform = GetAVObjectTransformToGlobal(nif, shape, false);
+        // A hybrid model has skinned parts with no transform, but their vertices are far from the origin.
+        if (shapeTransform.IsNearlyEqualTo(nifly::MatTransform())) {
+            const auto* v = nif.GetVertsForShape(shape);
+            if (v && !v->empty()) {
+                glm::vec3 sum(0.0f); for (const auto& vert : *v) sum += glm::vec3(vert.x, vert.y, vert.z);
+                glm::vec3 centroid = sum / static_cast<float>(v->size());
+                if (glm::length(centroid) > PRETRANSLATED_THRESHOLD) {
+                    isHybridModel = true;
+                    if (debugMode) std::cout << "[NIF Analysis] Hybrid model with pre-translated parts detected.\n";
+                    break;
+                }
+            }
+        }
+    }
+
     nifly::MatTransform accessoryOffset;
     for (auto* shape : shapeList) {
         if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(shape->SkinInstanceRef())) {
@@ -176,17 +196,27 @@ found_head:
             }
         }
 
-        nifly::MatTransform niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, false);
-        if (niflyTransform.IsNearlyEqualTo(nifly::MatTransform())) {
-            bool isLocalSpacePart = (
-                shapeName.find("Eyes") != std::string::npos ||
-                shapeName.find("Mouth") != std::string::npos ||
-                shapeName.find("Teeth") != std::string::npos ||
-                shapeName.find("Brows") != std::string::npos
-                );
-            if (isLocalSpacePart) {
-                if (debugMode) std::cout << "    [Debug] Applying accessory offset for local-space part '" << shapeName << "'.\n";
-                niflyTransform = accessoryOffset;
+        // --- FINALIZED TRANSFORM LOGIC ---
+        nifly::MatTransform niflyTransform; // Default to identity
+        // For hybrid models, the transform for skinned parts should be identity, as their
+        // vertices are pre-translated. For all other models, get the transform from the scene graph.
+        if (isHybridModel && niShape->IsSkinned()) {
+            if (debugMode) std::cout << "    [Debug] Using identity transform for hybrid skinned part.\n";
+        }
+        else {
+            niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, false);
+            if (niflyTransform.IsNearlyEqualTo(nifly::MatTransform())) {
+                bool isLocalSpacePart = (
+                    shapeName.find("Eyes") != std::string::npos ||
+                    shapeName.find("Mouth") != std::string::npos ||
+                    shapeName.find("Teeth") != std::string::npos ||
+                    shapeName.find("Brows") != std::string::npos
+                    );
+
+                if (isLocalSpacePart) {
+                    if (debugMode) std::cout << "    [Debug] Applying accessory offset for local-space part '" << shapeName << "'.\n";
+                    niflyTransform = accessoryOffset;
+                }
             }
         }
         mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
