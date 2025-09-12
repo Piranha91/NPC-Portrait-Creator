@@ -11,6 +11,7 @@
 #include <limits>
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/norm.hpp>  // gives length2() and distance2()
+#include <chrono>
 
 // Vertex structure used for processing mesh data
 struct Vertex {
@@ -233,6 +234,9 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
     // === PROCESS ALL SHAPES USING THE CHOSEN STRATEGY
     // ===================================================================================
     for (auto* niShape : shapeList) {
+        // START PROFILING PRE-SHADER WORK
+        auto start_preprocess = std::chrono::high_resolution_clock::now();
+
         if (debugMode) std::cout << "\n--- Processing Shape: " << niShape->name.get() << " ---\n";
         if (!niShape || (niShape->flags & 1)) continue;
 
@@ -589,6 +593,11 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
         else {
             opaqueShapes.push_back(mesh);
         }
+
+        // END PROFILING AND PRINT RESULT
+        auto end_preprocess = std::chrono::high_resolution_clock::now();
+        auto duration_preprocess = std::chrono::duration_cast<std::chrono::milliseconds>(end_preprocess - start_preprocess);
+        std::cout << "    [Profile] Pre-shader rendering took: " << duration_preprocess.count() << " ms\n";
     }
 
     if (debugMode) {

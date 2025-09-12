@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <gli/gli.hpp>
+#include <chrono>
 
 TextureManager::~TextureManager() {
     cleanup();
@@ -32,6 +33,9 @@ GLuint TextureManager::loadTexture(const std::string& relativePath) {
         return it->second;
     }
 
+    // START PROFILING ASSET FIND
+    auto start_find = std::chrono::high_resolution_clock::now();
+
     std::vector<char> fileData;
     bool found = false;
 
@@ -58,6 +62,11 @@ GLuint TextureManager::loadTexture(const std::string& relativePath) {
         }
     }
 
+    // END PROFILING ASSET FIND
+    auto end_find = std::chrono::high_resolution_clock::now();
+    auto duration_find = std::chrono::duration_cast<std::chrono::milliseconds>(end_find - start_find);
+    std::cout << "    [Profile] Asset Find (" << relativePath << ") took: " << duration_find.count() << " ms\n";
+
     // 3. If we found data, upload it to the GPU
     if (!fileData.empty()) {
         GLuint textureID = uploadDDSToGPU(fileData);
@@ -73,6 +82,9 @@ GLuint TextureManager::loadTexture(const std::string& relativePath) {
 }
 
 GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
+    // START PROFILING ASSET GET/UPLOAD
+    auto start_get = std::chrono::high_resolution_clock::now();
+
     gli::texture tex = gli::load(data.data(), data.size());
     if (tex.empty()) {
         return 0;
@@ -143,6 +155,10 @@ GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
     glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    auto end_get = std::chrono::high_resolution_clock::now();
+    auto duration_get = std::chrono::duration_cast<std::chrono::milliseconds>(end_get - start_get);
+    std::cout << "    [Profile] Asset Get/Upload took: " << duration_get.count() << " ms\n";
 
     return textureID;
 }
