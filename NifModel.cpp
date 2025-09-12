@@ -144,6 +144,10 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
     // Reset bounds for the new model
     minBounds = glm::vec3(std::numeric_limits<float>::max());
     maxBounds = glm::vec3(std::numeric_limits<float>::lowest());
+    if (debugMode) {
+        std::cout << "[Bounds] Initial Min Bounds: (" << minBounds.x << ", " << minBounds.y << ", " << minBounds.z << ")\n";
+        std::cout << "[Bounds] Initial Max Bounds: (" << maxBounds.x << ", " << maxBounds.y << ", " << maxBounds.z << ")\n";
+    }
     headMinBounds = glm::vec3(std::numeric_limits<float>::max());
     headMaxBounds = glm::vec3(std::numeric_limits<float>::lowest());
     bHasEyeCenter = false;
@@ -396,6 +400,12 @@ found_head:
                 headMaxBounds = glm::max(headMaxBounds, pos);
             }
         }
+
+        if (debugMode) {
+            std::cout << "    [Shape Bounds] '" << shapeName << "' Min: (" << shapeMinBounds.x << ", " << shapeMinBounds.y << ", " << shapeMinBounds.z << ")\n";
+            std::cout << "    [Shape Bounds] '" << shapeName << "' Max: (" << shapeMaxBounds.x << ", " << shapeMaxBounds.y << ", " << shapeMaxBounds.z << ")\n";
+        }
+
         mesh.boundsCenter = (shapeMinBounds + shapeMaxBounds) * 0.5f;
 
         if (mesh.isEye) {
@@ -536,6 +546,8 @@ found_head:
 
     if (debugMode) {
         std::cout << "\n--- Load Complete ---\n";
+        std::cout << "[Bounds] Final Min Bounds: (" << minBounds.x << ", " << minBounds.y << ", " << minBounds.z << ")\n";
+        std::cout << "[Bounds] Final Max Bounds: (" << maxBounds.x << ", " << maxBounds.y << ", " << maxBounds.z << ")\n";
         std::cout << "Model Center: (" << getCenter().x << ", " << getCenter().y << ", " << getCenter().z << ")\n";
         std::cout << "Model Bounds Size: (" << getBoundsSize().x << ", " << getBoundsSize().y << ", " << getBoundsSize().z << ")\n";
         std::cout << "---------------------\n\n";
@@ -678,4 +690,3 @@ void NifModel::cleanup() {
 std::vector<std::string> NifModel::getTextures() const {
     return texturePaths;
 }
-
