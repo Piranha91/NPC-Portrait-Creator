@@ -33,51 +33,54 @@ GLuint TextureManager::loadTexture(const std::string& relativePath) {
         return it->second;
     }
 
-    // START PROFILING ASSET FIND
+    // Start a timer for the entire find-and-load process.
     auto start_find = std::chrono::high_resolution_clock::now();
 
     std::vector<char> fileData;
-    bool found = false;
 
-    // 2. Search for the file data (loose files first, then BSAs)
+    // --- NEW: CORRECTED ASSET LOADING ORDER ---
+    // In Bethesda games, loose files on disk always override BSA contents.
+    // We must check for loose files first before consulting the archives.
+
+    // 2. Check for a loose file in the primary data directory.
     std::filesystem::path loosePath = std::filesystem::path(rootDirectory) / relativePath;
     if (std::filesystem::exists(loosePath)) {
         std::ifstream file(loosePath, std::ios::binary);
         fileData.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-        found = true;
     }
+    // 3. If not found, check for a loose file in the fallback data directory.
     else {
         loosePath = std::filesystem::path(fallbackRootDirectory) / relativePath;
         if (std::filesystem::exists(loosePath)) {
             std::ifstream file(loosePath, std::ios::binary);
             fileData.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-            found = true;
         }
     }
 
-    if (!found) {
+    // 4. If no loose file was found in either location, check the BSA archives.
+    if (fileData.empty()) {
         fileData = rootBsaManager.extractFile(relativePath);
         if (fileData.empty()) {
             fileData = fallbackBsaManager.extractFile(relativePath);
         }
     }
+    // --- END: CORRECTED ASSET LOADING ORDER ---
 
-    // END PROFILING ASSET FIND
     auto end_find = std::chrono::high_resolution_clock::now();
     auto duration_find = std::chrono::duration_cast<std::chrono::milliseconds>(end_find - start_find);
     std::cout << "    [Profile] Asset Find (" << relativePath << ") took: " << duration_find.count() << " ms\n";
 
-    // 3. If we found data, upload it to the GPU
+    // 5. If data was found (from either a loose file or BSA), upload it to the GPU.
     if (!fileData.empty()) {
         GLuint textureID = uploadDDSToGPU(fileData);
         if (textureID != 0) {
-            textureCache[relativePath] = textureID; // Cache the new texture
+            textureCache[relativePath] = textureID; // Cache the new texture ID.
             return textureID;
         }
     }
 
     std::cerr << "Warning: Texture not found or failed to load: " << relativePath << std::endl;
-    textureCache[relativePath] = 0; // Cache the failure to avoid repeated attempts
+    textureCache[relativePath] = 0; // Cache the failure to avoid repeated attempts.
     return 0;
 }
 

@@ -135,18 +135,25 @@ found_head:
         if (debugMode) std::cout << "\n--- Processing Shape: " << niShape->name.get() << " ---\n";
         if (!niShape || (niShape->flags & 1)) continue;
 
+        // --- Stage 1: Nifly Vertex/Property Parsing ---
+        // This stage measures the time taken by the nifly library to extract raw geometry data.
+        auto start_stage1 = std::chrono::high_resolution_clock::now();
         const auto* vertices = nif.GetVertsForShape(niShape);
         if (!vertices || vertices->empty()) continue;
 
-        std::vector<Vertex> vertexData(vertices->size());
         const auto* colors = nif.GetColorsForShape(niShape->name.get());
+        const auto* normals = nif.GetNormalsForShape(niShape);
+        const auto* uvs = nif.GetUvsForShape(niShape);
+        auto end_stage1 = std::chrono::high_resolution_clock::now();
 
+        // --- Stage 2: Copying Data to Local Buffers ---
+        // This stage is typically very fast and just involves copying the extracted data.
+        auto start_stage2 = std::chrono::high_resolution_clock::now();
+        std::vector<Vertex> vertexData(vertices->size());
         for (size_t i = 0; i < vertices->size(); ++i) {
             vertexData[i].pos = glm::vec3((*vertices)[i].x, (*vertices)[i].y, (*vertices)[i].z);
-            const auto* normals = nif.GetNormalsForShape(niShape);
             if (normals && i < normals->size()) vertexData[i].normal = glm::vec3((*normals)[i].x, (*normals)[i].y, (*normals)[i].z);
             else vertexData[i].normal = glm::vec3(0.0f, 1.0f, 0.0f);
-            const auto* uvs = nif.GetUvsForShape(niShape);
             if (uvs && i < uvs->size()) vertexData[i].texCoords = glm::vec2((*uvs)[i].u, (*uvs)[i].v);
             else vertexData[i].texCoords = glm::vec2(0.0f, 0.0f);
             if (colors && i < colors->size()) {
@@ -157,6 +164,7 @@ found_head:
                 vertexData[i].color = glm::vec4(1.0f);
             }
         }
+        auto end_stage2 = std::chrono::high_resolution_clock::now();
 
         MeshShape mesh;
         std::string shapeName = niShape->name.get();
@@ -167,8 +175,6 @@ found_head:
             }
         }
 
-        // --- BASE TRANSFORM CALCULATION ---
-        // This calculates the object's base transform in the world, before skinning.
         nifly::MatTransform niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, false);
         if (niflyTransform.IsNearlyEqualTo(nifly::MatTransform())) {
             bool isLocalSpacePart = (
@@ -184,7 +190,8 @@ found_head:
         }
         mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
 
-        // --- GPU SKINNING DATA EXTRACTION ---
+        // --- Stage 3: GPU Skinning Data Extraction ---
+        auto start_stage3 = std::chrono::high_resolution_clock::now();
         if (niShape->IsSkinned()) {
             mesh.isSkinned = true;
             auto* skinInst = nif.GetHeader().GetBlock<nifly::NiSkinInstance>(niShape->SkinInstanceRef());
@@ -234,16 +241,15 @@ found_head:
                 }
             }
         }
+        auto end_stage3 = std::chrono::high_resolution_clock::now();
 
         const nifly::NiShader* shader = nif.GetShader(niShape);
         if (shader) {
             mesh.isModelSpace = shader->IsModelSpace();
         }
 
-        // --- POSE-AWARE BOUNDS CALCULATION ---
-        // To get accurate camera framing, we must calculate the bounds of all parts
-        // using their final, posed positions. We do a temporary CPU-skinning pass here
-        // for that purpose. The original, un-skinned vertex data is still sent to the GPU for rendering.
+        // --- Stage 4: Pose-Aware Bounds Calculation (Optimized) ---
+        auto start_stage4 = std::chrono::high_resolution_clock::now();
         glm::mat4 shapeBaseTransform = mesh.transform;
         glm::vec3 shapeMinBounds(std::numeric_limits<float>::max());
         glm::vec3 shapeMaxBounds(std::numeric_limits<float>::lowest());
@@ -251,34 +257,6 @@ found_head:
         std::vector<glm::vec3> posedVertices;
         posedVertices.reserve(vertexData.size());
 
-        if (mesh.isSkinned) {
-            // If the mesh is skinned, calculate the final position of each vertex on the CPU.
-            for (const auto& vert : vertexData) {
-                glm::vec4 originalPos(vert.pos, 1.0f);
-                glm::vec4 finalPos(0.0f);
-
-                float totalWeight = vert.weights.x + vert.weights.y + vert.weights.z + vert.weights.w;
-                if (totalWeight > 0.0f) {
-                    glm::mat4 skinMatrix = (vert.weights.x * mesh.boneMatrices[vert.boneIDs.x] +
-                        vert.weights.y * mesh.boneMatrices[vert.boneIDs.y] +
-                        vert.weights.z * mesh.boneMatrices[vert.boneIDs.z] +
-                        vert.weights.w * mesh.boneMatrices[vert.boneIDs.w]) / totalWeight;
-                    finalPos = skinMatrix * originalPos;
-                }
-                else {
-                    finalPos = originalPos; // Vertex has no weights, not affected by skinning
-                }
-                posedVertices.push_back(glm::vec3(shapeBaseTransform * finalPos));
-            }
-        }
-        else {
-            // If not skinned, just apply the object's transform to each vertex.
-            for (const auto& vert : vertexData) {
-                posedVertices.push_back(glm::vec3(shapeBaseTransform * glm::vec4(vert.pos, 1.0f)));
-            }
-        }
-
-        // Determine if this shape is part of the head or an accessory (like hair)
         bool isAccessoryPart = false;
         if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
             for (const auto& partition : skinInst->partitions) {
@@ -296,7 +274,33 @@ found_head:
             }
         }
 
-        // Now, use the calculated 'posedVertices' to update the bounds.
+        if (mesh.isSkinned && !isAccessoryPart) {
+            if (debugMode) std::cout << "    [Debug] Performing precise, pose-aware bounds calculation for head part.\n";
+            for (const auto& vert : vertexData) {
+                glm::vec4 originalPos(vert.pos, 1.0f);
+                glm::vec4 finalPos(0.0f);
+
+                float totalWeight = vert.weights.x + vert.weights.y + vert.weights.z + vert.weights.w;
+                if (totalWeight > 0.0f) {
+                    glm::mat4 skinMatrix = (vert.weights.x * mesh.boneMatrices[vert.boneIDs.x] +
+                        vert.weights.y * mesh.boneMatrices[vert.boneIDs.y] +
+                        vert.weights.z * mesh.boneMatrices[vert.boneIDs.z] +
+                        vert.weights.w * mesh.boneMatrices[vert.boneIDs.w]) / totalWeight;
+                    finalPos = skinMatrix * originalPos;
+                }
+                else {
+                    finalPos = originalPos;
+                }
+                posedVertices.push_back(glm::vec3(shapeBaseTransform * finalPos));
+            }
+        }
+        else {
+            if (debugMode && isAccessoryPart) std::cout << "    [Debug] Performing fast, approximate bounds calculation for accessory part.\n";
+            for (const auto& vert : vertexData) {
+                posedVertices.push_back(glm::vec3(shapeBaseTransform * glm::vec4(vert.pos, 1.0f)));
+            }
+        }
+
         for (const auto& pos : posedVertices) {
             minBounds = glm::min(minBounds, pos);
             maxBounds = glm::max(maxBounds, pos);
@@ -309,7 +313,6 @@ found_head:
         }
         mesh.boundsCenter = (shapeMinBounds + shapeMaxBounds) * 0.5f;
 
-        // Update eye center using posed vertices if this is an eye mesh
         if (mesh.isEye) {
             glm::vec3 sum(0.0f);
             if (!posedVertices.empty()) {
@@ -320,8 +323,10 @@ found_head:
             }
             bHasEyeCenter = true;
         }
+        auto end_stage4 = std::chrono::high_resolution_clock::now();
 
-        // Texture and material property loading
+        // --- Stage 5: Texture & Material Loading ---
+        auto start_stage5 = std::chrono::high_resolution_clock::now();
         if (shader && shader->HasTextureSet()) {
             if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
                 for (size_t i = 0; i < textureSet->textures.size(); ++i) {
@@ -363,8 +368,10 @@ found_head:
             mesh.srcBlend = NifBlendToGL((flags >> 1) & 0x0F);
             mesh.dstBlend = NifBlendToGL((flags >> 5) & 0x0F);
         }
+        auto end_stage5 = std::chrono::high_resolution_clock::now();
 
-        // VAO/VBO/EBO setup
+        // --- Stage 6: GPU Buffer Upload ---
+        auto start_stage6 = std::chrono::high_resolution_clock::now();
         glGenVertexArrays(1, &mesh.VAO);
         glGenBuffers(1, &mesh.VBO);
         glGenBuffers(1, &mesh.EBO);
@@ -387,7 +394,6 @@ found_head:
             glBufferData(GL_ELEMENT_ARRAY_BUFFER, final_indices.size() * sizeof(unsigned short), final_indices.data(), GL_STATIC_DRAW);
         }
 
-        // Standard attributes
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, pos));
         glEnableVertexAttribArray(1);
@@ -397,13 +403,13 @@ found_head:
         glEnableVertexAttribArray(3);
         glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, color));
 
-        // New skinning attributes
         glEnableVertexAttribArray(4);
         glVertexAttribIPointer(4, 4, GL_INT, sizeof(Vertex), (void*)offsetof(Vertex, boneIDs));
         glEnableVertexAttribArray(5);
         glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, weights));
 
         glBindVertexArray(0);
+        auto end_stage6 = std::chrono::high_resolution_clock::now();
 
         // Sort into render passes
         if (mesh.hasAlphaProperty) {
@@ -416,8 +422,25 @@ found_head:
         }
 
         auto end_preprocess = std::chrono::high_resolution_clock::now();
-        auto duration_preprocess = std::chrono::duration_cast<std::chrono::milliseconds>(end_preprocess - start_preprocess);
-        std::cout << "    [Profile] Data extraction took: " << duration_preprocess.count() << " ms\n";
+
+        // --- LOGGING ---
+        if (debugMode) {
+            auto dur_s1 = std::chrono::duration_cast<std::chrono::milliseconds>(end_stage1 - start_stage1);
+            auto dur_s2 = std::chrono::duration_cast<std::chrono::milliseconds>(end_stage2 - start_stage2);
+            auto dur_s3 = std::chrono::duration_cast<std::chrono::milliseconds>(end_stage3 - start_stage3);
+            auto dur_s4 = std::chrono::duration_cast<std::chrono::milliseconds>(end_stage4 - start_stage4);
+            auto dur_s5 = std::chrono::duration_cast<std::chrono::milliseconds>(end_stage5 - start_stage5);
+            auto dur_s6 = std::chrono::duration_cast<std::chrono::milliseconds>(end_stage6 - start_stage6);
+            auto duration_preprocess = std::chrono::duration_cast<std::chrono::milliseconds>(end_preprocess - start_preprocess);
+
+            std::cout << "    [Profile] Nifly Vertex/Property Parsing: " << dur_s1.count() << " ms\n";
+            std::cout << "    [Profile] Data Copy to Buffers: " << dur_s2.count() << " ms\n";
+            std::cout << "    [Profile] Skinning Data Extraction: " << dur_s3.count() << " ms\n";
+            std::cout << "    [Profile] Bounds Calculation: " << dur_s4.count() << " ms\n";
+            std::cout << "    [Profile] Texture/Material Loading: " << dur_s5.count() << " ms\n";
+            std::cout << "    [Profile] GPU Buffer Upload: " << dur_s6.count() << " ms\n";
+            std::cout << "    [Profile] Total Shape Processing Time: " << duration_preprocess.count() << " ms\n";
+        }
     }
 
     if (debugMode) {
