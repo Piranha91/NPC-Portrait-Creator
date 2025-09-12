@@ -410,54 +410,35 @@ void Renderer::loadNifModel(const std::string& path) {
         // 1. Get all necessary bounds from the model
         glm::vec3 headMinBounds_Zup = model->getHeadMinBounds();
         glm::vec3 headMaxBounds_Zup = model->getHeadMaxBounds();
-        glm::vec3 totalMinBounds_Zup = model->getMinBounds();
-        glm::vec3 totalMaxBounds_Zup = model->getMaxBounds();
 
         // 2. Convert coordinates from Skyrim's Z-up to our renderer's Y-up
         float headTop_Yup = headMaxBounds_Zup.z;
         float headBottom_Yup = headMinBounds_Zup.z;
-        float totalTop_Yup = totalMaxBounds_Zup.z;
 
-        // Calculate horizontal center based on HEAD bounds to ensure a straight-on view,
-        // ignoring any minor rotation in the model's bind pose.
+        // Calculate horizontal center based on HEAD bounds to ensure a straight-on view
         float headCenterX_Yup = -(headMinBounds_Zup.x + headMaxBounds_Zup.x) / 2.0f;
         float headCenterZ_Yup = (headMinBounds_Zup.y + headMaxBounds_Zup.y) / 2.0f;
 
-        // 3. Define the vertical frame for the mugshot
+        // 3. Define the vertical frame for the mugshot based on the HEAD MESH ONLY
         float headHeight = headTop_Yup - headBottom_Yup;
-        const float neckToShowPercentage = -0.15f;
-        float frameBottom_Yup = headBottom_Yup + (headHeight * neckToShowPercentage);
-        float frameTop_Yup = totalTop_Yup; // Use the highest point of the whole model (hair)
+        float frameBottom_Yup = headBottom_Yup; // Absolute cutoff
+        float frameTop_Yup = headTop_Yup + (headHeight * 0.15f); // Top of head + 15% margin
         float frameHeight = frameTop_Yup - frameBottom_Yup;
         float frameCenterY = (frameTop_Yup + frameBottom_Yup) / 2.0f;
 
-        // 4. Define the horizontal frame
-        float frameLeft_Yup = -totalMaxBounds_Zup.x;
-        float frameRight_Yup = -totalMinBounds_Zup.x;
-        float frameWidth = frameRight_Yup - frameLeft_Yup;
-
-        // 5. Calculate required camera distance for both height and width
+        // 4. Calculate required camera distance based on the vertical frame ONLY
         const float fovYRadians = glm::radians(45.0f);
-        float aspect = (float)screenWidth / (float)screenHeight;
-
-        // Distance needed to fit the height of the frame
         float distanceForHeight = (frameHeight / 2.0f) / tan(fovYRadians / 2.0f);
 
-        // Distance needed to fit the width of the frame
-        float fovXRadians = 2.0f * atan(tan(fovYRadians / 2.0f) * aspect);
-        float distanceForWidth = (frameWidth / 2.0f) / tan(fovXRadians / 2.0f);
-
-        // 6. Set camera properties
-        // The final distance is the larger of the two, to ensure everything fits.
-        camera.Radius = std::max(distanceForHeight, distanceForWidth) * 1.05f; // Add 5% padding
+        // 5. Set camera properties
+        camera.Radius = distanceForHeight; // No padding, for a perfect fit
         camera.Target = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
-        camera.Yaw = 90.0f; // Use 90 for a direct front-on view (looking down -Z after conversion)
+        camera.Yaw = 90.0f; // Use 90 for a direct front-on view
         camera.Pitch = 0.0f;
         camera.updateCameraVectors();
 
         std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target) << std::endl;
         std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << frameHeight << std::endl;
-        std::cout << "  [Mugshot Debug] Visible Width (Y-up): " << frameWidth << std::endl;
         std::cout << "  [Mugshot Debug] Final Camera Radius: " << camera.Radius << std::endl;
         std::cout << "  [Mugshot Debug] Final Camera Position: " << glm::to_string(camera.Position) << std::endl;
         std::cout << "-------------------------------------\n" << std::endl;
@@ -566,7 +547,7 @@ void Renderer::HandleCursorPosition(double xpos, double ypos) {
         camera.ProcessMouseOrbit(xoffset, yoffset);
     }
     if (isPanning) {
-        camera.ProcessMousePan(xoffset, yoffset);
+        camera.ProcessMousePan(xoffset, ypos);
     }
 }
 
