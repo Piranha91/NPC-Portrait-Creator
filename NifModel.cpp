@@ -64,6 +64,40 @@ GLenum NifBlendToGL(unsigned int nifBlend) {
     }
 }
 
+// --- HELPER FUNCTIONS FOR SKELETON ROOT FINDING ---
+
+// Returns true if 'ancestor' is an ancestor of 'node' in the NIF scene graph.
+static bool IsAncestor(const nifly::NifFile& nif, const nifly::NiNode* ancestor, nifly::NiNode* node) {
+    if (!ancestor || !node) return false;
+    for (nifly::NiNode* p = node; p != nullptr; p = nif.GetParentNode(p)) {
+        if (p == ancestor) return true;
+    }
+    return false;
+}
+
+// Finds the lowest common ancestor of all bones in a NiSkinInstance.
+static nifly::NiNode* FindSkeletonRootLCA(const nifly::NifFile& nif, nifly::NiSkinInstance* si) {
+    if (!si) return nullptr;
+    std::vector<nifly::NiNode*> bones;
+    for (auto it = si->boneRefs.begin(); it != si->boneRefs.end(); ++it) {
+        if (auto* b = nif.GetHeader().GetBlock<nifly::NiNode>(*it)) {
+            bones.push_back(b);
+        }
+    }
+    if (bones.empty()) return nullptr;
+    for (nifly::NiNode* candidate = bones[0]; candidate != nullptr; candidate = nif.GetParentNode(candidate)) {
+        bool allChildrenFound = true;
+        for (size_t i = 1; i < bones.size(); ++i) {
+            if (!IsAncestor(nif, candidate, bones[i])) {
+                allChildrenFound = false;
+                break;
+            }
+        }
+        if (allChildrenFound) return candidate;
+    }
+    return nif.GetRootNode(); // Fallback
+}
+
 // --- MeshShape Methods ---
 
 void MeshShape::draw() const {
@@ -149,8 +183,24 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
     }
 found_head:
 
+    // Find the skeleton root's transform, which is needed for some hybrid NIFs.
+    nifly::MatTransform skeletonRootTransform; // Default constructs to identity
+    for (auto* shape : shapeList) {
+        if (shape->IsSkinned()) {
+            if (auto* skinInst = nif.GetHeader().GetBlock<nifly::NiSkinInstance>(shape->SkinInstanceRef())) {
+                auto* skelRootNode = FindSkeletonRootLCA(nif, skinInst);
+                if (skelRootNode) {
+                    skeletonRootTransform = GetAVObjectTransformToGlobal(nif, skelRootNode);
+                    if (debugMode) std::cout << "[NIF Analysis] Found skeleton root node: " << skelRootNode->name.get() << "\n";
+                }
+            }
+            break; // We only need to find it once.
+        }
+    }
+
     for (auto* niShape : shapeList) {
         auto start_preprocess = std::chrono::high_resolution_clock::now();
+
         if (debugMode) std::cout << "\n--- Processing Shape: " << niShape->name.get() << " ---\n";
         if (!niShape || (niShape->flags & 1)) continue;
 
@@ -198,8 +248,6 @@ found_head:
 
         // --- FINALIZED TRANSFORM LOGIC ---
         nifly::MatTransform niflyTransform; // Default to identity
-        // For hybrid models, the transform for skinned parts should be identity, as their
-        // vertices are pre-translated. For all other models, get the transform from the scene graph.
         if (isHybridModel && niShape->IsSkinned()) {
             if (debugMode) std::cout << "    [Debug] Using identity transform for hybrid skinned part.\n";
         }
@@ -216,6 +264,12 @@ found_head:
                 if (isLocalSpacePart) {
                     if (debugMode) std::cout << "    [Debug] Applying accessory offset for local-space part '" << shapeName << "'.\n";
                     niflyTransform = accessoryOffset;
+                }
+                else {
+                    // This is the restored logic for pre-translated parts in non-hybrid models.
+                    // Their vertices are relative to the skeleton root, so we apply its transform.
+                    if (debugMode) std::cout << "    [Debug] Applying skeleton root transform for pre-translated part '" << shapeName << "'.\n";
+                    niflyTransform = skeletonRootTransform;
                 }
             }
         }
@@ -279,7 +333,7 @@ found_head:
             mesh.isModelSpace = shader->IsModelSpace();
         }
 
-        // --- Stage 4: Pose-Aware Bounds Calculation (Optimized) ---
+        // --- Stage 4: Pose-Aware Bounds Calculation (CORRECTED) ---
         auto start_stage4 = std::chrono::high_resolution_clock::now();
         glm::mat4 shapeBaseTransform = mesh.transform;
         glm::vec3 shapeMinBounds(std::numeric_limits<float>::max());
@@ -288,25 +342,8 @@ found_head:
         std::vector<glm::vec3> posedVertices;
         posedVertices.reserve(vertexData.size());
 
-        bool isAccessoryPart = false;
-        if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
-            for (const auto& partition : skinInst->partitions) {
-                if (partition.partID == 131) { // SBP_131_HAIR
-                    isAccessoryPart = true;
-                    break;
-                }
-            }
-        }
-        if (!isAccessoryPart) {
-            std::string lowerShapeName = shapeName;
-            std::transform(lowerShapeName.begin(), lowerShapeName.end(), lowerShapeName.begin(), ::tolower);
-            if (lowerShapeName.find("hair") != std::string::npos || lowerShapeName.find("scalp") != std::string::npos) {
-                isAccessoryPart = true;
-            }
-        }
-
-        if (mesh.isSkinned && !isAccessoryPart) {
-            if (debugMode) std::cout << "    [Debug] Performing precise, pose-aware bounds calculation for head part.\n";
+        if (mesh.isSkinned) {
+            if (debugMode) std::cout << "    [Debug] Performing precise, pose-aware bounds calculation.\n";
             for (const auto& vert : vertexData) {
                 glm::vec4 originalPos(vert.pos, 1.0f);
                 glm::vec4 finalPos(0.0f);
@@ -326,9 +363,26 @@ found_head:
             }
         }
         else {
-            if (debugMode && isAccessoryPart) std::cout << "    [Debug] Performing fast, approximate bounds calculation for accessory part.\n";
+            if (debugMode) std::cout << "    [Debug] Performing bounds calculation for unskinned mesh.\n";
             for (const auto& vert : vertexData) {
                 posedVertices.push_back(glm::vec3(shapeBaseTransform * glm::vec4(vert.pos, 1.0f)));
+            }
+        }
+
+        bool isAccessoryPart = false;
+        if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
+            for (const auto& partition : skinInst->partitions) {
+                if (partition.partID == 131 || partition.partID == 130) { // SBP_131_HAIR or SBP_31_HAIR
+                    isAccessoryPart = true;
+                    break;
+                }
+            }
+        }
+        if (!isAccessoryPart) {
+            std::string lowerShapeName = shapeName;
+            std::transform(lowerShapeName.begin(), lowerShapeName.end(), lowerShapeName.begin(), ::tolower);
+            if (lowerShapeName.find("hair") != std::string::npos || lowerShapeName.find("scalp") != std::string::npos) {
+                isAccessoryPart = true;
             }
         }
 
