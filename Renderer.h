@@ -84,8 +84,8 @@ private:
     SkeletonType currentSkeletonType = SkeletonType::None;
 
     // --- NEW: Mugshot framing offsets ---
-    float headTopOffset = 0.15f;    // Default: 15% margin at the top
-    float headBottomOffset = -0.02f; // Default: -2% margin (overshoot) at the bottom
+    float headTopOffset = 0.20f;    // Default: 20% margin at the top
+    float headBottomOffset = -0.05f; // Default: -5% margin (overshoot) at the bottom
 
     // --- Add these for high-level load profiling ---
     std::chrono::high_resolution_clock::time_point nifLoadStartTime;

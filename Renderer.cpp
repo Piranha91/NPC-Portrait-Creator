@@ -432,7 +432,9 @@ void Renderer::loadNifModel(const std::string& path) {
 
         // Calculate horizontal center based on HEAD bounds to ensure a straight-on view
         float headCenterX_Yup = -(headMinBounds_Zup.x + headMaxBounds_Zup.x) / 2.0f;
-        float headCenterZ_Yup = (headMinBounds_Zup.y + headMaxBounds_Zup.y) / 2.0f;
+        // --- MODIFICATION START: Invert the Y-axis to correctly map depth ---
+        float headCenterZ_Yup = -(headMinBounds_Zup.y + headMaxBounds_Zup.y) / 2.0f;
+        // --- MODIFICATION END ---
 
         // 3. Define the vertical frame for the mugshot based on the HEAD MESH ONLY
         float headHeight = headTop_Yup - headBottom_Yup;
