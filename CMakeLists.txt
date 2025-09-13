@@ -35,7 +35,9 @@ add_executable(NPCPortraitCreator
     TextureManager.cpp
     Skeleton.h
     Skeleton.cpp
+    Version.h
     vendor/tinyfiledialogs/tinyfiledialogs.c
+    vendor/lodepng/lodepng.cpp
 
     # Manually include the libbsarch C++ source files in the build
     vendor/libbsarch/src/bs_archive.cpp

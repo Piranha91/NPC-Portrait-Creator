@@ -36,6 +36,9 @@
 #include <windows.h>
 #include <shobjidl.h> // For IFileOpenDialog
 
+#include "lodepng/lodepng.h"
+#include "Version.h"
+
 
 // --- Global Callback Prototypes ---
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -549,10 +552,9 @@ void Renderer::saveToPNG(const std::string& path) {
         throw std::runtime_error("Invalid image resolution for saving PNG.");
     }
 
-    // --- 1. Capture a centered rectangle from the screen (same as before) ---
+    // --- 1. Capture and resize the image (same as before) ---
     float targetAspect = static_cast<float>(imageXRes) / static_cast<float>(imageYRes);
     float viewportAspect = static_cast<float>(screenWidth) / static_cast<float>(screenHeight);
-
     int rectWidth, rectHeight;
     if (targetAspect > viewportAspect) {
         rectWidth = screenWidth;
@@ -562,32 +564,58 @@ void Renderer::saveToPNG(const std::string& path) {
         rectHeight = screenHeight;
         rectWidth = static_cast<int>(static_cast<float>(screenHeight) * targetAspect);
     }
-
     int rectX = (screenWidth - rectWidth) / 2;
     int rectY = (screenHeight - rectHeight) / 2;
-
-    // Buffer for the raw, high-resolution screen capture
     std::vector<unsigned char> screen_buffer(rectWidth * rectHeight * 4);
     glReadPixels(rectX, rectY, rectWidth, rectHeight, GL_RGBA, GL_UNSIGNED_BYTE, screen_buffer.data());
-
-    // --- 2. Resize the captured image to the target resolution ---
-
-    // Buffer for the final, resized image data
     std::vector<unsigned char> resized_buffer(imageXRes * imageYRes * 4);
+    stbir_resize_uint8_srgb(screen_buffer.data(), rectWidth, rectHeight, 0,
+        resized_buffer.data(), imageXRes, imageYRes, 0, STBIR_RGBA);
 
-    // Call the new resize function.
-     // It's aware of color spaces (sRGB) and is more robust.
-    stbir_resize_uint8_srgb(
-        screen_buffer.data(), rectWidth, rectHeight, 0, // Input buffer
-        resized_buffer.data(), imageXRes, imageYRes, 0,  // Output buffer
-        STBIR_RGBA                                      // Pixel layout
-    );
+    // --- 2. Flip the image vertically (required by OpenGL's coordinate system) ---
+    // LodePNG requires the image data to be in the correct top-to-bottom order.
+    std::vector<unsigned char> flipped_buffer(imageXRes * imageYRes * 4);
+    for (int y = 0; y < imageYRes; y++) {
+        memcpy(flipped_buffer.data() + (imageXRes * (imageYRes - 1 - y) * 4),
+            resized_buffer.data() + (imageXRes * y * 4),
+            imageXRes * 4);
+    }
 
-    // --- 3. Save the resized image buffer to a PNG file ---
-    stbi_flip_vertically_on_write(1);
-    // Use the resized buffer and the target dimensions (imageXRes, imageYRes)
-    if (!stbi_write_png(path.c_str(), imageXRes, imageYRes, 4, resized_buffer.data(), imageXRes * 4)) {
-        throw std::runtime_error("Failed to save image to " + path);
+    // --- 3. Create JSON metadata ---
+    nlohmann::json metadata;
+    metadata["program_version"] = PROGRAM_VERSION;
+    metadata["resolution_x"] = imageXRes;
+    metadata["resolution_y"] = imageYRes;
+    metadata["camera"] = {
+        {"pos_x", camX}, {"pos_y", camY}, {"pos_z", camZ},
+        {"pitch", camPitch}, {"yaw", camYaw}
+    };
+    metadata["mugshot_offsets"] = {
+        {"top", headTopOffset}, {"bottom", headBottomOffset}
+    };
+    std::string metadata_string = metadata.dump(4); // pretty-print with 4-space indent
+
+    // --- 4. Encode and save the PNG with LodePNG ---
+    std::vector<unsigned char> png_buffer;
+    lodepng::State state;
+
+    // Disable text compression to ensure a standard 'tEXt' chunk is created.
+    state.encoder.text_compression = 0;
+
+    // Add our metadata as a "tEXt" chunk.
+    lodepng_add_text(&state.info_png, "Parameters", metadata_string.c_str());
+
+    unsigned error = lodepng::encode(png_buffer, flipped_buffer, imageXRes, imageYRes, state);
+
+    // No need to call lodepng_state_cleanup(&state); the State destructor handles it automatically.
+
+    if (error) {
+        throw std::runtime_error("LodePNG encoding error: " + std::string(lodepng_error_text(error)));
+    }
+
+    error = lodepng::save_file(png_buffer, path);
+    if (error) {
+        throw std::runtime_error("LodePNG file saving error: " + std::string(lodepng_error_text(error)));
     }
 }
 

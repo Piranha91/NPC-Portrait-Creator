@@ -9,6 +9,7 @@
 #include "TextureManager.h"
 #include "BsaManager.h"
 #include "Skeleton.h"
+#include "Version.h"
 #include <chrono> 
 #include <nlohmann/json.hpp>
 
