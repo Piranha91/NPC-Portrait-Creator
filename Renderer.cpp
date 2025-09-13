@@ -28,6 +28,8 @@
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include "stb_image_resize2.h"
 
 #include <chrono>
 
@@ -171,6 +173,22 @@ void Renderer::run() {
         glViewport(0, 0, display_w, display_h);
 
         renderFrame();
+
+        // --- NEW: Check if a screenshot was requested ---
+		// --- Note : This is done after rendering the frame but before swapping buffers to avoid capturing the UI ---
+        if (!screenshotPath.empty()) {
+            try {
+                saveToPNG(screenshotPath);
+                std::cout << "Image saved to " << screenshotPath << std::endl;
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Error saving PNG: " << e.what() << std::endl;
+                tinyfd_messageBox("Error", e.what(), "ok", "error", 1);
+            }
+            screenshotPath.clear(); // Clear the path to avoid saving every frame.
+        }
+        // --- End of new code ---
+
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         // --- STOP the timer and log the total duration ---
@@ -265,14 +283,8 @@ void Renderer::renderUI() {
                 const char* filterPatterns[1] = { "*.png" };
                 const char* filePath = tinyfd_saveFileDialog("Save Image", "output.png", 1, filterPatterns, "PNG Files");
                 if (filePath) {
-                    try {
-                        saveToPNG(filePath);
-                        std::cout << "Image saved to " << filePath << std::endl;
-                    }
-                    catch (const std::exception& e) {
-                        std::cerr << "Error saving PNG: " << e.what() << std::endl;
-                        tinyfd_messageBox("Error", e.what(), "ok", "error", 1);
-                    }
+                    // Instead of saving immediately, set the path to request a save.
+                    screenshotPath = filePath;
                 }
             }
             ImGui::EndMenu();
@@ -529,33 +541,44 @@ void Renderer::saveToPNG(const std::string& path) {
         throw std::runtime_error("Invalid image resolution for saving PNG.");
     }
 
-    // Determine the aspect ratio of the rectangle to save
+    // --- 1. Capture a centered rectangle from the screen (same as before) ---
     float targetAspect = static_cast<float>(imageXRes) / static_cast<float>(imageYRes);
     float viewportAspect = static_cast<float>(screenWidth) / static_cast<float>(screenHeight);
 
     int rectWidth, rectHeight;
-    // Calculate the dimensions of the largest possible rectangle with the target aspect ratio
-    // that fits within the current screen/viewport.
     if (targetAspect > viewportAspect) {
-        // Target is wider than viewport (letterbox): constrained by viewport width
         rectWidth = screenWidth;
         rectHeight = static_cast<int>(static_cast<float>(screenWidth) / targetAspect);
     }
     else {
-        // Target is narrower than viewport (pillarbox): constrained by viewport height
         rectHeight = screenHeight;
         rectWidth = static_cast<int>(static_cast<float>(screenHeight) * targetAspect);
     }
 
-    // Calculate the centered starting position for glReadPixels
     int rectX = (screenWidth - rectWidth) / 2;
     int rectY = (screenHeight - rectHeight) / 2;
 
-    std::vector<unsigned char> buffer(rectWidth * rectHeight * 4);
-    glReadPixels(rectX, rectY, rectWidth, rectHeight, GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
+    // Buffer for the raw, high-resolution screen capture
+    std::vector<unsigned char> screen_buffer(rectWidth * rectHeight * 4);
+    glReadPixels(rectX, rectY, rectWidth, rectHeight, GL_RGBA, GL_UNSIGNED_BYTE, screen_buffer.data());
+
+    // --- 2. Resize the captured image to the target resolution ---
+
+    // Buffer for the final, resized image data
+    std::vector<unsigned char> resized_buffer(imageXRes * imageYRes * 4);
+
+    // Call the new resize function.
+     // It's aware of color spaces (sRGB) and is more robust.
+    stbir_resize_uint8_srgb(
+        screen_buffer.data(), rectWidth, rectHeight, 0, // Input buffer
+        resized_buffer.data(), imageXRes, imageYRes, 0,  // Output buffer
+        STBIR_RGBA                                      // Pixel layout
+    );
+
+    // --- 3. Save the resized image buffer to a PNG file ---
     stbi_flip_vertically_on_write(1);
-    // The output PNG will have the dimensions of the captured rectangle
-    if (!stbi_write_png(path.c_str(), rectWidth, rectHeight, 4, buffer.data(), rectWidth * 4)) {
+    // Use the resized buffer and the target dimensions (imageXRes, imageYRes)
+    if (!stbi_write_png(path.c_str(), imageXRes, imageYRes, 4, resized_buffer.data(), imageXRes * 4)) {
         throw std::runtime_error("Failed to save image to " + path);
     }
 }

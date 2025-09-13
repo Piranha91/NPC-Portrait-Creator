@@ -101,6 +101,9 @@ private:
     float headTopOffset = 0.20f;    // Default: 20% margin at the top
     float headBottomOffset = -0.05f; // Default: -5% margin (overshoot) at the bottom
 
+    // NEW: Add this variable to request a screenshot (to enable frame delay and avoid including the UI).
+    std::string screenshotPath;
+
     // --- Add these for high-level load profiling ---
     std::chrono::high_resolution_clock::time_point nifLoadStartTime;
     bool newModelLoaded = false;
