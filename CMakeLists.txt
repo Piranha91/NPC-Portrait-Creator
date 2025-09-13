@@ -1,7 +1,7 @@
-# CMakeList.txt for Mugshotter
+# CMakeList.txt for NPC Portrait Generator
 cmake_minimum_required(VERSION 3.20)
 
-project(Mugshotter LANGUAGES CXX C)
+project(NPCPortraitCreator LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -19,7 +19,7 @@ find_package(cxxopts REQUIRED)
 find_package(imgui REQUIRED CONFIG)
 find_package(nlohmann_json CONFIG REQUIRED)
 
-add_executable(Mugshotter
+add_executable(NPCPortraitCreator
     main.cpp
     Renderer.h
     Renderer.cpp
@@ -45,7 +45,7 @@ add_executable(Mugshotter
     vendor/libbsarch/src/utils/convertible_ostream.cpp
 )
 
-target_include_directories(Mugshotter PRIVATE
+target_include_directories(NPCPortraitCreator PRIVATE
     "${PROJECT_SOURCE_DIR}/vendor"
     "${PROJECT_SOURCE_DIR}/vendor/glad/include"
     "${PROJECT_SOURCE_DIR}/vendor/tinyfiledialogs"
@@ -55,7 +55,7 @@ target_include_directories(Mugshotter PRIVATE
     ${cxxopts_INCLUDE_DIRS}
 )
 
-target_link_libraries(Mugshotter PRIVATE
+target_link_libraries(NPCPortraitCreator PRIVATE
     glfw
     OpenGL::GL
     glm::glm
@@ -69,11 +69,11 @@ target_link_libraries(Mugshotter PRIVATE
 
 add_library(glad STATIC "${PROJECT_SOURCE_DIR}/vendor/glad/src/glad.c")
 target_include_directories(glad PRIVATE "${PROJECT_SOURCE_DIR}/vendor/glad/include")
-target_link_libraries(Mugshotter PRIVATE glad)
+target_link_libraries(NPCPortraitCreator PRIVATE glad)
 
-add_custom_command(TARGET Mugshotter POST_BUILD
+add_custom_command(TARGET NPCPortraitCreator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/shaders" 
-    "$<TARGET_FILE_DIR:Mugshotter>/shaders"
+    "$<TARGET_FILE_DIR:NPCPortraitCreator>/shaders"
     COMMENT "Copying shaders to build directory"
 )
