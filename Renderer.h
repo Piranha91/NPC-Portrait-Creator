@@ -15,6 +15,7 @@
 struct GLFWwindow;
 enum class SkeletonType { None, Female, Male, FemaleBeast, MaleBeast, Custom };
 class Renderer {
+
 public:
     Renderer(int width, int height, const std::string& app_dir);
     ~Renderer();
@@ -23,6 +24,7 @@ public:
     void run();
     void renderFrame();
     void saveToPNG(const std::string& path);
+    void processDirectory();
 
 	// --- Configuration Management ---
     void loadConfig();
@@ -57,6 +59,7 @@ public:
     bool firstMouse = true;
     bool isPanning = false;
     bool isRotating = false;
+
 private:
     // --- UI Methods ---
     void initUI();

@@ -33,6 +33,10 @@
 
 #include <chrono>
 
+#include <windows.h>
+#include <shobjidl.h> // For IFileOpenDialog
+
+
 // --- Global Callback Prototypes ---
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
@@ -287,6 +291,9 @@ void Renderer::renderUI() {
                     // Instead of saving immediately, set the path to request a save.
                     screenshotPath = filePath;
                 }
+            }
+            if (ImGui::MenuItem("Process Directory...")) {
+                processDirectory(); // <-- Call the new function here
             }
             ImGui::EndMenu();
         }
@@ -582,6 +589,128 @@ void Renderer::saveToPNG(const std::string& path) {
     if (!stbi_write_png(path.c_str(), imageXRes, imageYRes, 4, resized_buffer.data(), imageXRes * 4)) {
         throw std::runtime_error("Failed to save image to " + path);
     }
+}
+
+// This helper function creates and shows a modern folder selection dialog
+std::string selectFolderDialog_ModernWindows(const std::string& title) {
+    std::string folderPath = "";
+    // 1. Initialize the COM library
+    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+    if (SUCCEEDED(hr)) {
+        IFileOpenDialog* pFileDialog = NULL;
+
+        // 2. Create an instance of the FileOpenDialog
+        hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileDialog));
+
+        if (SUCCEEDED(hr)) {
+            // 3. Set options to make it a folder picker
+            DWORD dwOptions;
+            pFileDialog->GetOptions(&dwOptions);
+            pFileDialog->SetOptions(dwOptions | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+
+            // Set a custom title
+            // Note: We need to convert our std::string title to a wide string (wchar_t*) for the API
+            int size_needed = MultiByteToWideChar(CP_UTF8, 0, &title[0], (int)title.size(), NULL, 0);
+            std::wstring wtitle(size_needed, 0);
+            MultiByteToWideChar(CP_UTF8, 0, &title[0], (int)title.size(), &wtitle[0], size_needed);
+            pFileDialog->SetTitle(wtitle.c_str());
+
+            // 4. Show the dialog
+            hr = pFileDialog->Show(NULL);
+
+            if (SUCCEEDED(hr)) {
+                // 5. Get the result
+                IShellItem* pItem;
+                hr = pFileDialog->GetResult(&pItem);
+                if (SUCCEEDED(hr)) {
+                    PWSTR pszFilePath;
+                    hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
+
+                    // 6. Convert the wide-char path back to a std::string
+                    if (SUCCEEDED(hr)) {
+                        int bufferSize = WideCharToMultiByte(CP_UTF8, 0, pszFilePath, -1, NULL, 0, NULL, NULL);
+                        if (bufferSize > 0) {
+                            std::string path_str(bufferSize - 1, 0);
+                            WideCharToMultiByte(CP_UTF8, 0, pszFilePath, -1, &path_str[0], bufferSize, NULL, NULL);
+                            folderPath = path_str;
+                        }
+                        CoTaskMemFree(pszFilePath);
+                    }
+                    pItem->Release();
+                }
+            }
+            pFileDialog->Release();
+        }
+        // 7. Uninitialize the COM library
+        CoUninitialize();
+    }
+    return folderPath;
+}
+
+void Renderer::processDirectory() {
+    // 1. Prompt for the input directory using the new function
+    std::string inputPath = selectFolderDialog_ModernWindows("Select Input Directory with NIF files");
+    if (inputPath.empty()) {
+        return; // User canceled
+    }
+
+    std::vector<std::filesystem::path> nifFiles;
+    std::cout << "--- Scanning for .nif files in: " << inputPath << " ---" << std::endl;
+
+    // 2. Find all .nif files in the selected directory (case-insensitively)
+    for (const auto& entry : std::filesystem::directory_iterator(inputPath)) {
+        if (entry.is_regular_file()) {
+            // Get the extension as a string
+            std::string extension = entry.path().extension().string();
+            // Convert the extension to lowercase
+            std::transform(extension.begin(), extension.end(), extension.begin(),
+                [](unsigned char c) { return std::tolower(c); });
+
+            // Now, perform the case-insensitive check
+            if (extension == ".nif") {
+                nifFiles.push_back(entry.path());
+            }
+        }
+    }
+
+    // 3. Validate that NIF files were found
+    if (nifFiles.empty()) {
+        tinyfd_messageBox("Process Directory", "No .nif files found in the selected directory.", "ok", "info", 1);
+        return;
+    }
+
+    // 4. Prompt for the output directory using the new function
+    std::string outputPathStr = selectFolderDialog_ModernWindows("Select Output Directory for PNG files");
+    if (outputPathStr.empty()) {
+        return; // User canceled
+    }
+    std::filesystem::path outputPath = outputPathStr;
+
+    // 5. Process each NIF file
+    std::cout << "--- Starting batch process for " << nifFiles.size() << " files. The UI will be unresponsive. ---" << std::endl;
+    for (const auto& nifPath : nifFiles) {
+        std::cout << "Processing: " << nifPath.filename().string() << std::endl;
+
+        // Load the model. This also sets up the automatic "mugshot" camera.
+        loadNifModel(nifPath.string());
+
+        // Explicitly render one frame with the new model
+        renderFrame();
+
+        // Construct the output path and save the PNG
+        std::filesystem::path pngPath = outputPath / nifPath.filename().replace_extension(".png");
+        saveToPNG(pngPath.string());
+
+        // Update the screen and process events to keep the window from freezing entirely
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    // 6. Notify user of completion
+    std::string completionMessage = "Batch process complete. " + std::to_string(nifFiles.size()) + " files were exported.";
+    tinyfd_messageBox("Process Complete", completionMessage.c_str(), "ok", "info", 1);
+    std::cout << "--- Batch process complete. ---" << std::endl;
 }
 
 void Renderer::loadConfig() {
