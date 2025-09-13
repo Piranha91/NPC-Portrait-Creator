@@ -9,6 +9,8 @@
 #include <vector>
 #include <algorithm> 
 #include <filesystem>
+#include <nlohmann/json.hpp>
+#include <iomanip> // For std::setw
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -43,7 +45,7 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
     fallbackRootDirectory("C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data"),
     appDirectory(app_dir) {
 
-    configPath = (std::filesystem::path(appDirectory) / "mugshotter_config.txt").string();
+    configPath = (std::filesystem::path(appDirectory) / "mugshotter_config.json").string();
 }
 
 Renderer::~Renderer() {
@@ -258,6 +260,24 @@ void Renderer::renderUI() {
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Image")) {
+            if (ImGui::MenuItem("Save PNG...")) {
+                const char* filterPatterns[1] = { "*.png" };
+                const char* filePath = tinyfd_saveFileDialog("Save Image", "output.png", 1, filterPatterns, "PNG Files");
+                if (filePath) {
+                    try {
+                        saveToPNG(filePath);
+                        std::cout << "Image saved to " << filePath << std::endl;
+                    }
+                    catch (const std::exception& e) {
+                        std::cerr << "Error saving PNG: " << e.what() << std::endl;
+                        tinyfd_messageBox("Error", e.what(), "ok", "error", 1);
+                    }
+                }
+            }
+            ImGui::EndMenu();
+        }
+
         ImGui::EndMainMenuBar();
     }
 }
@@ -404,64 +424,82 @@ void Renderer::loadNifModel(const std::string& path) {
     if (model->load(path, textureManager, activeSkeleton)) {
         currentNifPath = path;
         saveConfig();
-        std::cout << "\n--- Calculating Mugshot Camera Position ---\n";
-        std::cout << "  [Mugshot Config] headTopOffset: " << headTopOffset << " (" << headTopOffset * 100.0f << "%)\n";
-        std::cout << "  [Mugshot Config] headBottomOffset: " << headBottomOffset << " (" << headBottomOffset * 100.0f << "%)\n";
 
-        // 1. Get bounds from the model, preferring the specific head shape
-        glm::vec3 headMinBounds_Zup;
-        glm::vec3 headMaxBounds_Zup;
+        // Check which camera mode to use. Mugshot mode is used only if all absolute camera parameters are zero.
+        bool useAbsoluteCamera = (camX != 0.0f || camY != 0.0f || camZ != 0.0f || camPitch != 0.0f || camYaw != 0.0f);
 
-        // --- MODIFICATION START: Prioritize partition bounds, then fall back ---
-        if (model->hasHeadShapeBounds()) {
-            headMinBounds_Zup = model->getHeadShapeMinBounds();
-            headMaxBounds_Zup = model->getHeadShapeMaxBounds();
-            std::cout << "  [Mugshot Info] Using specific head partition bounds for framing.\n";
+        if (useAbsoluteCamera) {
+            std::cout << "\n--- Using Absolute Camera Position ---\n";
+            camera.Position = glm::vec3(camX, camY, camZ);
+            camera.Pitch = camPitch;
+            camera.Yaw = camYaw;
+            camera.updateCameraVectors();
+            std::cout << "  [Camera Debug] Position set to: (" << camX << ", " << camY << ", " << camZ << ")\n";
+            std::cout << "  [Camera Debug] Rotation set to: Pitch=" << camPitch << ", Yaw=" << camYaw << "\n";
+            std::cout << "-------------------------------------\n" << std::endl;
         }
-        else {
-            // Fallback for models with no head partition
-            headMinBounds_Zup = model->getHeadMinBounds();
-            headMaxBounds_Zup = model->getHeadMaxBounds();
-            std::cout << "  [Mugshot Warning] No head partition found. Falling back to aggregate head bounds.\n";
-        }
-        // --- MODIFICATION END ---
 
-        // 2. Convert coordinates from Skyrim's Z-up to our renderer's Y-up
-        float headTop_Yup = headMaxBounds_Zup.z;
-        float headBottom_Yup = headMinBounds_Zup.z;
+        else
+        {
+            std::cout << "\n--- Calculating Mugshot Camera Position ---\n";
+            std::cout << "  [Mugshot Config] headTopOffset: " << headTopOffset << " (" << headTopOffset * 100.0f << "%)\n";
+            std::cout << "  [Mugshot Config] headBottomOffset: " << headBottomOffset << " (" << headBottomOffset * 100.0f << "%)\n";
 
-        // Calculate horizontal center based on HEAD bounds to ensure a straight-on view
-        float headCenterX_Yup = -(headMinBounds_Zup.x + headMaxBounds_Zup.x) / 2.0f;
-        // --- MODIFICATION START: Invert the Y-axis to correctly map depth ---
-        float headCenterZ_Yup = -(headMinBounds_Zup.y + headMaxBounds_Zup.y) / 2.0f;
-        // --- MODIFICATION END ---
+            // 1. Get bounds from the model, preferring the specific head shape
+            glm::vec3 headMinBounds_Zup;
+            glm::vec3 headMaxBounds_Zup;
 
-        // 3. Define the vertical frame for the mugshot based on the HEAD MESH ONLY
-        float headHeight = headTop_Yup - headBottom_Yup;
+            // --- MODIFICATION START: Prioritize partition bounds, then fall back ---
+            if (model->hasHeadShapeBounds()) {
+                headMinBounds_Zup = model->getHeadShapeMinBounds();
+                headMaxBounds_Zup = model->getHeadShapeMaxBounds();
+                std::cout << "  [Mugshot Info] Using specific head partition bounds for framing.\n";
+            }
+            else {
+                // Fallback for models with no head partition
+                headMinBounds_Zup = model->getHeadMinBounds();
+                headMaxBounds_Zup = model->getHeadMaxBounds();
+                std::cout << "  [Mugshot Warning] No head partition found. Falling back to aggregate head bounds.\n";
+            }
+            // --- MODIFICATION END ---
 
-        // --- MODIFICATION START: Use configurable offsets ---
-        float frameBottom_Yup = headBottom_Yup + (headHeight * headBottomOffset); // Apply bottom offset
-        float frameTop_Yup = headTop_Yup + (headHeight * headTopOffset); // Apply top offset
-        // --- MODIFICATION END ---
+            // 2. Convert coordinates from Skyrim's Z-up to our renderer's Y-up
+            float headTop_Yup = headMaxBounds_Zup.z;
+            float headBottom_Yup = headMinBounds_Zup.z;
 
-        float frameHeight = frameTop_Yup - frameBottom_Yup;
-        float frameCenterY = (frameTop_Yup + frameBottom_Yup) / 2.0f;
+            // Calculate horizontal center based on HEAD bounds to ensure a straight-on view
+            float headCenterX_Yup = -(headMinBounds_Zup.x + headMaxBounds_Zup.x) / 2.0f;
+            // --- MODIFICATION START: Invert the Y-axis to correctly map depth ---
+            float headCenterZ_Yup = -(headMinBounds_Zup.y + headMaxBounds_Zup.y) / 2.0f;
+            // --- MODIFICATION END ---
 
-        // 4. Calculate required camera distance based on the vertical frame ONLY
-        const float fovYRadians = glm::radians(45.0f); 
+            // 3. Define the vertical frame for the mugshot based on the HEAD MESH ONLY
+            float headHeight = headTop_Yup - headBottom_Yup;
+
+            // --- MODIFICATION START: Use configurable offsets ---
+            float frameBottom_Yup = headBottom_Yup + (headHeight * headBottomOffset); // Apply bottom offset
+            float frameTop_Yup = headTop_Yup + (headHeight * headTopOffset); // Apply top offset
+            // --- MODIFICATION END ---
+
+            float frameHeight = frameTop_Yup - frameBottom_Yup;
+            float frameCenterY = (frameTop_Yup + frameBottom_Yup) / 2.0f;
+
+            // 4. Calculate required camera distance based on the vertical frame ONLY
+            const float fovYRadians = glm::radians(45.0f);
             float distanceForHeight = (frameHeight / 2.0f) / tan(fovYRadians / 2.0f);
-        // 5. Set camera properties
-        camera.Radius = distanceForHeight; 
+            // 5. Set camera properties
+            camera.Radius = distanceForHeight;
             camera.Target = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
-        camera.Yaw = 90.0f; // Use 90 for a direct front-on view
-        camera.Pitch = 0.0f; 
-            camera.updateCameraVectors(); 
+            camera.Yaw = 90.0f; // Use 90 for a direct front-on view
+            camera.Pitch = 0.0f;
+            camera.updateCameraVectors();
 
-        std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target) << std::endl;
-        std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << frameHeight << std::endl;
-        std::cout << "  [Mugshot Debug] Final Camera Radius: " << camera.Radius << std::endl;
-        std::cout << "  [Mugshot Debug] Final Camera Position: " << glm::to_string(camera.Position) << std::endl;
-        std::cout << "-------------------------------------\n" << std::endl; 
+            std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target) << std::endl;
+            std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << frameHeight << std::endl;
+            std::cout << "  [Mugshot Debug] Final Camera Radius: " << camera.Radius << std::endl;
+            std::cout << "  [Mugshot Debug] Final Camera Position: " << glm::to_string(camera.Position) << std::endl;
+            std::cout << "-------------------------------------\n" << std::endl;
+        }
     }
     else {
         std::cerr << "Renderer failed to load NIF model."
@@ -479,13 +517,6 @@ void Renderer::loadCustomSkeleton(const std::string& path) {
     }
 }
 
-void Renderer::setCamera(float posX, float posY, float posZ, float pitch, float yaw) {
-    camera.Position = glm::vec3(posX, posY, posZ);
-    camera.Pitch = pitch;
-    camera.Yaw = yaw;
-    camera.updateCameraVectors();
-}
-
 void Renderer::setFallbackRootDirectory(const std::string& path) {
     fallbackRootDirectory = path;
     textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory, appDirectory);
@@ -494,47 +525,99 @@ void Renderer::setFallbackRootDirectory(const std::string& path) {
 }
 
 void Renderer::saveToPNG(const std::string& path) {
-    std::vector<unsigned char> buffer(screenWidth * screenHeight * 4);
-    glReadPixels(0, 0, screenWidth, screenHeight, GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
+    if (imageXRes <= 0 || imageYRes <= 0) {
+        throw std::runtime_error("Invalid image resolution for saving PNG.");
+    }
+
+    // Determine the aspect ratio of the rectangle to save
+    float targetAspect = static_cast<float>(imageXRes) / static_cast<float>(imageYRes);
+    float viewportAspect = static_cast<float>(screenWidth) / static_cast<float>(screenHeight);
+
+    int rectWidth, rectHeight;
+    // Calculate the dimensions of the largest possible rectangle with the target aspect ratio
+    // that fits within the current screen/viewport.
+    if (targetAspect > viewportAspect) {
+        // Target is wider than viewport (letterbox): constrained by viewport width
+        rectWidth = screenWidth;
+        rectHeight = static_cast<int>(static_cast<float>(screenWidth) / targetAspect);
+    }
+    else {
+        // Target is narrower than viewport (pillarbox): constrained by viewport height
+        rectHeight = screenHeight;
+        rectWidth = static_cast<int>(static_cast<float>(screenHeight) * targetAspect);
+    }
+
+    // Calculate the centered starting position for glReadPixels
+    int rectX = (screenWidth - rectWidth) / 2;
+    int rectY = (screenHeight - rectHeight) / 2;
+
+    std::vector<unsigned char> buffer(rectWidth * rectHeight * 4);
+    glReadPixels(rectX, rectY, rectWidth, rectHeight, GL_RGBA, GL_UNSIGNED_BYTE, buffer.data());
     stbi_flip_vertically_on_write(1);
-    if (!stbi_write_png(path.c_str(), screenWidth, screenHeight, 4, buffer.data(), screenWidth * 4)) {
+    // The output PNG will have the dimensions of the captured rectangle
+    if (!stbi_write_png(path.c_str(), rectWidth, rectHeight, 4, buffer.data(), rectWidth * 4)) {
         throw std::runtime_error("Failed to save image to " + path);
     }
 }
 
 void Renderer::loadConfig() {
-    std::ifstream configFile(configPath);
-    if (configFile.is_open()) {
-        std::getline(configFile, currentNifPath);
-        std::getline(configFile, fallbackRootDirectory);
-        std::string line;
-        if (std::getline(configFile, line)) {
-            try { headTopOffset = std::stof(line); }
-            catch (const std::exception&) { /* Ignore error, use default */ }
-        }
-        if (std::getline(configFile, line)) {
-            try { headBottomOffset = std::stof(line); }
-            catch (const std::exception&) { /* Ignore error, use default */ }
-        }
-        configFile.close();
+    if (!std::filesystem::exists(configPath)) return;
 
-        if (fallbackRootDirectory.empty()) {
-            fallbackRootDirectory = "C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data";
+    try {
+        std::ifstream f(configPath);
+        nlohmann::json data = nlohmann::json::parse(f, nullptr, false);
+        if (data.is_discarded()) {
+            std::cerr << "Warning: Could not parse config file " << configPath << std::endl;
+            return;
         }
+
+        currentNifPath = data.value("last_nif_path", "");
+        fallbackRootDirectory = data.value("fallback_root_directory", "C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data");
+
+        // Load camera settings
+        camX = data.value("camX", 0.0f);
+        camY = data.value("camY", 0.0f);
+        camZ = data.value("camZ", 0.0f);
+        camPitch = data.value("pitch", 0.0f);
+        camYaw = data.value("yaw", 0.0f);
+
+        // Load mugshot settings
+        headTopOffset = data.value("head_top_offset", 0.20f);
+        headBottomOffset = data.value("head_bottom_offset", -0.05f);
+
+        // Load image settings
+        imageXRes = data.value("image_resolution_x", 1280);
+        imageYRes = data.value("image_resolution_y", 720);
+
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error loading config file: " << e.what() << std::endl;
     }
 }
 
 void Renderer::saveConfig() {
-    std::ofstream configFile(configPath);
-    if (configFile.is_open()) {
-        configFile << currentNifPath << std::endl;
-        configFile << fallbackRootDirectory << std::endl;
-        configFile << headTopOffset << std::endl;
-        configFile << headBottomOffset << std::endl;
-        configFile.close();
+    try {
+        nlohmann::json data;
+        data["last_nif_path"] = currentNifPath;
+        data["fallback_root_directory"] = fallbackRootDirectory;
+
+        data["camX"] = camX;
+        data["camY"] = camY;
+        data["camZ"] = camZ;
+        data["pitch"] = camPitch;
+        data["yaw"] = camYaw;
+
+        data["head_top_offset"] = headTopOffset;
+        data["head_bottom_offset"] = headBottomOffset;
+
+        data["image_resolution_x"] = imageXRes;
+        data["image_resolution_y"] = imageYRes;
+
+        std::ofstream o(configPath);
+        o << std::setw(4) << data << std::endl;
     }
-    else {
-        std::cerr << "Warning: Could not save config file to " << configPath << std::endl;
+    catch (const std::exception& e) {
+        std::cerr << "Warning: Could not save config file to " << configPath << ": " << e.what() << std::endl;
     }
 }
 

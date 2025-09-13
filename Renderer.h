@@ -10,6 +10,7 @@
 #include "BsaManager.h"
 #include "Skeleton.h"
 #include <chrono> 
+#include <nlohmann/json.hpp>
 
 struct GLFWwindow;
 enum class SkeletonType { None, Female, Male, FemaleBeast, MaleBeast, Custom };
@@ -22,16 +23,25 @@ public:
     void run();
     void renderFrame();
     void saveToPNG(const std::string& path);
+
+	// --- Configuration Management ---
+    void loadConfig();
+    void saveConfig();
+
     // --- NIF and Camera Control ---
     void loadNifModel(const std::string& path);
     void loadCustomSkeleton(const std::string& path);
     void detectAndSetSkeleton(const nifly::NifFile& nif);
-    void setCamera(float posX, float posY, float posZ, float pitch, float yaw);
     void setFallbackRootDirectory(const std::string& path);
 
-    // --- NEW: Public setters for mugshot offsets ---
+    // --- Public Setters for Configurable Options ---
     void setMugshotTopOffset(float offset) { headTopOffset = offset; }
     void setMugshotBottomOffset(float offset) { headBottomOffset = offset; }
+    void setImageResolutionX(int width) { imageXRes = width; }
+    void setImageResolutionY(int height) { imageYRes = height; }
+    void setAbsoluteCamera(float x, float y, float z, float p, float yw) {
+        camX = x; camY = y; camZ = z; camPitch = p; camYaw = yw;
+    }
 
     // --- Public Input Handlers ---
     void HandleMouseButton(int button, int action, int mods);
@@ -52,25 +62,21 @@ private:
     void initUI();
     void renderUI();
     void shutdownUI();
-    // --- Config Methods ---
-    void loadConfig();
-    void saveConfig();
 
-    std::string configPath;
-
+    // --- Core Members ---
     GLFWwindow* window = nullptr;
     Shader shader;
     std::unique_ptr<NifModel> model;
-
-    int screenWidth, screenHeight;
-    std::string currentNifPath;
-
-    // Directory Management
-    std::string rootDirectory;
-    std::string fallbackRootDirectory;
     TextureManager textureManager;
     BsaManager bsaManager;
     std::string appDirectory;
+    int screenWidth, screenHeight;
+
+    // --- Configuration ---
+    std::string configPath;
+    std::string currentNifPath;
+    std::string rootDirectory;
+    std::string fallbackRootDirectory;
 
     // Skeletons loaded from game data
     Skeleton femaleSkeleton;
@@ -82,6 +88,14 @@ private:
 
     Skeleton* activeSkeleton = nullptr;
     SkeletonType currentSkeletonType = SkeletonType::None;
+
+    // Camera settings
+    float camX = 0.0f, camY = 0.0f, camZ = 0.0f;
+    float camPitch = 0.0f, camYaw = 0.0f;
+
+    // Image output settings
+    int imageXRes = 750;
+    int imageYRes = 750;
 
     // --- NEW: Mugshot framing offsets ---
     float headTopOffset = 0.20f;    // Default: 20% margin at the top

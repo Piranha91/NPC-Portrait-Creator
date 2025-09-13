@@ -9,23 +9,38 @@
 #include <cxxopts.hpp>
 #include <filesystem>
 
+// main.cpp
+
+#include <glad/glad.h> 
+#include "Renderer.h"
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+#include <cxxopts.hpp>
+#include <filesystem>
+
 int main(int argc, char** argv) {
     cxxopts::Options options("Mugshotter", "NIF file renderer and thumbnail generator");
     options.add_options()
         ("f,file", "Input .nif file", cxxopts::value<std::string>())
         ("o,output", "Output .png file", cxxopts::value<std::string>())
         ("r,root", "Set the fallback root data directory", cxxopts::value<std::string>())
-        ("s,skeleton", "Path to a custom skeleton.nif file", cxxopts::value<std::string>()) // New option
+        ("s,skeleton", "Path to a custom skeleton.nif file", cxxopts::value<std::string>())
         ("headless", "Run in headless mode without a visible window")
+        // Camera absolute position controls
         ("camX", "Camera X position", cxxopts::value<float>()->default_value("0"))
         ("camY", "Camera Y position", cxxopts::value<float>()->default_value("0"))
-        ("camZ", "Camera Z position", cxxopts::value<float>()->default_value("5.0"))
+        ("camZ", "Camera Z position", cxxopts::value<float>()->default_value("0"))
         ("pitch", "Camera pitch angle", cxxopts::value<float>()->default_value("0"))
-        ("yaw", "Camera yaw angle", cxxopts::value<float>()->default_value("-90.0"))
+        ("yaw", "Camera yaw angle", cxxopts::value<float>()->default_value("0"))
+        // Camera relative (mugshot) controls
         ("head-top-offset", "Top margin for head as a percentage (e.g., 0.15 for 15%)", cxxopts::value<float>())
         ("head-bottom-offset", "Bottom margin for head as a percentage (e.g., -0.02 for -2%)", cxxopts::value<float>())
+        // New image resolution controls
+        ("imgX", "Horizontal resolution of the output PNG", cxxopts::value<int>())
+        ("imgY", "Vertical resolution of the output PNG", cxxopts::value<int>())
         ("h,help", "Print usage");
-
     auto result = options.parse(argc, argv);
 
     if (result.count("help")) {
@@ -35,34 +50,44 @@ int main(int argc, char** argv) {
 
     bool isHeadless = result.count("headless") > 0;
     try {
-        // Get the directory where the executable is running
         std::filesystem::path exePath(argv[0]);
         std::filesystem::path exeDir = exePath.parent_path();
-
-        // Pass this path to the Renderer's constructor
         Renderer renderer(1280, 720, exeDir.string());
+
+        // 1. Load settings from config file first
+        renderer.loadConfig();
+
+        // 2. Override with any command-line arguments
         if (result.count("root")) {
             renderer.setFallbackRootDirectory(result["root"].as<std::string>());
         }
-
-        renderer.init(isHeadless);
-
-        // This is done *after* init() so CLI args override config file settings
-
+        if (result.count("skeleton")) {
+            renderer.loadCustomSkeleton(result["skeleton"].as<std::string>());
+        }
         if (result.count("head-top-offset")) {
             renderer.setMugshotTopOffset(result["head-top-offset"].as<float>());
         }
         if (result.count("head-bottom-offset")) {
             renderer.setMugshotBottomOffset(result["head-bottom-offset"].as<float>());
         }
-
-        // Load custom skeleton if provided
-        if (result.count("skeleton")) {
-            renderer.loadCustomSkeleton(result["skeleton"].as<std::string>());
+        if (result.count("imgX")) {
+            renderer.setImageResolutionX(result["imgX"].as<int>());
+        }
+        if (result.count("imgY")) {
+            renderer.setImageResolutionY(result["imgY"].as<int>());
         }
 
+        // Always override camera if specified on command line
+        if (result.count("camX") || result.count("camY") || result.count("camZ") || result.count("pitch") || result.count("yaw")) {
+            renderer.setAbsoluteCamera(
+                result["camX"].as<float>(), result["camY"].as<float>(), result["camZ"].as<float>(),
+                result["pitch"].as<float>(), result["yaw"].as<float>()
+            );
+        }
+
+        renderer.init(isHeadless);
+
         if (isHeadless) {
-            std::cout << "DEBUG: Running in HEADLESS mode." << std::endl;
             if (!result.count("file") || !result.count("output")) {
                 std::cerr << "Error: In headless mode, --file and --output are required." << std::endl;
                 return 1;
@@ -70,10 +95,6 @@ int main(int argc, char** argv) {
             std::string nifPath = result["file"].as<std::string>();
             std::string outputPath = result["output"].as<std::string>();
 
-            renderer.setCamera(
-                result["camX"].as<float>(), result["camY"].as<float>(), result["camZ"].as<float>(),
-                result["pitch"].as<float>(), result["yaw"].as<float>()
-            );
             std::cout << "Running in headless mode..." << std::endl;
             renderer.loadNifModel(nifPath);
             renderer.renderFrame();
@@ -81,7 +102,6 @@ int main(int argc, char** argv) {
             std::cout << "Image saved to " << outputPath << std::endl;
         }
         else {
-            std::cout << "DEBUG: Running in GUI mode." << std::endl;
             renderer.run();
         }
     }
@@ -89,9 +109,6 @@ int main(int argc, char** argv) {
         std::cerr << "An unhandled exception occurred: " << e.what() << std::endl;
         return 1;
     }
-
-    std::cout << "DEBUG: Main function is about to exit. Press Enter to close." << std::endl;
-    std::cin.get(); // This will pause the console
 
     return 0;
 }
