@@ -159,6 +159,15 @@ GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
     glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
+    // If the hardware supports anisotropic filtering (the GLAD way), enable it.
+    if (GLAD_GL_EXT_texture_filter_anisotropic) {
+        GLfloat maxAnisotropy;
+        // Get the maximum level of anisotropy supported by the GPU
+        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAnisotropy);
+        // Set the anisotropy level for the current texture
+        glTexParameterf(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAnisotropy);
+    }
+
     auto end_get = std::chrono::high_resolution_clock::now();
     auto duration_get = std::chrono::duration_cast<std::chrono::milliseconds>(end_get - start_get);
     std::cout << "    [Profile] Asset Get/Upload took: " << duration_get.count() << " ms\n";
