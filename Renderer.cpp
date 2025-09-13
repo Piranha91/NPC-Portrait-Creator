@@ -90,6 +90,7 @@ void Renderer::init(bool headless) {
         throw std::runtime_error("Failed to initialize GLAD");
     }
 
+    glEnable(GL_MULTISAMPLE);
     glEnable(GL_DEPTH_TEST);
     glViewport(0, 0, screenWidth, screenHeight);
     shader.load("shaders/basic.vert", "shaders/basic.frag");
