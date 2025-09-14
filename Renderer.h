@@ -25,6 +25,7 @@ public:
     void run();
     void renderFrame();
     void saveToPNG(const std::string& path);
+    GLFWwindow* getWindow() const { return window; }
     void processDirectory();
 
 	// --- Configuration Management ---

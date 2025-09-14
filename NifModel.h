@@ -18,6 +18,7 @@ class TextureManager;
 class Skeleton;
 
 struct MeshShape {
+    std::string name;
     GLuint VAO = 0, VBO = 0, EBO = 0;
     GLsizei indexCount = 0;
     glm::mat4 transform = glm::mat4(1.0f); // Initialize to identity matrix

@@ -33,11 +33,21 @@
 
 #include <chrono>
 
+// By defining NOMINMAX, we prevent Windows.h from defining min() and max() macros,
+// which conflict with the C++ standard library's std::min and std::max.
+#define NOMINMAX
 #include <windows.h>
 #include <shobjidl.h> // For IFileOpenDialog
 
 #include "lodepng/lodepng.h"
 #include "Version.h"
+
+void checkGlErrors(const char* location) {
+    GLenum err;
+    while ((err = glGetError()) != GL_NO_ERROR) {
+        std::cerr << "!!! OpenGL Error at " << location << ": " << err << "!!!" << std::endl;
+    }
+}
 
 
 // --- Global Callback Prototypes ---
@@ -334,6 +344,11 @@ void Renderer::renderFrame() {
     );
     view = view * conversionMatrix;
 
+    std::cout << "--- [Debug Matrices] ---" << std::endl;
+    std::cout << "  Camera Position: " << glm::to_string(camera.Position) << std::endl;
+    std::cout << "  View Matrix:\n" << glm::to_string(view) << std::endl;
+    std::cout << "  Projection Matrix:\n" << glm::to_string(projection) << std::endl;
+
     shader.setMat4("projection", projection);
     shader.setMat4("view", view);
     shader.setVec3("viewPos", camera.Position);
@@ -341,6 +356,8 @@ void Renderer::renderFrame() {
     if (model) {
         model->draw(shader, camera.Position);
     }
+
+    checkGlErrors("end of renderFrame");
 }
 
 void Renderer::HandleFramebufferSize(int width, int height) {
@@ -570,7 +587,15 @@ void Renderer::saveToPNG(const std::string& path) {
     int rectX = (screenWidth - rectWidth) / 2;
     int rectY = (screenHeight - rectHeight) / 2;
     std::vector<unsigned char> screen_buffer(rectWidth * rectHeight * 4);
+
+    glFinish();                     // Wait for GPU to finish drawing.
+    glReadBuffer(GL_BACK);          // Set the read source to the back buffer.
+
     glReadPixels(rectX, rectY, rectWidth, rectHeight, GL_RGBA, GL_UNSIGNED_BYTE, screen_buffer.data());
+
+    // (Optional but good practice) Restore the default read buffer
+    glReadBuffer(GL_FRONT);
+
     std::vector<unsigned char> resized_buffer(imageXRes * imageYRes * 4);
     stbir_resize_uint8_srgb(screen_buffer.data(), rectWidth, rectHeight, 0,
         resized_buffer.data(), imageXRes, imageYRes, 0, STBIR_RGBA);
@@ -583,6 +608,33 @@ void Renderer::saveToPNG(const std::string& path) {
             resized_buffer.data() + (imageXRes * y * 4),
             imageXRes * 4);
     }
+
+    // ============================ NEW CODE BLOCK START ============================
+    // --- 2b. Convert from Pre-multiplied to Straight Alpha ---
+    // The pixel data from the OpenGL framebuffer is pre-multiplied. We need to
+    // "un-premultiply" it for standard PNGs that WPF expects.
+    for (size_t i = 0; i < flipped_buffer.size(); i += 4) {
+        // The buffer format is RGBA
+        float r = flipped_buffer[i];
+        float g = flipped_buffer[i + 1];
+        float b = flipped_buffer[i + 2];
+        float a = flipped_buffer[i + 3];
+
+        if (a > 0) {
+            // To reverse pre-multiplication, divide the color by the alpha.
+            // Alpha is in the [0, 255] range, so we normalize it to [0, 1] for the division.
+            float alpha_normal = a / 255.0f;
+            r /= alpha_normal;
+            g /= alpha_normal;
+            b /= alpha_normal;
+
+            // Clamp values to 255 and write back to the buffer
+            flipped_buffer[i] = static_cast<unsigned char>(std::min(r, 255.0f));
+            flipped_buffer[i + 1] = static_cast<unsigned char>(std::min(g, 255.0f));
+            flipped_buffer[i + 2] = static_cast<unsigned char>(std::min(b, 255.0f));
+        }
+    }
+    // ============================= NEW CODE BLOCK END =============================
 
     // --- 3. Create JSON metadata ---
     nlohmann::json metadata;

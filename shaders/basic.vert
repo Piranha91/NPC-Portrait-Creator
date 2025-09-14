@@ -24,25 +24,30 @@ uniform mat4 uBoneMatrices[MAX_BONES];
 
 void main()
 {
-    mat4 skinMatrix = mat4(1.0);
-    if(uIsSkinned)
+    // 1. Start with the original vertex position.
+    vec4 vertexPosition = vec4(aPos, 1.0);
+
+    // 2. If the mesh is skinned, calculate the skinned position IN MODEL SPACE.
+    if (uIsSkinned)
     {
         // Normalize weights to ensure they sum to 1
         float totalWeight = aWeights.x + aWeights.y + aWeights.z + aWeights.w;
         if (totalWeight > 0.0) {
-           skinMatrix = (aWeights.x * uBoneMatrices[aBoneIDs.x] +
-                         aWeights.y * uBoneMatrices[aBoneIDs.y] +
-                         aWeights.z * uBoneMatrices[aBoneIDs.z] +
-                         aWeights.w * uBoneMatrices[aBoneIDs.w]) / totalWeight;
+           mat4 skinMatrix = (aWeights.x * uBoneMatrices[aBoneIDs.x] +
+                              aWeights.y * uBoneMatrices[aBoneIDs.y] +
+                              aWeights.z * uBoneMatrices[aBoneIDs.z] +
+                              aWeights.w * uBoneMatrices[aBoneIDs.w]) / totalWeight;
+            
+           vertexPosition = skinMatrix * vertexPosition;
         }
     }
     
-    mat4 viewModel = view * model * skinMatrix;
-    gl_Position = projection * viewModel * vec4(aPos, 1.0);
-    FragPos = vec3(viewModel * vec4(aPos, 1.0));
+    // 3. Apply the standard Model-View-Projection transformation.
+    gl_Position = projection * view * model * vertexPosition;
 
-    // Calculate the Normal Matrix for transforming normals to view space
-    NormalMatrix = mat3(transpose(inverse(viewModel)));
+    // 4. Calculate values needed for fragment shader lighting.
+    FragPos = vec3(view * model * vertexPosition);
+    NormalMatrix = mat3(transpose(inverse(view * model)));
 
     // Create the TBN matrix for transforming tangent-space normals to view space
     vec3 T = normalize(NormalMatrix * aTangent);

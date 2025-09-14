@@ -1,4 +1,6 @@
 #define GLM_ENABLE_EXPERIMENTAL
+#define MAX_BONES 80 // <-- MAKE SURE THIS MATCHES YOUR SHADER'S ARRAY SIZE
+
 #include "NifModel.h"
 #include "Skeleton.h"
 #include "Shader.h"
@@ -248,6 +250,7 @@ found_head:
         auto end_stage2 = std::chrono::high_resolution_clock::now();
 
         MeshShape mesh;
+        mesh.name = niShape->name.get();
         std::string shapeName = niShape->name.get();
 
         if (const auto* triShape = dynamic_cast<const nifly::BSTriShape*>(niShape)) {
@@ -581,6 +584,11 @@ found_head:
 }
 
 void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
+    std::cout << "\n--- [Debug Render] ---" << std::endl;
+    std::cout << "  Opaque Shapes: " << opaqueShapes.size() << std::endl;
+    std::cout << "  Alpha Test Shapes: " << alphaTestShapes.size() << std::endl;
+    std::cout << "  Transparent Shapes: " << transparentShapes.size() << std::endl;
+
     shader.use();
     shader.setInt("texture_diffuse1", 0);
     shader.setInt("texture_normal", 1);
@@ -593,7 +601,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     shader.setFloat("eye_spec_power", 80.0f);
 
     // Get location for bone matrix uniform array (cache it for performance)
-    static GLint boneMatricesLocation = glGetUniformLocation(shader.ID, "uBoneMatrices");
+    GLint boneMatricesLocation = glGetUniformLocation(shader.ID, "uBoneMatrices");
 
     // Helper lambda to render a single shape, setting all its unique uniforms
     auto render_shape = [&](const MeshShape& shape) {
@@ -608,7 +616,20 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
         // Set skinning uniforms for the vertex shader
         shader.setBool("uIsSkinned", shape.isSkinned);
         if (shape.isSkinned && !shape.boneMatrices.empty()) {
-            glUniformMatrix4fv(boneMatricesLocation, shape.boneMatrices.size(), GL_FALSE, glm::value_ptr(shape.boneMatrices[0]));
+            GLsizei boneCount = shape.boneMatrices.size();
+            if (boneCount > MAX_BONES) {
+                std::cerr << "!!! WARNING: Shape '" << shape.name // <-- You'll need to add 'name' to MeshShape struct
+                    << "' has " << boneCount
+                    << " bones, which exceeds the shader limit of " << MAX_BONES
+                    << ". Clamping bone count." << std::endl;
+                boneCount = MAX_BONES;
+            }
+
+            std::cout << "  [Debug Skinning] Uploading uniforms for shape '" << shape.name
+                << "': Bone Count = " << boneCount
+                << ", Location = " << boneMatricesLocation << std::endl;
+
+            glUniformMatrix4fv(boneMatricesLocation, boneCount, GL_FALSE, glm::value_ptr(shape.boneMatrices[0]));
         }
 
         // Bind all textures and set corresponding 'has_' flags for the fragment shader

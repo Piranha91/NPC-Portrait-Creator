@@ -1,6 +1,7 @@
 // main.cpp
 
 #include <glad/glad.h> 
+#include <GLFW/glfw3.h>
 #include "Renderer.h"
 #include <iostream>
 #include <stdexcept>
@@ -97,8 +98,21 @@ int main(int argc, char** argv) {
 
             std::cout << "Running in headless mode..." << std::endl;
             renderer.loadNifModel(nifPath);
-            renderer.renderFrame();
-            renderer.saveToPNG(outputPath);
+            // --- START MODIFICATION: WARM-UP LOOP ---
+            // Run a few frames to allow the OpenGL context to stabilize.
+            std::cout << "--- [Debug] Running 5 warm-up frames... ---" << std::endl;
+            for (int i = 0; i < 5; ++i) {
+                renderer.renderFrame();
+                glfwSwapBuffers(renderer.getWindow());
+                glfwPollEvents();
+            }
+            // --- END MODIFICATION ---
+
+            // Now perform the final, definitive render and save.
+            std::cout << "--- [Debug] Warm-up complete. Capturing final frame... ---" << std::endl;
+            renderer.renderFrame();         // Draw the model to the back buffer.
+            renderer.saveToPNG(outputPath); // Save the contents of the back buffer.
+
             std::cout << "Image saved to " << outputPath << std::endl;
         }
         else {
