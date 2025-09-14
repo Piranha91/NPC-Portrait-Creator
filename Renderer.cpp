@@ -58,7 +58,9 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
 }
 
 Renderer::~Renderer() {
-    shutdownUI();
+    if (!isHeadless) { 
+        shutdownUI();
+    }
     if (window) {
         glfwDestroyWindow(window);
     }
@@ -66,6 +68,7 @@ Renderer::~Renderer() {
 }
 
 void Renderer::init(bool headless) {
+    this->isHeadless = headless;
     if (!glfwInit()) {
         throw std::runtime_error("Failed to initialize GLFW");
     }

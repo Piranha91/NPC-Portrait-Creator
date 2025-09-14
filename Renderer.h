@@ -75,6 +75,7 @@ private:
     BsaManager bsaManager;
     std::string appDirectory;
     int screenWidth, screenHeight;
+    bool isHeadless = false;
 
     // --- Configuration ---
     std::string configPath;
