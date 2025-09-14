@@ -21,6 +21,10 @@
 #include <cxxopts.hpp>
 #include <filesystem>
 
+void PrintVersion() {
+    std::cout << PROGRAM_VERSION << std::endl;
+}
+
 int main(int argc, char** argv) {
     cxxopts::Options options("Mugshotter", "NIF file renderer and thumbnail generator");
     options.add_options()
@@ -41,8 +45,14 @@ int main(int argc, char** argv) {
         // New image resolution controls
         ("imgX", "Horizontal resolution of the output PNG", cxxopts::value<int>())
         ("imgY", "Vertical resolution of the output PNG", cxxopts::value<int>())
+        ("v,version", "Print the program version and exit")
         ("h,help", "Print usage");
     auto result = options.parse(argc, argv);
+
+    if (result.count("version")) {
+        PrintVersion();
+        return 0;
+    }
 
     if (result.count("help")) {
         std::cout << options.help() << std::endl;
