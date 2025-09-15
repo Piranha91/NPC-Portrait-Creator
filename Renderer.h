@@ -16,6 +16,13 @@
 
 struct GLFWwindow;
 enum class SkeletonType { None, Female, Male, FemaleBeast, MaleBeast, Custom };
+struct Light {
+    int type = 0; // 0=disabled, 1=ambient, 2=directional
+    glm::vec3 direction{ 0.0f };
+    glm::vec3 color{ 1.0f };
+    float intensity = 1.0f;
+};
+
 class Renderer {
 
 public:
@@ -50,6 +57,7 @@ public:
     void setAbsoluteCamera(float x, float y, float z, float p, float yw) {
         camX = x; camY = y; camZ = z; camPitch = p; camYaw = yw;
     }
+    void setLightingProfile(const std::string& path) { lightingProfilePath = path; }
 
     // --- Public Input Handlers ---
     void HandleMouseButton(int button, int action, int mods);
@@ -83,6 +91,7 @@ private:
     std::string appDirectory;
     int screenWidth, screenHeight;
     bool isHeadless = false;
+    bool uiInitialized = false; // for non-headless mode
 
     // --- Configuration ---
     std::string configPath;
@@ -100,6 +109,11 @@ private:
 
     Skeleton* activeSkeleton = nullptr;
     SkeletonType currentSkeletonType = SkeletonType::None;
+
+	// Lighting
+    std::string lightingProfilePath;
+    std::vector<Light> lights;
+    void loadLightingProfile(const std::string& path);
 
     // Camera settings
     float camX = 0.0f, camY = 0.0f, camZ = 0.0f;

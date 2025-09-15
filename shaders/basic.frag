@@ -8,6 +8,15 @@ in vec4 vertexColor;
 in mat3 TBN;
 in mat3 NormalMatrix;
 
+#define MAX_LIGHTS 5
+
+struct Light {
+    int type; // 0:disabled, 1:ambient, 2:directional
+    vec3 direction; // For directional lights
+    vec3 color;
+    float intensity;
+};
+
 // --- UNIFORMS ---
 uniform sampler2D texture_diffuse1;
 uniform sampler2D texture_normal;
@@ -21,7 +30,6 @@ uniform bool has_skin_map;
 uniform bool has_detail_map;
 uniform bool has_specular_map;
 uniform bool has_face_tint_map;
-
 uniform bool use_alpha_test;
 uniform float alpha_threshold;
 
@@ -37,10 +45,7 @@ uniform mat4 view;
 
 uniform vec3 viewPos;
 
-// --- LIGHTING ---
-const vec3 lightDir_world = normalize(vec3(0.5, 0.5, 1.0));
-const vec3 lightColor = vec3(1.0, 1.0, 1.0);
-const vec3 ambientColor = vec3(0.15, 0.15, 0.15);
+uniform Light lights[MAX_LIGHTS];
 
 void main()
 {    
@@ -84,45 +89,70 @@ void main()
     } else {
         // If no normal map, just use the vertex normal.
         // It's already been transformed to view space in the vertex shader.
-        finalNormal = normalize(TBN[2]); 
+        finalNormal = normalize(TBN[2]);
     }
     
-    // --- LIGHTING CALCULATIONS (in View Space) ---
-    vec3 lightDir_view = normalize(mat3(view) * lightDir_world);
-    float diffuseStrength = max(dot(finalNormal, lightDir_view), 0.0);
-    vec3 diffuse = diffuseStrength * lightColor;
+    // --- Dynamic Lighting Calculation (Unchanged) ---
+    vec3 finalColor = vec3(0.0);
+    for (int i = 0; i < MAX_LIGHTS; i++) {
+        if (lights[i].type == 0) continue; 
 
-    vec3 specular = vec3(0.0);
-    if (has_specular_map) {
-        float specularStrength = texture(texture_specular, TexCoords).r;
-        vec3 viewDir = normalize(-FragPos);
-        vec3 halfwayDir = normalize(lightDir_view + viewDir);
-        float specAmount = pow(max(dot(finalNormal, halfwayDir), 0.0), 32.0);
-        specular = specAmount * specularStrength * lightColor;
+        vec3 lightColor = lights[i].color * lights[i].intensity;
+
+        if (lights[i].type == 1) { // Ambient
+            // MODIFICATION: Ambient light should affect the base color, not just be added.
+            finalColor += lightColor * baseColor.rgb;
+        }
+        else if (lights[i].type == 2) { // Directional
+            vec3 lightDir_view = normalize(mat3(view) * lights[i].direction);
+            float diffuseStrength = max(dot(finalNormal, lightDir_view), 0.0);
+            vec3 diffuse = diffuseStrength * lightColor;
+
+            vec3 specular = vec3(0.0);
+            if (has_specular_map) {
+                float specularStrength = texture(texture_specular, TexCoords).r;
+                vec3 viewDir = normalize(-FragPos);
+                vec3 halfwayDir = normalize(lightDir_view + viewDir);
+                float specAmount = pow(max(dot(finalNormal, halfwayDir), 0.0), 32.0);
+                specular = specAmount * specularStrength * lightColor;
+            }
+            finalColor += diffuse * baseColor.rgb + specular;
+        }
     }
     
+    // Apply subsurface scattering and detail maps after main lighting
     vec3 subsurfaceColor = vec3(0.0);
     if (has_skin_map) {
         subsurfaceColor = texture(texture_skin, TexCoords).r * vec3(1.0, 0.3, 0.2);
+        finalColor += subsurfaceColor * baseColor.rgb;
     }
-
+    
     if (has_detail_map) {
         vec3 detailColor = texture(texture_detail, TexCoords).rgb;
-        baseColor.rgb = mix(baseColor.rgb, detailColor, 0.3);
+        finalColor = mix(finalColor, detailColor, 0.3);
     }
 
-    // Final color assembly
-    vec3 finalColor = (ambientColor + diffuse + subsurfaceColor) * baseColor.rgb + specular;
-    
+    // --- REMOVED CONFLICTING LINE ---
+    // vec3 finalColor = (ambientColor + diffuse + subsurfaceColor) * baseColor.rgb + specular;
+
+    // --- MODIFIED EYE SHADER LOGIC ---
     if (is_eye) {
-        vec3 V = normalize(-FragPos); 
+        vec3 V = normalize(-FragPos);
         float fresnel = pow(1.0 - max(dot(finalNormal, V), 0.0), 5.0);
-        vec3 halfwayDir = normalize(lightDir_view + V);
-        float specAmount = pow(max(dot(finalNormal, halfwayDir), 0.0), eye_spec_power);
-        vec3 eyeSpecular = specAmount * lightColor;
+        
+        // Accumulate specular from all directional lights
+        vec3 eyeSpecular = vec3(0.0);
+        for (int i = 0; i < MAX_LIGHTS; i++) {
+            if (lights[i].type == 2) { // If it's a directional light
+                vec3 lightColor = lights[i].color * lights[i].intensity;
+                vec3 lightDir_view = normalize(mat3(view) * lights[i].direction);
+                vec3 halfwayDir = normalize(lightDir_view + V);
+                float specAmount = pow(max(dot(finalNormal, halfwayDir), 0.0), eye_spec_power);
+                eyeSpecular += specAmount * lightColor;
+            }
+        }
         finalColor += fresnel * eye_fresnel_strength + eyeSpecular * 0.5;
     }
 
     FragColor = vec4(finalColor, baseColor.a);
 }
-

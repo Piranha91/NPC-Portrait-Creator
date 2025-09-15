@@ -43,6 +43,8 @@ int main(int argc, char** argv) {
         // Camera relative (mugshot) controls
         ("head-top-offset", "Top margin for head as a percentage (e.g., 0.15 for 15%)", cxxopts::value<float>())
         ("head-bottom-offset", "Bottom margin for head as a percentage (e.g., -0.02 for -2%)", cxxopts::value<float>())
+        // Lighting profile
+        ("lighting", "Path to a custom lighting profile JSON file", cxxopts::value<std::string>())
         // New image resolution controls
         ("imgX", "Horizontal resolution of the output PNG", cxxopts::value<int>())
         ("imgY", "Vertical resolution of the output PNG", cxxopts::value<int>())
@@ -121,6 +123,10 @@ int main(int argc, char** argv) {
             else {
                 std::cerr << "Warning: Invalid --bgcolor format. Use R,G,B values from 0.0 to 1.0 (e.g., \"0.1,0.2,0.3\")." << std::endl;
             }
+        }
+
+        if (result.count("lighting")) { 
+            renderer.setLightingProfile(result["lighting"].as<std::string>());
         }
 
         renderer.init(isHeadless);

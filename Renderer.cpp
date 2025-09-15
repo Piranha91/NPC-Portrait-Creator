@@ -72,7 +72,7 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
 }
 
 Renderer::~Renderer() {
-    if (!isHeadless) { 
+    if (uiInitialized) {
         shutdownUI();
     }
     if (window) {
@@ -138,8 +138,9 @@ void Renderer::init(bool headless) {
     shader.load("shaders/basic.vert", "shaders/basic.frag");
 
     // --- BSA and Skeleton Loading ---
-    // Load config first to get the fallback directory
+    // Load config first
     loadConfig();
+    loadLightingProfile(lightingProfilePath);
 
     // Initialize the AssetManager with all data folders.
     updateAssetManagerPaths();
@@ -198,6 +199,7 @@ void Renderer::initUI() {
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
+    uiInitialized = true;
 }
 
 void Renderer::run() {
@@ -409,6 +411,22 @@ void Renderer::renderFrame() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     shader.use();
+
+    // --- SET LIGHT UNIFORMS ---
+    int maxLights = 5; // Should match shader's MAX_LIGHTS
+    for (int i = 0; i < maxLights; ++i) {
+        std::string base = "lights[" + std::to_string(i) + "]";
+        if (i < lights.size()) {
+            shader.setInt(base + ".type", lights[i].type);
+            shader.setVec3(base + ".direction", lights[i].direction);
+            shader.setVec3(base + ".color", lights[i].color);
+            shader.setFloat(base + ".intensity", lights[i].intensity);
+        }
+        else {
+            shader.setInt(base + ".type", 0); // Disable unused lights
+        }
+    }
+
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)screenWidth / (float)screenHeight, 10.0f, 10000.0f);
     glm::mat4 view = camera.GetViewMatrix();
 
@@ -942,6 +960,9 @@ void Renderer::loadConfig() {
             backgroundColor.g = data["background_color"][1].get<float>();
             backgroundColor.b = data["background_color"][2].get<float>();
         }
+
+        // Load lighting settings
+        lightingProfilePath = data.value("lighting_profile_path", "lighting.json");
     }
     catch (const std::exception& e) {
         std::cerr << "Error loading config file: " << e.what() << std::endl;
@@ -969,11 +990,55 @@ void Renderer::saveConfig() {
 
         data["background_color"] = { backgroundColor.r, backgroundColor.g, backgroundColor.b };
 
+        data["lighting_profile_path"] = lightingProfilePath;
+
         std::ofstream o(configPath);
         o << std::setw(4) << data << std::endl;
     }
     catch (const std::exception& e) {
         std::cerr << "Warning: Could not save config file to " << configPath << ": " << e.what() << std::endl;
+    }
+}
+
+void Renderer::loadLightingProfile(const std::string& path) {
+    lights.clear();
+    if (path.empty() || !std::filesystem::exists(path)) {
+        std::cout << "Lighting profile not found. Using default lighting." << std::endl;
+        // Fallback to a single default light
+        Light defaultLight;
+        defaultLight.type = 2; // Directional
+        defaultLight.direction = glm::normalize(glm::vec3(0.5f, 0.5f, 1.0f));
+        lights.push_back(defaultLight);
+        Light ambient;
+        ambient.type = 1; // Ambient
+        ambient.color = glm::vec3(0.15f);
+        lights.push_back(ambient);
+        return;
+    }
+
+    try {
+        std::cout << "--- Loading lighting profile from: " << path << " ---" << std::endl;
+        std::ifstream f(path);
+        nlohmann::json data = nlohmann::json::parse(f);
+        for (const auto& item : data["lights"]) {
+            Light light;
+            std::string type = item.value("type", "");
+            if (type == "ambient") light.type = 1;
+            else if (type == "directional") light.type = 2;
+            else continue;
+
+            if (item.contains("direction")) {
+                light.direction = glm::normalize(glm::vec3(item["direction"][0], item["direction"][1], item["direction"][2]));
+            }
+            if (item.contains("color")) {
+                light.color = { item["color"][0], item["color"][1], item["color"][2] };
+            }
+            light.intensity = item.value("intensity", 1.0f);
+            lights.push_back(light);
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Failed to load or parse lighting profile: " << e.what() << std::endl;
     }
 }
 

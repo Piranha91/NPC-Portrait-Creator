@@ -81,3 +81,10 @@ add_custom_command(TARGET NPCPortraitCreator POST_BUILD
     "$<TARGET_FILE_DIR:NPCPortraitCreator>/shaders"
     COMMENT "Copying shaders to build directory"
 )
+
+add_custom_command(TARGET NPCPortraitCreator POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/lighting.json" 
+    "$<TARGET_FILE_DIR:NPCPortraitCreator>/lighting.json"
+    COMMENT "Copying lighting profile to build directory if changed"
+)
