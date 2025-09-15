@@ -14,6 +14,8 @@
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtx/norm.hpp>  // gives length2() and distance2()
 #include <chrono>
+#include <sstream> // Add for std::stringstream
+#include <fstream> 
 
 // Vertex structure used for processing mesh data, now includes skinning and tangent space info
 struct Vertex {
@@ -128,12 +130,13 @@ NifModel::~NifModel() {
     cleanup();
 }
 
-bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton) {
-    bool debugMode = true;
-
+bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton) {
     cleanup();
-    if (nif.Load(nifPath) != 0) {
-        std::cerr << "Error: Failed to load NIF file: " << nifPath << std::endl;
+	bool debugMode = true; // Set to true to enable debug output
+
+    std::stringstream nifStream(std::string(data.begin(), data.end()));
+    if (nif.Load(nifStream) != 0) { // <-- Load from memory stream
+        std::cerr << "Error: Failed to load NIF from memory: " << nifPath << std::endl;
         return false;
     }
 
@@ -582,6 +585,19 @@ found_head:
 
     return true;
 }
+
+// Keep your old load function to avoid breaking things, and have it call the new one.
+// This is optional but good practice.
+bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton) {
+    std::ifstream file(nifPath, std::ios::binary);
+    if (!file) {
+        std::cerr << "Error: Failed to open NIF file from disk: " << nifPath << std::endl;
+        return false;
+    }
+    std::vector<char> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    return load(data, nifPath, textureManager, skeleton);
+}
+
 
 void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     std::cout << "\n--- [Debug Render] ---" << std::endl;

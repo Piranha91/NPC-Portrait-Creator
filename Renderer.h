@@ -6,6 +6,7 @@
 #include "Shader.h"
 #include "Camera.h"
 #include "NifModel.h"
+#include "AssetManager.h"
 #include "TextureManager.h"
 #include "BsaManager.h"
 #include "Skeleton.h"
@@ -36,7 +37,8 @@ public:
     void loadNifModel(const std::string& path);
     void loadCustomSkeleton(const std::string& path);
     void detectAndSetSkeleton(const nifly::NifFile& nif);
-    void setFallbackRootDirectory(const std::string& path);
+    void setDataFolders(const std::vector<std::string>& folders);
+    std::vector<std::string>& getDataFolders() { return dataFolders; }
 
     // --- Public Setters for Configurable Options ---
     void setMugshotTopOffset(float offset) { headTopOffset = offset; }
@@ -72,8 +74,8 @@ private:
     GLFWwindow* window = nullptr;
     Shader shader;
     std::unique_ptr<NifModel> model;
+    AssetManager assetManager;
     TextureManager textureManager;
-    BsaManager bsaManager;
     std::string appDirectory;
     int screenWidth, screenHeight;
     bool isHeadless = false;
@@ -81,8 +83,7 @@ private:
     // --- Configuration ---
     std::string configPath;
     std::string currentNifPath;
-    std::string rootDirectory;
-    std::string fallbackRootDirectory;
+    std::vector<std::string> dataFolders;
 
     // Skeletons loaded from game data
     Skeleton femaleSkeleton;

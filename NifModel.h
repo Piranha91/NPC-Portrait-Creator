@@ -60,6 +60,7 @@ public:
     ~NifModel();
 
     bool load(const std::string& path, TextureManager& textureManager, const Skeleton* skeleton);
+    bool load(const std::vector<char>& data, const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton);
     void draw(Shader& shader, const glm::vec3& cameraPos);
     void cleanup();
 

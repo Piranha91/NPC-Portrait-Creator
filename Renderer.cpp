@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <fstream>
+#include <sstream>
 #include <vector>
 #include <algorithm> 
 #include <filesystem>
@@ -61,9 +62,10 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
     : screenWidth(width), screenHeight(height),
     camera(glm::vec3(0.0f, 50.0f, 0.0f)),
     lastX(width / 2.0f), lastY(height / 2.0f),
-    fallbackRootDirectory("C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data"),
-    appDirectory(app_dir) {
-
+    appDirectory(app_dir),
+    assetManager(), // Default construct AssetManager
+    textureManager(assetManager) // Pass the AssetManager reference to the TextureManager
+{
     configPath = (std::filesystem::path(appDirectory) / "mugshotter_config.json").string();
 }
 
@@ -119,26 +121,30 @@ void Renderer::init(bool headless) {
     // Load config first to get the fallback directory
     loadConfig();
 
-    // Use the fallback directory to load archives
-    bsaManager.loadArchives(fallbackRootDirectory, appDirectory);
+    // MODIFICATION: Initialize the AssetManager with all data folders.
+    std::vector<std::filesystem::path> paths;
+    for (const auto& s : dataFolders) {
+        paths.push_back(s);
+    }
+    assetManager.setActiveDirectories(paths, appDirectory);
 
-    // --- Load all standard and beast skeletons from BSAs ---
-    std::cout << "[Skeleton Load] Attempting to load all default skeletons from BSAs...\n";
+    // --- Load all standard and beast skeletons using the AssetManager ---
+    std::cout << "[Skeleton Load] Attempting to load all default skeletons...\n";
 
     const std::string femaleSkelPath = "meshes\\actors\\character\\character assets female\\skeleton_female.nif";
-    auto femaleData = bsaManager.extractFile(femaleSkelPath);
+    auto femaleData = assetManager.extractFile(femaleSkelPath);
     if (!femaleData.empty()) femaleSkeleton.loadFromMemory(femaleData, "skeleton_female.nif");
 
     const std::string maleSkelPath = "meshes\\actors\\character\\character assets\\skeleton.nif";
-    auto maleData = bsaManager.extractFile(maleSkelPath);
+    auto maleData = assetManager.extractFile(maleSkelPath);
     if (!maleData.empty()) maleSkeleton.loadFromMemory(maleData, "skeleton.nif");
 
     const std::string femaleBeastSkelPath = "meshes\\actors\\character\\character assets female\\skeletonbeast_female.nif";
-    auto femaleBeastData = bsaManager.extractFile(femaleBeastSkelPath);
+    auto femaleBeastData = assetManager.extractFile(femaleBeastSkelPath);
     if (!femaleBeastData.empty()) femaleBeastSkeleton.loadFromMemory(femaleBeastData, "skeletonbeast_female.nif");
 
     const std::string maleBeastSkelPath = "meshes\\actors\\character\\character assets\\skeletonbeast.nif";
-    auto maleBeastData = bsaManager.extractFile(maleBeastSkelPath);
+    auto maleBeastData = assetManager.extractFile(maleBeastSkelPath);
     if (!maleBeastData.empty()) maleBeastSkeleton.loadFromMemory(maleBeastData, "skeletonbeast.nif");
 
     // No default skeleton is set at startup; it will be detected when a NIF is loaded.
@@ -238,16 +244,60 @@ void Renderer::renderUI() {
                     loadNifModel(filePath);
                 }
             }
-            if (ImGui::MenuItem("Set Fallback Data Directory...")) {
-                const char* folderPath = tinyfd_selectFolderDialog("Select Fallback Data Folder", fallbackRootDirectory.c_str());
-                if (folderPath) {
-                    setFallbackRootDirectory(folderPath);
+            if (ImGui::BeginMenu("Data Folders")) {
+                if (ImGui::MenuItem("Add Folder...")) {
+                    const char* folderPath = tinyfd_selectFolderDialog("Select Data Folder", "");
+                    if (folderPath && folderPath[0]) {
+                        dataFolders.push_back(folderPath);
+                        // Reload model to apply new data folders
+                        loadNifModel("");
+                    }
                 }
+                ImGui::Separator();
+                ImGui::Text("Priority: Bottom is highest");
+                ImGui::Separator();
+
+                // List current data folders with options to reorder and remove
+                for (int i = 0; i < dataFolders.size(); ++i) {
+                    ImGui::PushID(i); // Create a unique ID scope for buttons
+                    ImGui::TextWrapped("%d: %s", i, dataFolders[i].c_str());
+
+                    // Reordering buttons (Up/Down)
+                    ImGui::SameLine(ImGui::GetWindowWidth() - 120);
+                    if (i > 0) {
+                        if (ImGui::ArrowButton("##up", ImGuiDir_Up)) {
+                            std::swap(dataFolders[i], dataFolders[i - 1]);
+                            loadNifModel("");
+                        }
+                    }
+                    else { // Placeholder to keep alignment
+                        ImGui::InvisibleButton("##up_space", ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight()));
+                    }
+
+                    ImGui::SameLine();
+                    if (i < dataFolders.size() - 1) {
+                        if (ImGui::ArrowButton("##down", ImGuiDir_Down)) {
+                            std::swap(dataFolders[i], dataFolders[i + 1]);
+                            loadNifModel("");
+                        }
+                    }
+
+                    // Remove button
+                    ImGui::SameLine();
+                    if (ImGui::Button("X")) {
+                        dataFolders.erase(dataFolders.begin() + i);
+                        loadNifModel("");
+                        ImGui::PopID();
+                        break; // Exit loop as vector was modified
+                    }
+                    ImGui::PopID();
+                }
+
+                ImGui::EndMenu();
             }
+
             ImGui::Separator();
-            if (ImGui::MenuItem("Exit")) {
-                glfwSetWindowShouldClose(window, true);
-            }
+            if (ImGui::MenuItem("Exit")) { glfwSetWindowShouldClose(window, true); }
             ImGui::EndMenu();
         }
 
@@ -434,29 +484,56 @@ void Renderer::detectAndSetSkeleton(const nifly::NifFile& nif) {
 }
 
 void Renderer::loadNifModel(const std::string& path) {
-    std::string pathLower = path;
+    // Allow calling with an empty path to trigger a reload of the current model
+    if (!path.empty()) {
+        currentNifPath = path;
+    }
+    if (currentNifPath.empty()) {
+        return; // Nothing to load or reload
+    }
+
+    // --- This part is the same: update data folders and tell the AssetManager ---
+    std::string nifRootDirectory;
+    std::string pathLower = currentNifPath;
     std::transform(pathLower.begin(), pathLower.end(), pathLower.begin(), ::tolower);
 
     size_t meshesPos = pathLower.rfind("\\meshes\\");
     if (meshesPos == std::string::npos) {
         meshesPos = pathLower.rfind("/meshes/");
     }
-
     if (meshesPos != std::string::npos) {
-        rootDirectory = path.substr(0, meshesPos);
+        nifRootDirectory = currentNifPath.substr(0, meshesPos);
+        auto it = std::find(dataFolders.begin(), dataFolders.end(), nifRootDirectory);
+        if (it == dataFolders.end()) {
+            dataFolders.push_back(nifRootDirectory);
+        }
     }
-    else {
-        rootDirectory = fallbackRootDirectory;
+    std::vector<std::filesystem::path> paths;
+    for (const auto& s : dataFolders) {
+        paths.push_back(s);
     }
-    textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory, appDirectory);
+    assetManager.setActiveDirectories(paths, appDirectory);
+    // --- End of same part ---
 
+
+    // --- RECOMMENDED CHANGE: Load NIF data through the AssetManager ---
+    std::cout << "[NIF Load] Extracting: " << currentNifPath << std::endl;
+    std::vector<char> nifData = assetManager.extractFile(currentNifPath);
+
+    if (nifData.empty()) {
+        std::cerr << "Renderer failed to load NIF model data via AssetManager." << std::endl;
+        return;
+    }
+
+    // Use the in-memory data for skeleton detection
     nifly::NifFile tempNif;
-    if (tempNif.Load(path) == 0) {
+    std::stringstream nifStream(std::string(nifData.begin(), nifData.end()));
+    if (tempNif.Load(nifStream) == 0) {
         detectAndSetSkeleton(tempNif);
     }
     else {
-        std::cerr << "Could not pre-load NIF for skeleton detection." << std::endl;
-        activeSkeleton = nullptr; // Fallback
+        std::cerr << "Could not pre-load NIF from memory for skeleton detection." << std::endl;
+        activeSkeleton = nullptr;
         currentSkeletonType = SkeletonType::None;
     }
 
@@ -464,8 +541,8 @@ void Renderer::loadNifModel(const std::string& path) {
         model = std::make_unique<NifModel>();
     }
 
-    if (model->load(path, textureManager, activeSkeleton)) {
-        currentNifPath = path;
+    // You will need to update NifModel::load to also accept a vector<char>
+    if (model->load(nifData, currentNifPath, textureManager, activeSkeleton)) {
         saveConfig();
 
         // Check which camera mode to use. Mugshot mode is used only if all absolute camera parameters are zero.
@@ -558,13 +635,6 @@ void Renderer::loadCustomSkeleton(const std::string& path) {
     else {
         std::cerr << "Failed to load custom skeleton. It will not be available." << std::endl;
     }
-}
-
-void Renderer::setFallbackRootDirectory(const std::string& path) {
-    fallbackRootDirectory = path;
-    textureManager.setActiveDirectories(rootDirectory, fallbackRootDirectory, appDirectory);
-    std::cout << "Fallback root directory set to: " << fallbackRootDirectory << std::endl;
-    saveConfig();
 }
 
 void Renderer::saveToPNG(const std::string& path) {
@@ -796,6 +866,10 @@ void Renderer::processDirectory() {
     std::cout << "--- Batch process complete. ---" << std::endl;
 }
 
+void Renderer::setDataFolders(const std::vector<std::string>& folders) {
+    dataFolders = folders;
+}
+
 void Renderer::loadConfig() {
     if (!std::filesystem::exists(configPath)) return;
 
@@ -808,7 +882,19 @@ void Renderer::loadConfig() {
         }
 
         currentNifPath = data.value("last_nif_path", "");
-        fallbackRootDirectory = data.value("fallback_root_directory", "C:\\Games\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data");
+
+        // MODIFICATION: Load data folders list from config, with backwards compatibility.
+        dataFolders.clear();
+        if (data.contains("data_folders")) {
+            data.at("data_folders").get_to(dataFolders);
+        }
+        else if (data.contains("fallback_root_directory")) {
+            // Read old key for backwards compatibility
+            std::string fallbackDir = data.value("fallback_root_directory", "");
+            if (!fallbackDir.empty()) {
+                dataFolders.push_back(fallbackDir);
+            }
+        }
 
         // Load camera settings
         camX = data.value("camX", 0.0f);
@@ -835,7 +921,7 @@ void Renderer::saveConfig() {
     try {
         nlohmann::json data;
         data["last_nif_path"] = currentNifPath;
-        data["fallback_root_directory"] = fallbackRootDirectory;
+        data["data_folders"] = dataFolders;
 
         data["camX"] = camX;
         data["camY"] = camY;

@@ -1,25 +1,16 @@
 // TextureManager.cpp
 #include "TextureManager.h"
+#include "AssetManager.h"
 #include <iostream>
 #include <filesystem>
 #include <fstream>
 #include <gli/gli.hpp>
 #include <chrono>
 
+TextureManager::TextureManager(AssetManager& manager) : assetManager(manager) {}
+
 TextureManager::~TextureManager() {
     cleanup();
-}
-
-void TextureManager::setActiveDirectories(const std::string& rootDir, const std::string& fallbackDir, const std::string& cacheDir) {
-    rootDirectory = rootDir;
-    fallbackRootDirectory = fallbackDir;
-
-    if (!rootDirectory.empty()) {
-        rootBsaManager.loadArchives(rootDirectory, cacheDir);
-    }
-    if (!fallbackRootDirectory.empty()) {
-        fallbackBsaManager.loadArchives(fallbackRootDirectory, cacheDir);
-    }
 }
 
 GLuint TextureManager::loadTexture(const std::string& relativePath) {
@@ -27,60 +18,27 @@ GLuint TextureManager::loadTexture(const std::string& relativePath) {
         return 0;
     }
 
-    // 1. Check if texture is already in our GPU cache
+    // 1. Check GPU cache
     auto it = textureCache.find(relativePath);
     if (it != textureCache.end()) {
         return it->second;
     }
 
-    // Start a timer for the entire find-and-load process.
-    auto start_find = std::chrono::high_resolution_clock::now();
+    // 2. Use the AssetManager to get the raw file data.
+    std::vector<char> fileData = assetManager.extractFile(relativePath);
 
-    std::vector<char> fileData;
-
-    // --- NEW: CORRECTED ASSET LOADING ORDER ---
-    // In Bethesda games, loose files on disk always override BSA contents.
-    // We must check for loose files first before consulting the archives.
-
-    // 2. Check for a loose file in the primary data directory.
-    std::filesystem::path loosePath = std::filesystem::path(rootDirectory) / relativePath;
-    if (std::filesystem::exists(loosePath)) {
-        std::ifstream file(loosePath, std::ios::binary);
-        fileData.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-    }
-    // 3. If not found, check for a loose file in the fallback data directory.
-    else {
-        loosePath = std::filesystem::path(fallbackRootDirectory) / relativePath;
-        if (std::filesystem::exists(loosePath)) {
-            std::ifstream file(loosePath, std::ios::binary);
-            fileData.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-        }
-    }
-
-    // 4. If no loose file was found in either location, check the BSA archives.
-    if (fileData.empty()) {
-        fileData = rootBsaManager.extractFile(relativePath);
-        if (fileData.empty()) {
-            fileData = fallbackBsaManager.extractFile(relativePath);
-        }
-    }
-    // --- END: CORRECTED ASSET LOADING ORDER ---
-
-    auto end_find = std::chrono::high_resolution_clock::now();
-    auto duration_find = std::chrono::duration_cast<std::chrono::milliseconds>(end_find - start_find);
-    std::cout << "    [Profile] Asset Find (" << relativePath << ") took: " << duration_find.count() << " ms\n";
-
-    // 5. If data was found (from either a loose file or BSA), upload it to the GPU.
+    // 3. If data was found, upload it to the GPU.
     if (!fileData.empty()) {
         GLuint textureID = uploadDDSToGPU(fileData);
         if (textureID != 0) {
-            textureCache[relativePath] = textureID; // Cache the new texture ID.
+            textureCache[relativePath] = textureID;
             return textureID;
         }
     }
 
+    // If the process fails at any point, log a warning and cache the failure.
     std::cerr << "Warning: Texture not found or failed to load: " << relativePath << std::endl;
-    textureCache[relativePath] = 0; // Cache the failure to avoid repeated attempts.
+    textureCache[relativePath] = 0;
     return 0;
 }
 
@@ -131,25 +89,23 @@ GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
     for (std::size_t layer = 0; layer < tex.layers(); ++layer) {
         for (std::size_t face = 0; face < tex.faces(); ++face) {
             for (std::size_t level = 0; level < tex.levels(); ++level) {
-                GLsizei const layerGL = static_cast<GLsizei>(layer);
                 glm::tvec3<GLsizei> extent(tex.extent(level));
-                target = gli::is_target_cube(tex.target())
+                GLenum currentTarget = gli::is_target_cube(tex.target())
                     ? static_cast<GLenum>(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face)
                     : target;
 
                 if (gli::is_compressed(tex.format())) {
-                    glCompressedTexSubImage2D(target, static_cast<GLint>(level), 0, 0, extent.x, extent.y,
+                    glCompressedTexSubImage2D(currentTarget, static_cast<GLint>(level), 0, 0, extent.x, extent.y,
                         format.Internal, static_cast<GLsizei>(tex.size(level)), tex.data(layer, face, level));
                 }
                 else {
-                    glTexSubImage2D(target, static_cast<GLint>(level), 0, 0, extent.x, extent.y,
+                    glTexSubImage2D(currentTarget, static_cast<GLint>(level), 0, 0, extent.x, extent.y,
                         format.External, format.Type, tex.data(layer, face, level));
                 }
             }
         }
     }
 
-    // If it has mipmaps, generate them
     if (tex.levels() > 1) {
         glGenerateMipmap(target);
     }
@@ -159,12 +115,9 @@ GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
     glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    // If the hardware supports anisotropic filtering (the GLAD way), enable it.
     if (GLAD_GL_EXT_texture_filter_anisotropic) {
         GLfloat maxAnisotropy;
-        // Get the maximum level of anisotropy supported by the GPU
         glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAnisotropy);
-        // Set the anisotropy level for the current texture
         glTexParameterf(target, GL_TEXTURE_MAX_ANISOTROPY_EXT, maxAnisotropy);
     }
 

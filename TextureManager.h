@@ -1,27 +1,27 @@
-// TextureManager.h
 #pragma once
 
-#include "BsaManager.h"
 #include <string>
 #include <unordered_map>
 #include <glad/glad.h>
 
+// Forward-declare AssetManager to avoid a circular include dependency.
+class AssetManager;
+
 class TextureManager {
 public:
-    TextureManager() = default;
+    // MODIFICATION: Constructor now takes a reference to the AssetManager.
+    explicit TextureManager(AssetManager& manager);
     ~TextureManager();
 
-    void setActiveDirectories(const std::string& rootDir, const std::string& fallbackDir, const std::string& cacheDir);
     GLuint loadTexture(const std::string& relativePath);
 
 private:
-    GLuint uploadDDSToGPU(const std::vector<char>& data);
     void cleanup();
+    GLuint uploadDDSToGPU(const std::vector<char>& data);
 
-    std::string rootDirectory;
-    std::string fallbackRootDirectory;
-    BsaManager rootBsaManager;
-    BsaManager fallbackBsaManager;
+    // MODIFICATION: Holds a reference to the main AssetManager.
+    AssetManager& assetManager;
 
+    // This cache is for GPU texture IDs, which is still this class's responsibility.
     std::unordered_map<std::string, GLuint> textureCache;
 };

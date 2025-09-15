@@ -33,6 +33,8 @@ add_executable(NPCPortraitCreator
     BsaManager.cpp
     TextureManager.h
     TextureManager.cpp
+    AssetManager.h
+    AssetManager.cpp
     Skeleton.h
     Skeleton.cpp
     Version.h

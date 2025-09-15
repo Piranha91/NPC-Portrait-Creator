@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
     options.add_options()
         ("f,file", "Input .nif file", cxxopts::value<std::string>())
         ("o,output", "Output .png file", cxxopts::value<std::string>())
-        ("r,root", "Set the fallback root data directory", cxxopts::value<std::string>())
+        ("d,data", "A data directory. Can be specified multiple times.", cxxopts::value<std::vector<std::string>>())
         ("s,skeleton", "Path to a custom skeleton.nif file", cxxopts::value<std::string>())
         ("headless", "Run in headless mode without a visible window")
         // Camera absolute position controls
@@ -69,8 +69,8 @@ int main(int argc, char** argv) {
         renderer.loadConfig();
 
         // 2. Override with any command-line arguments
-        if (result.count("root")) {
-            renderer.setFallbackRootDirectory(result["root"].as<std::string>());
+        if (result.count("data")) {
+            renderer.setDataFolders(result["data"].as<std::vector<std::string>>());
         }
         if (result.count("skeleton")) {
             renderer.loadCustomSkeleton(result["skeleton"].as<std::string>());
