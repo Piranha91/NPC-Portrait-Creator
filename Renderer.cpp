@@ -80,6 +80,24 @@ Renderer::~Renderer() {
     glfwTerminate();
 }
 
+void Renderer::updateAssetManagerPaths() {
+    // --- Assemble final list of paths for the AssetManager ---
+    std::vector<std::filesystem::path> finalPaths;
+    // 1. Prepend the GameDataDirectory to make it the lowest priority.
+    if (!gameDataDirectory.empty()) {
+        finalPaths.push_back(gameDataDirectory);
+    }
+    // 2. Append all user-specified data folders.
+    for (const auto& s : dataFolders) {
+        // Avoid adding duplicates if a user manually adds the game directory
+        if (s != gameDataDirectory) {
+            finalPaths.push_back(s);
+        }
+    }
+    // 3. Pass the complete, prioritized list to the AssetManager.
+    assetManager.setActiveDirectories(finalPaths, appDirectory);
+}
+
 void Renderer::init(bool headless) {
     this->isHeadless = headless;
     if (!glfwInit()) {
@@ -122,12 +140,8 @@ void Renderer::init(bool headless) {
     // Load config first to get the fallback directory
     loadConfig();
 
-    // MODIFICATION: Initialize the AssetManager with all data folders.
-    std::vector<std::filesystem::path> paths;
-    for (const auto& s : dataFolders) {
-        paths.push_back(s);
-    }
-    assetManager.setActiveDirectories(paths, appDirectory);
+    // Initialize the AssetManager with all data folders.
+    updateAssetManagerPaths();
 
     // --- Load all standard and beast skeletons using the AssetManager ---
     std::cout << "[Skeleton Load] Attempting to load all default skeletons...\n";
@@ -298,6 +312,13 @@ void Renderer::renderUI() {
                 }
 
                 ImGui::EndMenu();
+            }
+            if (ImGui::MenuItem("Set Game Data Directory...")) {
+                std::string folderPath = selectFolderDialog_ModernWindows("Select Game Data Directory");
+                if (!folderPath.empty()) {
+                    gameDataDirectory = folderPath;
+                    loadNifModel(""); // Reload to apply the change
+                }
             }
 
             ImGui::Separator();
@@ -512,13 +533,9 @@ void Renderer::loadNifModel(const std::string& path) {
             dataFolders.push_back(nifRootDirectory);
         }
     }
-    std::vector<std::filesystem::path> paths;
-    for (const auto& s : dataFolders) {
-        paths.push_back(s);
-    }
-    assetManager.setActiveDirectories(paths, appDirectory);
-    // --- End of same part ---
 
+    // --- Assemble final list of paths for the AssetManager ---
+    updateAssetManagerPaths();
 
     // --- RECOMMENDED CHANGE: Load NIF data through the AssetManager ---
     std::cout << "[NIF Load] Extracting: " << currentNifPath << std::endl;
@@ -887,6 +904,8 @@ void Renderer::loadConfig() {
 
         currentNifPath = data.value("last_nif_path", "");
 
+        gameDataDirectory = data.value("game_data_directory", "");
+
         // MODIFICATION: Load data folders list from config, with backwards compatibility.
         dataFolders.clear();
         if (data.contains("data_folders")) {
@@ -926,6 +945,7 @@ void Renderer::saveConfig() {
         nlohmann::json data;
         data["last_nif_path"] = currentNifPath;
         data["data_folders"] = dataFolders;
+        data["game_data_directory"] = gameDataDirectory;
 
         data["camX"] = camX;
         data["camY"] = camY;

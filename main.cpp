@@ -31,6 +31,7 @@ int main(int argc, char** argv) {
         ("f,file", "Input .nif file", cxxopts::value<std::string>())
         ("o,output", "Output .png file", cxxopts::value<std::string>())
         ("d,data", "A data directory. Can be specified multiple times.", cxxopts::value<std::vector<std::string>>())
+        ("g,gamedata", "Sets the base game data directory (lowest priority).", cxxopts::value<std::string>())
         ("s,skeleton", "Path to a custom skeleton.nif file", cxxopts::value<std::string>())
         ("headless", "Run in headless mode without a visible window")
         // Camera absolute position controls
@@ -69,6 +70,9 @@ int main(int argc, char** argv) {
         renderer.loadConfig();
 
         // 2. Override with any command-line arguments
+        if (result.count("gamedata")) {
+            renderer.setGameDataDirectory(result["gamedata"].as<std::string>());
+        }
         if (result.count("data")) {
             renderer.setDataFolders(result["data"].as<std::vector<std::string>>());
         }

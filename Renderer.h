@@ -37,6 +37,7 @@ public:
     void loadNifModel(const std::string& path);
     void loadCustomSkeleton(const std::string& path);
     void detectAndSetSkeleton(const nifly::NifFile& nif);
+    void setGameDataDirectory(const std::string& path) { gameDataDirectory = path; }
     void setDataFolders(const std::vector<std::string>& folders);
     std::vector<std::string>& getDataFolders() { return dataFolders; }
 
@@ -69,6 +70,7 @@ private:
     void initUI();
     void renderUI();
     void shutdownUI();
+    void updateAssetManagerPaths();
 
     // --- Core Members ---
     GLFWwindow* window = nullptr;
@@ -83,6 +85,7 @@ private:
     // --- Configuration ---
     std::string configPath;
     std::string currentNifPath;
+    std::string gameDataDirectory;
     std::vector<std::string> dataFolders;
 
     // Skeletons loaded from game data
