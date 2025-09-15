@@ -57,6 +57,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
+std::string selectFolderDialog_ModernWindows(const std::string& title);
 
 Renderer::Renderer(int width, int height, const std::string& app_dir)
     : screenWidth(width), screenHeight(height),
@@ -246,8 +247,8 @@ void Renderer::renderUI() {
             }
             if (ImGui::BeginMenu("Data Folders")) {
                 if (ImGui::MenuItem("Add Folder...")) {
-                    const char* folderPath = tinyfd_selectFolderDialog("Select Data Folder", "");
-                    if (folderPath && folderPath[0]) {
+                    std::string folderPath = selectFolderDialog_ModernWindows("Select Data Folder");
+                    if (!folderPath.empty()) { // Check for empty string on cancellation.
                         dataFolders.push_back(folderPath);
                         // Reload model to apply new data folders
                         loadNifModel("");
@@ -260,7 +261,9 @@ void Renderer::renderUI() {
                 // List current data folders with options to reorder and remove
                 for (int i = 0; i < dataFolders.size(); ++i) {
                     ImGui::PushID(i); // Create a unique ID scope for buttons
-                    ImGui::TextWrapped("%d: %s", i, dataFolders[i].c_str());
+
+                    // MODIFICATION: Use ImGui::Text instead of ImGui::TextWrapped.
+                    ImGui::Text("%d: %s", i, dataFolders[i].c_str());
 
                     // Reordering buttons (Up/Down)
                     ImGui::SameLine(ImGui::GetWindowWidth() - 120);
