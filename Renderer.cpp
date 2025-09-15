@@ -562,6 +562,8 @@ void Renderer::loadNifModel(const std::string& path) {
         model = std::make_unique<NifModel>();
     }
 
+    textureManager.cleanup(); // clear the texture cache before reloading the model in case new data folders were added.
+
     // You will need to update NifModel::load to also accept a vector<char>
     if (model->load(nifData, currentNifPath, textureManager, activeSkeleton)) {
         saveConfig();

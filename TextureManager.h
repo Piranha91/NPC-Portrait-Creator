@@ -15,8 +15,9 @@ public:
 
     GLuint loadTexture(const std::string& relativePath);
 
-private:
     void cleanup();
+
+private:
     GLuint uploadDDSToGPU(const std::vector<char>& data);
 
     // MODIFICATION: Holds a reference to the main AssetManager.
