@@ -239,6 +239,7 @@ void Renderer::renderUI() {
                 const char* filterPatterns[1] = { "*.nif" };
                 const char* filePath = tinyfd_openFileDialog("Open NIF File", "", 1, filterPatterns, "NIF Files", 0);
                 if (filePath) {
+                    dataFolders.clear();
                     nifLoadStartTime = std::chrono::high_resolution_clock::now();
                     newModelLoaded = true;
 
