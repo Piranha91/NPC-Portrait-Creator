@@ -42,6 +42,7 @@ public:
     std::vector<std::string>& getDataFolders() { return dataFolders; }
 
     // --- Public Setters for Configurable Options ---
+    void setBackgroundColor(const glm::vec3& color) { backgroundColor = color; }
     void setMugshotTopOffset(float offset) { headTopOffset = offset; }
     void setMugshotBottomOffset(float offset) { headBottomOffset = offset; }
     void setImageResolutionX(int width) { imageXRes = width; }
@@ -75,6 +76,7 @@ private:
     // --- Core Members ---
     GLFWwindow* window = nullptr;
     Shader shader;
+    glm::vec3 backgroundColor;
     std::unique_ptr<NifModel> model;
     AssetManager assetManager;
     TextureManager textureManager;

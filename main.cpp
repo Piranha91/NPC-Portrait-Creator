@@ -46,6 +46,7 @@ int main(int argc, char** argv) {
         // New image resolution controls
         ("imgX", "Horizontal resolution of the output PNG", cxxopts::value<int>())
         ("imgY", "Vertical resolution of the output PNG", cxxopts::value<int>())
+        ("bgcolor", "Background R,G,B color (e.g. \"0.1,0.5,1.0\")", cxxopts::value<std::string>())
         ("v,version", "Print the program version and exit")
         ("h,help", "Print usage");
     auto result = options.parse(argc, argv);
@@ -98,6 +99,28 @@ int main(int argc, char** argv) {
                 result["camX"].as<float>(), result["camY"].as<float>(), result["camZ"].as<float>(),
                 result["pitch"].as<float>(), result["yaw"].as<float>()
             );
+        }
+
+        if (result.count("bgcolor")) {
+            std::string bgColorStr = result["bgcolor"].as<std::string>();
+            std::stringstream ss(bgColorStr);
+            std::string segment;
+            std::vector<float> colorComponents;
+            while (std::getline(ss, segment, ',')) {
+                try {
+                    colorComponents.push_back(std::stof(segment));
+                }
+                catch (const std::invalid_argument&) {
+                    colorComponents.clear(); // Invalidate on error
+                    break;
+                }
+            }
+            if (colorComponents.size() == 3) {
+                renderer.setBackgroundColor({ colorComponents[0], colorComponents[1], colorComponents[2] });
+            }
+            else {
+                std::cerr << "Warning: Invalid --bgcolor format. Use R,G,B values from 0.0 to 1.0 (e.g., \"0.1,0.2,0.3\")." << std::endl;
+            }
         }
 
         renderer.init(isHeadless);

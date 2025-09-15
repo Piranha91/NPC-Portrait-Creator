@@ -63,6 +63,7 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
     : screenWidth(width), screenHeight(height),
     camera(glm::vec3(0.0f, 50.0f, 0.0f)),
     lastX(width / 2.0f), lastY(height / 2.0f),
+    backgroundColor(0.227f, 0.239f, 0.251f),
     appDirectory(app_dir),
     assetManager(), // Default construct AssetManager
     textureManager(assetManager) // Pass the AssetManager reference to the TextureManager
@@ -404,7 +405,7 @@ void Renderer::renderFrame() {
         return;
     }
 
-    glClearColor(0.227f, 0.239f, 0.251f, 1.0f);
+    glClearColor(backgroundColor.r, backgroundColor.g, backgroundColor.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     shader.use();
@@ -936,6 +937,11 @@ void Renderer::loadConfig() {
         imageXRes = data.value("image_resolution_x", 1280);
         imageYRes = data.value("image_resolution_y", 720);
 
+        if (data.contains("background_color") && data["background_color"].is_array() && data["background_color"].size() == 3) {
+            backgroundColor.r = data["background_color"][0].get<float>();
+            backgroundColor.g = data["background_color"][1].get<float>();
+            backgroundColor.b = data["background_color"][2].get<float>();
+        }
     }
     catch (const std::exception& e) {
         std::cerr << "Error loading config file: " << e.what() << std::endl;
@@ -960,6 +966,8 @@ void Renderer::saveConfig() {
 
         data["image_resolution_x"] = imageXRes;
         data["image_resolution_y"] = imageYRes;
+
+        data["background_color"] = { backgroundColor.r, backgroundColor.g, backgroundColor.b };
 
         std::ofstream o(configPath);
         o << std::setw(4) << data << std::endl;
