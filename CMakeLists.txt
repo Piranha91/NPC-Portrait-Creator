@@ -18,6 +18,7 @@ find_package(gli REQUIRED)
 find_package(cxxopts REQUIRED)
 find_package(imgui REQUIRED CONFIG)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_executable(NPCPortraitCreator
     main.cpp
@@ -69,6 +70,7 @@ target_link_libraries(NPCPortraitCreator PRIVATE
     cxxopts::cxxopts
     libbsarch
     nlohmann_json::nlohmann_json
+    OpenSSL::Crypto
 )
 
 add_library(glad STATIC "${PROJECT_SOURCE_DIR}/vendor/glad/src/glad.c")

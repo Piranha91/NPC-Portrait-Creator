@@ -45,6 +45,7 @@ int main(int argc, char** argv) {
         ("head-bottom-offset", "Bottom margin for head as a percentage (e.g., -0.02 for -2%)", cxxopts::value<float>())
         // Lighting profile
         ("lighting", "Path to a custom lighting profile JSON file", cxxopts::value<std::string>())
+        ("lighting-json", "A JSON string defining a custom lighting profile (overrides --lighting)", cxxopts::value<std::string>())
         // New image resolution controls
         ("imgX", "Horizontal resolution of the output PNG", cxxopts::value<int>())
         ("imgY", "Vertical resolution of the output PNG", cxxopts::value<int>())
@@ -125,7 +126,11 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (result.count("lighting")) { 
+        // Lighting profile logic: --lighting-json takes precedence over --lighting
+        if (result.count("lighting-json")) {
+            renderer.setLightingProfileFromJsonString(result["lighting-json"].as<std::string>());
+        }
+        else if (result.count("lighting")) {
             renderer.setLightingProfile(result["lighting"].as<std::string>());
         }
 

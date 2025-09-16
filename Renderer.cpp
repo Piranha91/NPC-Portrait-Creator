@@ -6,12 +6,13 @@
 #include <iostream>
 #include <stdexcept>
 #include <fstream>
-#include <sstream>
 #include <vector>
 #include <algorithm> 
 #include <filesystem>
 #include <nlohmann/json.hpp>
-#include <iomanip> // For std::setw
+#include <iomanip> // For std::setw, std::setfill
+#include <sstream> // For std::stringstream
+#include <array>   // For std::array
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -42,6 +43,20 @@
 
 #include "lodepng/lodepng.h"
 #include "Version.h"
+
+#include <openssl/evp.h>
+
+// Helper function to compute SHA256 hash
+std::array<unsigned char, 32> sha256(const void* data, size_t len) {
+    std::array<unsigned char, 32> out{};
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
+    EVP_DigestUpdate(ctx, data, len);
+    unsigned int outlen = 0;
+    EVP_DigestFinal_ex(ctx, out.data(), &outlen);
+    EVP_MD_CTX_free(ctx);
+    return out;
+}
 
 void checkGlErrors(const char* location) {
     GLenum err;
@@ -565,6 +580,17 @@ void Renderer::loadNifModel(const std::string& path) {
         return;
     }
 
+    // Calculate the SHA256 hash of the raw NIF data
+    std::array<unsigned char, 32> hash_bytes = sha256(nifData.data(), nifData.size());
+
+    // Convert the binary hash to a human-readable hex string
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+    for (const auto& byte : hash_bytes) {
+        ss << std::setw(2) << static_cast<int>(byte);
+    }
+    currentNifHash = ss.str();
+
     // Use the in-memory data for skeleton detection
     nifly::NifFile tempNif;
     std::stringstream nifStream(std::string(nifData.begin(), nifData.end()));
@@ -751,6 +777,20 @@ void Renderer::saveToPNG(const std::string& path) {
     // --- 3. Create JSON metadata ---
     nlohmann::json metadata;
     metadata["program_version"] = PROGRAM_VERSION;
+    metadata["nif_sha256"] = currentNifHash;
+    // Add the background color
+    metadata["background_color"] = { backgroundColor.r, backgroundColor.g, backgroundColor.b };
+
+    // Add the lighting profile. We parse the stored string into a nested JSON object
+    // for cleaner metadata. The 'false' parameter prevents throwing an exception on error.
+    nlohmann::json lightingJson = nlohmann::json::parse(lightingProfileJsonString, nullptr, false);
+    if (lightingJson.is_discarded()) {
+        // If parsing fails, store the raw string as a fallback
+        metadata["lighting_profile"] = lightingProfileJsonString;
+    }
+    else {
+        metadata["lighting_profile"] = lightingJson;
+    }
     metadata["resolution_x"] = imageXRes;
     metadata["resolution_y"] = imageYRes;
     metadata["camera"] = {
@@ -1000,26 +1040,14 @@ void Renderer::saveConfig() {
     }
 }
 
-void Renderer::loadLightingProfile(const std::string& path) {
+// ============================ NEW PRIVATE HELPER METHOD ============================
+void Renderer::parseLightingJson(const std::string& jsonString) {
     lights.clear();
-    if (path.empty() || !std::filesystem::exists(path)) {
-        std::cout << "Lighting profile not found. Using default lighting." << std::endl;
-        // Fallback to a single default light
-        Light defaultLight;
-        defaultLight.type = 2; // Directional
-        defaultLight.direction = glm::normalize(glm::vec3(0.5f, 0.5f, 1.0f));
-        lights.push_back(defaultLight);
-        Light ambient;
-        ambient.type = 1; // Ambient
-        ambient.color = glm::vec3(0.15f);
-        lights.push_back(ambient);
-        return;
-    }
+    lightingProfileJsonString = jsonString; // Store the raw JSON for metadata
 
     try {
-        std::cout << "--- Loading lighting profile from: " << path << " ---" << std::endl;
-        std::ifstream f(path);
-        nlohmann::json data = nlohmann::json::parse(f);
+        // This block contains the parsing logic previously in loadLightingProfile
+        nlohmann::json data = nlohmann::json::parse(jsonString);
         for (const auto& item : data["lights"]) {
             Light light;
             std::string type = item.value("type", "");
@@ -1038,7 +1066,57 @@ void Renderer::loadLightingProfile(const std::string& path) {
         }
     }
     catch (const std::exception& e) {
-        std::cerr << "Failed to load or parse lighting profile: " << e.what() << std::endl;
+        std::cerr << "Failed to parse lighting profile JSON: " << e.what() << std::endl;
+        // Clear lights and stored JSON on error to revert to a sane state
+        lights.clear();
+        lightingProfileJsonString = "{}";
+    }
+}
+
+// ============================ NEW PUBLIC METHOD IMPLEMENTATION ============================
+void Renderer::setLightingProfileFromJsonString(const std::string& jsonString) {
+    std::cout << "--- Loading lighting profile from direct JSON string ---" << std::endl;
+    parseLightingJson(jsonString);
+}
+
+
+// ============================ REFACTORED ORIGINAL METHOD ============================
+void Renderer::loadLightingProfile(const std::string& path) {
+    if (path.empty() || !std::filesystem::exists(path)) {
+        std::cout << "Lighting profile not found. Using default lighting." << std::endl;
+
+        // This logic is mostly the same, but it now creates a default JSON string
+        nlohmann::json defaultJson;
+        defaultJson["lights"] = nlohmann::json::array({
+            {
+                {"type", "directional"},
+                {"direction", {0.5f, 0.5f, 1.0f}},
+                {"color", {1.0f, 1.0f, 1.0f}},
+                {"intensity", 1.0f}
+            },
+            {
+                {"type", "ambient"},
+                {"color", {0.15f, 0.15f, 0.15f}},
+                {"intensity", 1.0f}
+            }
+            });
+        // Call the helper with the default JSON string we just created
+        parseLightingJson(defaultJson.dump(4));
+        return;
+    }
+
+    try {
+        std::cout << "--- Loading lighting profile from: " << path << " ---" << std::endl;
+        std::ifstream f(path);
+        std::stringstream buffer;
+        buffer << f.rdbuf();
+
+        // Call the helper with the content read from the file
+        parseLightingJson(buffer.str());
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Failed to load lighting profile file: " << e.what() << std::endl;
+        parseLightingJson("{}"); // Use empty JSON on file read error
     }
 }
 

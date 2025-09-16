@@ -58,6 +58,7 @@ public:
         camX = x; camY = y; camZ = z; camPitch = p; camYaw = yw;
     }
     void setLightingProfile(const std::string& path) { lightingProfilePath = path; }
+    void setLightingProfileFromJsonString(const std::string& jsonString);
 
     // --- Public Input Handlers ---
     void HandleMouseButton(int button, int action, int mods);
@@ -96,6 +97,7 @@ private:
     // --- Configuration ---
     std::string configPath;
     std::string currentNifPath;
+    std::string currentNifHash;
     std::string gameDataDirectory;
     std::vector<std::string> dataFolders;
 
@@ -112,8 +114,10 @@ private:
 
 	// Lighting
     std::string lightingProfilePath;
+    std::string lightingProfileJsonString;
     std::vector<Light> lights;
     void loadLightingProfile(const std::string& path);
+    void parseLightingJson(const std::string& jsonString);
 
     // Camera settings
     float camX = 0.0f, camY = 0.0f, camZ = 0.0f;
