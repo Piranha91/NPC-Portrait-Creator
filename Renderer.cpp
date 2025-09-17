@@ -153,8 +153,6 @@ void Renderer::init(bool headless) {
     shader.load("shaders/basic.vert", "shaders/basic.frag");
 
     // --- BSA and Skeleton Loading ---
-    // Load config first
-    loadConfig();
     loadLightingProfile(lightingProfilePath);
 
     // Initialize the AssetManager with all data folders.
