@@ -152,8 +152,10 @@ void Renderer::init(bool headless) {
     glViewport(0, 0, screenWidth, screenHeight);
     shader.load("shaders/basic.vert", "shaders/basic.frag");
 
-    // --- BSA and Skeleton Loading ---
-    loadLightingProfile(lightingProfilePath);
+    // ## Only load profile from file if one hasn't been set by command line already ##
+    if (lights.empty()) {
+        loadLightingProfile(lightingProfilePath);
+    }
 
     // Initialize the AssetManager with all data folders.
     updateAssetManagerPaths();
@@ -1038,52 +1040,64 @@ void Renderer::saveConfig() {
     }
 }
 
-// ============================ NEW PRIVATE HELPER METHOD ============================
-void Renderer::parseLightingJson(const std::string& jsonString) {
-    lights.clear();
-    lightingProfileJsonString = jsonString; // Store the raw JSON for metadata
-
+// ============================ NEW TryParse METHOD ============================
+bool Renderer::TryParseLightingJson(const std::string& jsonString, std::vector<Light>& outLights) const {
+    // Ensure the output vector is clean before starting.
+    outLights.clear();
     try {
-        // This block contains the parsing logic previously in loadLightingProfile
         nlohmann::json data = nlohmann::json::parse(jsonString);
-        for (const auto& item : data["lights"]) {
-            Light light;
-            std::string type = item.value("type", "");
-            if (type == "ambient") light.type = 1;
-            else if (type == "directional") light.type = 2;
-            else continue;
+        if (data.contains("lights") && data["lights"].is_array()) {
+            for (const auto& item : data["lights"]) {
+                Light light;
+                std::string type = item.value("type", "");
+                if (type == "ambient") light.type = 1;
+                else if (type == "directional") light.type = 2;
+                else continue;
 
-            if (item.contains("direction")) {
-                light.direction = glm::normalize(glm::vec3(item["direction"][0], item["direction"][1], item["direction"][2]));
+                if (item.contains("direction")) {
+                    light.direction = glm::normalize(glm::vec3(item["direction"][0], item["direction"][1], item["direction"][2]));
+                }
+                if (item.contains("color")) {
+                    light.color = { item["color"][0], item["color"][1], item["color"][2] };
+                }
+                light.intensity = item.value("intensity", 1.0f);
+                outLights.push_back(light);
             }
-            if (item.contains("color")) {
-                light.color = { item["color"][0], item["color"][1], item["color"][2] };
-            }
-            light.intensity = item.value("intensity", 1.0f);
-            lights.push_back(light);
         }
+        return true; // Success (even if no lights are present)
     }
     catch (const std::exception& e) {
         std::cerr << "Failed to parse lighting profile JSON: " << e.what() << std::endl;
-        // Clear lights and stored JSON on error to revert to a sane state
-        lights.clear();
-        lightingProfileJsonString = "{}";
+        outLights.clear(); // Ensure output is empty on failure.
+        return false; // Failure
     }
 }
 
-// ============================ NEW PUBLIC METHOD IMPLEMENTATION ============================
+// ============================ REFACTORED PUBLIC METHOD ============================
 void Renderer::setLightingProfileFromJsonString(const std::string& jsonString) {
     std::cout << "--- Loading lighting profile from direct JSON string ---" << std::endl;
-    parseLightingJson(jsonString);
+
+    std::vector<Light> parsedLights;
+    // Attempt to parse the provided JSON string.
+    if (TryParseLightingJson(jsonString, parsedLights)) {
+        // On success, update the renderer's state.
+        this->lights = parsedLights;
+        this->lightingProfileJsonString = jsonString;
+    }
+    else {
+        // If it fails, print a warning and fall back to the profile from the config file.
+        std::cerr << "Warning: Invalid JSON string provided. Falling back to lighting profile from settings file." << std::endl;
+        loadLightingProfile(lightingProfilePath);
+    }
 }
 
 
 // ============================ REFACTORED ORIGINAL METHOD ============================
 void Renderer::loadLightingProfile(const std::string& path) {
+    std::string jsonContent;
+
     if (path.empty() || !std::filesystem::exists(path)) {
         std::cout << "Lighting profile not found. Using default lighting." << std::endl;
-
-        // This logic is mostly the same, but it now creates a default JSON string
         nlohmann::json defaultJson;
         defaultJson["lights"] = nlohmann::json::array({
             {
@@ -1098,23 +1112,32 @@ void Renderer::loadLightingProfile(const std::string& path) {
                 {"intensity", 1.0f}
             }
             });
-        // Call the helper with the default JSON string we just created
-        parseLightingJson(defaultJson.dump(4));
-        return;
+        jsonContent = defaultJson.dump(4);
+    }
+    else {
+        try {
+            std::cout << "--- Loading lighting profile from: " << path << " ---" << std::endl;
+            std::ifstream f(path);
+            std::stringstream buffer;
+            buffer << f.rdbuf();
+            jsonContent = buffer.str();
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Failed to load lighting profile file: " << e.what() << std::endl;
+            jsonContent = "{}"; // Use empty JSON on file read error 
+        }
     }
 
-    try {
-        std::cout << "--- Loading lighting profile from: " << path << " ---" << std::endl;
-        std::ifstream f(path);
-        std::stringstream buffer;
-        buffer << f.rdbuf();
-
-        // Call the helper with the content read from the file
-        parseLightingJson(buffer.str());
+    // Now, parse the final jsonContent string, regardless of its source.
+    std::vector<Light> parsedLights;
+    if (TryParseLightingJson(jsonContent, parsedLights)) {
+        this->lights = parsedLights;
+        this->lightingProfileJsonString = jsonContent;
     }
-    catch (const std::exception& e) {
-        std::cerr << "Failed to load lighting profile file: " << e.what() << std::endl;
-        parseLightingJson("{}"); // Use empty JSON on file read error
+    else {
+        // This fallback handles corrupt files or invalid default JSON.
+        this->lights.clear();
+        this->lightingProfileJsonString = "{}";
     }
 }
 

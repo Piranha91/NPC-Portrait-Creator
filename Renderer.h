@@ -59,6 +59,7 @@ public:
     }
     void setLightingProfile(const std::string& path) { lightingProfilePath = path; }
     void setLightingProfileFromJsonString(const std::string& jsonString);
+    bool TryParseLightingJson(const std::string& jsonString, std::vector<Light>& outLights) const;
 
     // --- Public Input Handlers ---
     void HandleMouseButton(int button, int action, int mods);
@@ -117,7 +118,6 @@ private:
     std::string lightingProfileJsonString;
     std::vector<Light> lights;
     void loadLightingProfile(const std::string& path);
-    void parseLightingJson(const std::string& jsonString);
 
     // Camera settings
     float camX = 0.0f, camY = 0.0f, camZ = 0.0f;

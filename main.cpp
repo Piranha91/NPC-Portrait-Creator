@@ -192,18 +192,12 @@ int main(int argc, char** argv) {
             }
             if (result.count("lighting-json")) {
                 std::string jsonStr = result["lighting-json"].as<std::string>();
-                try {
-                    nlohmann::json data = nlohmann::json::parse(jsonStr);
-                    if (data.is_object() && data.contains("lights") && data["lights"].is_array()) {
-                        std::cout << "  [Parsed] --lighting-json: (Valid JSON string provided)" << std::endl;
-                    }
-                    else {
-                        std::cout << "  [Invalid] --lighting-json: (JSON is valid but lacks required 'lights' array)" << std::endl;
-                    }
-                }
-                catch (const nlohmann::json::parse_error&) {
-                    std::cout << "  [Invalid] --lighting-json: (Failed to parse JSON string)" << std::endl;
-                }
+                // Call the new public method to check validity. Note that this does NOT
+                // alter the renderer's state. We create a dummy vector for the output.
+                std::vector<Light> dummyLights;
+                bool isValid = renderer.TryParseLightingJson(jsonStr, dummyLights);
+
+                std::cout << "  [Parsed] --lighting-json: " << jsonStr << (isValid ? " (Valid JSON)" : " (INVALID JSON)") << std::endl;
             }
             else if (result.count("lighting")) {
                 std::cout << "  [Parsed] --lighting: " << result["lighting"].as<std::string>() << std::endl;
