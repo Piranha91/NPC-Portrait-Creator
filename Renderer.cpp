@@ -812,6 +812,18 @@ void Renderer::saveToPNG(const std::string& path) {
     // Add our metadata as a "tEXt" chunk.
     lodepng_add_text(&state.info_png, "Parameters", metadata_string.c_str());
 
+    // --- 4b. Add the pHYs chunk for DPI metadata ---
+    // We'll set 72 DPI to match Natural Lighting Mugshots (for EasyNPC). The unit for the pHYs chunk is pixels per meter.
+    // Conversion: pixels_per_meter = dots_per_inch * inches_per_meter
+    const double inches_per_meter = 39.3701;
+    const int dpi = 72; // Changed from 96 to 72
+    unsigned int pixels_per_meter = static_cast<unsigned int>(dpi * inches_per_meter + 0.5); // This will calculate to ~2835
+
+    state.info_png.phys_defined = 1;
+    state.info_png.phys_x = pixels_per_meter;
+    state.info_png.phys_y = pixels_per_meter;
+    state.info_png.phys_unit = 1; // Unit is meters
+
     unsigned error = lodepng::encode(png_buffer, flipped_buffer, imageXRes, imageYRes, state);
 
     // No need to call lodepng_state_cleanup(&state); the State destructor handles it automatically.
