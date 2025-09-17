@@ -145,6 +145,109 @@ int main(int argc, char** argv) {
             std::string outputPath = result["output"].as<std::string>();
 
             std::cout << "Running in headless mode..." << std::endl;
+
+            std::cout << "--- [Headless Arg] Parsing Command-Line Arguments ---" << std::endl;
+            if (result.count("file")) {
+                std::cout << "  [Parsed] --file: " << result["file"].as<std::string>() << std::endl;
+            }
+            if (result.count("output")) {
+                std::cout << "  [Parsed] --output: " << result["output"].as<std::string>() << std::endl;
+            }
+            if (result.count("gamedata")) {
+                std::cout << "  [Parsed] --gamedata: " << result["gamedata"].as<std::string>() << std::endl;
+            }
+            else {
+                std::cout << "  [Default] --gamedata: Not provided." << std::endl;
+            }
+            if (result.count("data")) {
+                for (const auto& dir : result["data"].as<std::vector<std::string>>()) {
+                    std::cout << "  [Parsed] --data: " << dir << std::endl;
+                }
+            }
+            else {
+                std::cout << "  [Default] --data: Not provided." << std::endl;
+            }
+            if (result.count("skeleton")) {
+                std::cout << "  [Parsed] --skeleton: " << result["skeleton"].as<std::string>() << std::endl;
+            }
+            else {
+                std::cout << "  [Default] --skeleton: Not provided." << std::endl;
+            }
+            std::cout << "  [Parsed] --camX: " << result["camX"].as<float>() << std::endl;
+            std::cout << "  [Parsed] --camY: " << result["camY"].as<float>() << std::endl;
+            std::cout << "  [Parsed] --camZ: " << result["camZ"].as<float>() << std::endl;
+            std::cout << "  [Parsed] --pitch: " << result["pitch"].as<float>() << std::endl;
+            std::cout << "  [Parsed] --yaw: " << result["yaw"].as<float>() << std::endl;
+            if (result.count("head-top-offset")) {
+                std::cout << "  [Parsed] --head-top-offset: " << result["head-top-offset"].as<float>() << std::endl;
+            }
+            else {
+                std::cout << "  [Default] --head-top-offset: Not provided, using config value." << std::endl;
+            }
+            if (result.count("head-bottom-offset")) {
+                std::cout << "  [Parsed] --head-bottom-offset: " << result["head-bottom-offset"].as<float>() << std::endl;
+            }
+            else {
+                std::cout << "  [Default] --head-bottom-offset: Not provided, using config value." << std::endl;
+            }
+            if (result.count("lighting-json")) {
+                std::string jsonStr = result["lighting-json"].as<std::string>();
+                try {
+                    nlohmann::json data = nlohmann::json::parse(jsonStr);
+                    if (data.is_object() && data.contains("lights") && data["lights"].is_array()) {
+                        std::cout << "  [Parsed] --lighting-json: (Valid JSON string provided)" << std::endl;
+                    }
+                    else {
+                        std::cout << "  [Invalid] --lighting-json: (JSON is valid but lacks required 'lights' array)" << std::endl;
+                    }
+                }
+                catch (const nlohmann::json::parse_error&) {
+                    std::cout << "  [Invalid] --lighting-json: (Failed to parse JSON string)" << std::endl;
+                }
+            }
+            else if (result.count("lighting")) {
+                std::cout << "  [Parsed] --lighting: " << result["lighting"].as<std::string>() << std::endl;
+            }
+            else {
+                std::cout << "  [Default] --lighting: Not provided, using default profile." << std::endl;
+            }
+            if (result.count("imgX")) {
+                std::cout << "  [Parsed] --imgX: " << result["imgX"].as<int>() << std::endl;
+            }
+            else {
+                std::cout << "  [Default] --imgX: Not provided, using config value." << std::endl;
+            }
+            if (result.count("imgY")) {
+                std::cout << "  [Parsed] --imgY: " << result["imgY"].as<int>() << std::endl;
+            }
+            else {
+                std::cout << "  [Default] --imgY: Not provided, using config value." << std::endl;
+            }
+            if (result.count("bgcolor")) {
+                std::string bgColorStr = result["bgcolor"].as<std::string>();
+                std::stringstream ss(bgColorStr);
+                std::string segment;
+                std::vector<float> colorComponents;
+                while (std::getline(ss, segment, ',')) {
+                    try {
+                        colorComponents.push_back(std::stof(segment));
+                    }
+                    catch (const std::exception&) {
+                        colorComponents.clear();
+                        break;
+                    }
+                }
+                if (colorComponents.size() == 3) {
+                    std::cout << "  [Parsed] --bgcolor: " << bgColorStr << " (Valid format)" << std::endl;
+                }
+                else {
+                    std::cout << "  [Invalid] --bgcolor: \"" << bgColorStr << "\" (Invalid format. Expected R,G,B floats)" << std::endl;
+                }
+            }
+            else {
+                std::cout << "  [Default] --bgcolor: Not provided, using config value." << std::endl;
+            }
+
             renderer.loadNifModel(nifPath);
             // --- START MODIFICATION: WARM-UP LOOP ---
             // Run a few frames to allow the OpenGL context to stabilize.
