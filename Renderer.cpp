@@ -83,7 +83,7 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
     assetManager(), // Default construct AssetManager
     textureManager(assetManager) // Pass the AssetManager reference to the TextureManager
 {
-    configPath = (std::filesystem::path(appDirectory) / "mugshotter_config.json").string();
+    configPath = (std::filesystem::path(appDirectory) / "NPC_Portrait_Creator.json").string();
 }
 
 Renderer::~Renderer() {
@@ -128,7 +128,7 @@ void Renderer::init(bool headless) {
     }
 
     glfwWindowHint(GLFW_SAMPLES, 4); // Request 4x MSAA
-    window = glfwCreateWindow(screenWidth, screenHeight, "Mugshotter", NULL, NULL);
+    window = glfwCreateWindow(screenWidth, screenHeight, "NPC Portrait Creator", NULL, NULL);
     if (window == NULL) {
         glfwTerminate();
         throw std::runtime_error("Failed to create GLFW window");
