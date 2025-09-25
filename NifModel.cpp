@@ -600,10 +600,12 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
 
 
 void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
+    /*
     std::cout << "\n--- [Debug Render] ---" << std::endl;
     std::cout << "  Opaque Shapes: " << opaqueShapes.size() << std::endl;
     std::cout << "  Alpha Test Shapes: " << alphaTestShapes.size() << std::endl;
     std::cout << "  Transparent Shapes: " << transparentShapes.size() << std::endl;
+    */
 
     shader.use();
     shader.setInt("texture_diffuse1", 0);
@@ -641,9 +643,11 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
                 boneCount = MAX_BONES;
             }
 
+            /*
             std::cout << "  [Debug Skinning] Uploading uniforms for shape '" << shape.name
                 << "': Bone Count = " << boneCount
                 << ", Location = " << boneMatricesLocation << std::endl;
+				*/
 
             glUniformMatrix4fv(boneMatricesLocation, boneCount, GL_FALSE, glm::value_ptr(shape.boneMatrices[0]));
         }
