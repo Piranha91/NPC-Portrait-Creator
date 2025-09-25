@@ -453,10 +453,12 @@ void Renderer::renderFrame() {
     );
     view = view * conversionMatrix;
 
+    /*
     std::cout << "--- [Debug Matrices] ---" << std::endl;
     std::cout << "  Camera Position: " << glm::to_string(camera.Position) << std::endl;
     std::cout << "  View Matrix:\n" << glm::to_string(view) << std::endl;
     std::cout << "  Projection Matrix:\n" << glm::to_string(projection) << std::endl;
+    */
 
     shader.setMat4("projection", projection);
     shader.setMat4("view", view);
