@@ -778,6 +778,9 @@ void Renderer::saveToPNG(const std::string& path) {
     nlohmann::json metadata;
     metadata["program_version"] = PROGRAM_VERSION;
     metadata["nif_sha256"] = currentNifHash;
+
+    metadata["data_folders"] = dataFolders;
+
     // Add the background color
     metadata["background_color"] = { backgroundColor.r, backgroundColor.g, backgroundColor.b };
 
