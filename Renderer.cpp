@@ -16,6 +16,15 @@
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX               // <-- prevents min/max macros
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <windows.h>
+#include <GLFW/glfw3native.h>
+#endif
+#define GLFW_EXPOSE_NATIVE_WIN32          
+#include <GLFW/glfw3native.h>             
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/string_cast.hpp> // For logging glm::vec3
@@ -134,6 +143,30 @@ void Renderer::init(bool headless) {
         throw std::runtime_error("Failed to create GLFW window");
     }
     glfwMakeContextCurrent(window);
+
+    // --- Set Program Icon ---
+    #ifdef _WIN32
+    #ifndef IDI_APP_ICON
+    #define IDI_APP_ICON 101
+    #endif
+        HWND hwnd = glfwGetWin32Window(window);
+
+        // load 32px & 16px versions from the embedded icon resource
+        HICON hIconBig = (HICON)LoadImage(
+            GetModuleHandle(nullptr),
+            MAKEINTRESOURCE(IDI_APP_ICON),
+            IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+
+        HICON hIconSmall = (HICON)LoadImage(
+            GetModuleHandle(nullptr),
+            MAKEINTRESOURCE(IDI_APP_ICON),
+            IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+
+        // apply to the window & taskbar
+        SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
+        SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
+    #endif
+
 
     // --- Register Callbacks ---
     glfwSetWindowUserPointer(window, this);

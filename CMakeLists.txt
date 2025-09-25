@@ -90,3 +90,17 @@ add_custom_command(TARGET NPCPortraitCreator POST_BUILD
     "$<TARGET_FILE_DIR:NPCPortraitCreator>/lighting.json"
     COMMENT "Copying lighting profile to build directory if changed"
 )
+
+# Absolute path to the .ico at configure time
+set(APP_ICON_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Resources/NPC Portrait Creator.ico")
+
+# Generate an RC file in the build dir that bakes in the absolute path
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/Resources/appicon.rc.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/appicon.rc"
+  @ONLY
+)
+
+if (WIN32)
+  target_sources(NPCPortraitCreator PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/appicon.rc")
+endif()
