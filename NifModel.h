@@ -55,6 +55,7 @@ struct MeshShape {
     bool hasEnvMapFlag = false;
     bool hasEyeEnvMapFlag = false;
     bool receiveShadows = false;
+    bool castShadows = false;
 
     // --- Misc
 	bool has_specular_map = false; // Whether a specular map is assigned

@@ -525,6 +525,14 @@ found_head:
                 }
             }
 
+            // Check for SLSF2_Cast_Shadows (bit 2).
+            if (bslsp->shaderFlags2 & (1U << 2)) {
+                mesh.castShadows = true;
+                if (debugMode) {
+                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF2_Cast_Shadows ENABLED.\n";
+                }
+            }
+
             const auto shaderType = bslsp->GetShaderType();
             if (shaderType == nifly::BSLSP_HAIRTINT) {
                 mesh.hasTintColor = true;
@@ -849,6 +857,9 @@ void NifModel::drawDepthOnly(Shader& depthShader) {
         // Don't render shapes that don't receive shadows in the depth pass,
         // as they can't cast them either in this engine.
         if (!shape.receiveShadows) return;
+
+        // Only render shapes that are flagged to cast shadows into the depth map.
+        if (!shape.castShadows) return;
 
         depthShader.setMat4("model", shape.transform);
         depthShader.setBool("uIsSkinned", shape.isSkinned);
