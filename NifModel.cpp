@@ -533,6 +533,17 @@ found_head:
                 }
             }
 
+            // Check for SLSF2_Own_Emit (bit 3)
+            if (bslsp->shaderFlags2 & (1U << 3)) {
+                mesh.hasOwnEmitFlag = true;
+                const auto& color = bslsp->emissiveColor;
+                mesh.emissiveColor = glm::vec3(color.x, color.y, color.z);
+                mesh.emissiveMultiple = bslsp->emissiveMultiple;
+                if (debugMode) {
+                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF2_Own_Emit ENABLED.\n";
+                }
+            }
+
             const auto shaderType = bslsp->GetShaderType();
             if (shaderType == nifly::BSLSP_HAIRTINT) {
                 mesh.hasTintColor = true;
@@ -696,6 +707,11 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
         shader.setBool("has_tint_color", shape.hasTintColor);
         if (shape.hasTintColor) {
             shader.setVec3("tint_color", shape.tintColor);
+        }
+        shader.setBool("has_emissive", shape.hasOwnEmitFlag);
+        if (shape.hasOwnEmitFlag) {
+            shader.setVec3("emissiveColor", shape.emissiveColor);
+            shader.setFloat("emissiveMultiple", shape.emissiveMultiple);
         }
 
         // Set skinning uniforms for the vertex shader

@@ -59,6 +59,10 @@ uniform vec3 viewPos;
 
 uniform Light lights[MAX_LIGHTS];
 
+uniform bool has_emissive;
+uniform vec3 emissiveColor;
+uniform float emissiveMultiple;
+
 // --- HELPER FUNCTION (DEFINED *BEFORE* MAIN) ---
 float calculateShadow(vec4 fragPosLightSpace)
 {
@@ -209,6 +213,12 @@ void main()
             reflectionStrength = texture(texture_specular, TexCoords).r;
         }
         finalColor += envColor * reflectionStrength * envMapScale;
+    }
+
+    // --- Add Emissive Color ---
+    // This is added after all other lighting, as it's independent of lights and shadows.
+    if (has_emissive) {
+        finalColor += emissiveColor * emissiveMultiple;
     }
 
     FragColor = vec4(finalColor, baseColor.a);

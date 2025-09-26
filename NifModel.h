@@ -56,14 +56,16 @@ struct MeshShape {
     bool hasEyeEnvMapFlag = false;
     bool receiveShadows = false;
     bool castShadows = false;
+    bool hasOwnEmitFlag = false;
+    bool has_specular_map = false; // Whether a specular map is assigned
 
-    // --- Misc
-	bool has_specular_map = false; // Whether a specular map is assigned
+    // --- Shader Properties
     GLuint environmentMapID = 0;   // Slot 4: _e.dds or _em.dds
     GLenum environmentMapTarget = GL_TEXTURE_2D;
     GLuint environmentMaskID = 0;  // Slot 5: _m.dds
     float envMapScale = 1.0f;
-
+    glm::vec3 emissiveColor = glm::vec3(0.0f);
+    float emissiveMultiple = 1.0f;
 
     void draw() const;
     void cleanup();
