@@ -470,6 +470,13 @@ found_head:
             }
         }
         if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
+            if (bslsp->shaderFlags1 & (1U << 0)) { // (1U << 0) is the mask for SLSF1_Specular
+                mesh.hasSpecularFlag = true;
+                if (debugMode) {
+                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Specular.\n";
+                }
+            }
+
             mesh.doubleSided = (bslsp->shaderFlags2 & (1U << 4));
             mesh.zBufferWrite = (bslsp->shaderFlags2 & (1U << 0));
             const auto shaderType = bslsp->GetShaderType();
@@ -664,6 +671,10 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
         shader.setBool("has_detail_map", shape.detailTextureID != 0);
         if (shape.detailTextureID != 0) { glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, shape.detailTextureID); }
 
+        // Set a uniform to tell the shader if the specular flag is on.
+        shader.setBool("has_specular", shape.hasSpecularFlag);
+
+        // Separately, set a uniform to tell the shader if a texture map exists.
         shader.setBool("has_specular_map", shape.specularTextureID != 0);
         if (shape.specularTextureID != 0) { glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, shape.specularTextureID); }
 

@@ -28,6 +28,7 @@ uniform sampler2D texture_face_tint;
 uniform bool has_normal_map;
 uniform bool has_skin_map;
 uniform bool has_detail_map;
+uniform bool has_specular;
 uniform bool has_specular_map;
 uniform bool has_face_tint_map;
 uniform bool use_alpha_test;
@@ -109,14 +110,18 @@ void main()
             vec3 diffuse = diffuseStrength * lightColor;
 
             vec3 specular = vec3(0.0);
-            if (has_specular_map) {
-                float specularStrength = texture(texture_specular, TexCoords).r;
+            if (has_specular) { // Check the flag, not the texture
+                float specularStrength = 1.0; // Default strength if no map
+                if (has_specular_map) { // Still check for map to get per-texel strength
+                    specularStrength = texture(texture_specular, TexCoords).r;
+                }
+            
                 vec3 viewDir = normalize(-FragPos);
                 vec3 halfwayDir = normalize(lightDir_view + viewDir);
                 float specAmount = pow(max(dot(finalNormal, halfwayDir), 0.0), 32.0);
                 specular = specAmount * specularStrength * lightColor;
             }
-            finalColor += diffuse * baseColor.rgb + specular;
+        finalColor += diffuse * baseColor.rgb + specular;
         }
     }
     

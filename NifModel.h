@@ -50,6 +50,14 @@ struct MeshShape {
     bool hasTintColor = false;
     glm::vec3 tintColor = glm::vec3(1.0f); // Default to white (no tint)
 
+    // --- Shader Flags
+    bool hasSpecularFlag = false; // To store the state of the SLSF1_Specular flag
+
+
+    // --- Misc
+	bool has_specular_map = false; // Whether a specular map is assigned
+
+
     void draw() const;
     void cleanup();
 };
