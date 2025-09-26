@@ -504,6 +504,13 @@ found_head:
                         std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Environment_Mapping.\n";
                     }
             }
+            
+            if (bslsp->shaderFlags1 & (1U << 10)) { // Check for SLSF1_Eye_Environment_Mapping (bit 10)
+                mesh.hasEyeEnvMapFlag = true;
+                if (debugMode) {
+                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Eye_Environment_Mapping.\n";
+                }
+            }
 
             mesh.doubleSided = (bslsp->shaderFlags2 & (1U << 4));
             mesh.zBufferWrite = (bslsp->shaderFlags2 & (1U << 0));
@@ -720,8 +727,9 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
 
         bool useEffectiveEnvMap = shape.hasEnvMapFlag && shape.environmentMapID != 0;
         shader.setBool("has_environment_map", useEffectiveEnvMap);
-        if (useEffectiveEnvMap) {
-            shader.setBool("is_envmap_cube", shape.environmentMapTarget == GL_TEXTURE_CUBE_MAP); // <-- ADD
+        shader.setBool("has_eye_environment_map", shape.hasEyeEnvMapFlag);
+        if (useEffectiveEnvMap || shape.hasEyeEnvMapFlag) { 
+            shader.setBool("is_envmap_cube", shape.environmentMapTarget == GL_TEXTURE_CUBE_MAP);
             shader.setFloat("envMapScale", shape.envMapScale);
         }
 

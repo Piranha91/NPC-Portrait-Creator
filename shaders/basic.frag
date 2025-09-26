@@ -35,6 +35,7 @@ uniform bool has_specular;
 uniform bool has_specular_map;
 uniform bool has_face_tint_map;
 uniform bool has_environment_map;
+uniform bool has_eye_environment_map;
 uniform bool is_envmap_cube;
 uniform bool has_env_mask;
 uniform bool use_alpha_test;
@@ -145,49 +146,37 @@ void main()
         finalColor = mix(finalColor, detailColor, 0.3);
     }
 
-    if (has_environment_map) {
+    if (has_eye_environment_map && is_envmap_cube) {
+        // --- Eye-Specific Cubemap Reflection ---
+        vec3 viewDir = normalize(-FragPos);
+        vec3 reflectDir = reflect(-viewDir, finalNormal);
+        vec3 reflectDir_world = inverse(mat3(view)) * reflectDir;
+        vec3 envColor = texture(texture_envmap_cube, reflectDir_world).rgb;
+
+        // Eye reflections are typically direct and bright
+        finalColor += envColor * envMapScale;
+
+    } else if (has_environment_map) {
+        // --- Regular Environment Mapping (2D or Cube) ---
         vec3 viewDir = normalize(-FragPos);
         vec3 reflectDir = reflect(-viewDir, finalNormal);
         vec3 envColor;
 
         if (is_envmap_cube) {
-            // For cubemaps, we need to transform the reflection vector from view space to world space
-            // The inverse of the view matrix does this.
             vec3 reflectDir_world = inverse(mat3(view)) * reflectDir;
             envColor = texture(texture_envmap_cube, reflectDir_world).rgb;
         } else {
-            // For 2D maps, use the existing spherical mapping
             vec2 envCoords = normalize(reflectDir.xy) * 0.5 + 0.5;
             envColor = texture(texture_envmap_2d, envCoords).rgb;
         }
 
-        float reflectionStrength = 0.5; // Default strength
+        float reflectionStrength = 0.5;
         if (has_env_mask) {
             reflectionStrength = texture(texture_envmask, TexCoords).r;
         } else if (has_specular_map) {
             reflectionStrength = texture(texture_specular, TexCoords).r;
         }
-
         finalColor += envColor * reflectionStrength * envMapScale;
-    }
-
-    // --- MODIFIED EYE SHADER LOGIC ---
-    if (is_eye) {
-        vec3 V = normalize(-FragPos);
-        float fresnel = pow(1.0 - max(dot(finalNormal, V), 0.0), 5.0);
-        
-        // Accumulate specular from all directional lights
-        vec3 eyeSpecular = vec3(0.0);
-        for (int i = 0; i < MAX_LIGHTS; i++) {
-            if (lights[i].type == 2) { // If it's a directional light
-                vec3 lightColor = lights[i].color * lights[i].intensity;
-                vec3 lightDir_view = normalize(mat3(view) * lights[i].direction);
-                vec3 halfwayDir = normalize(lightDir_view + V);
-                float specAmount = pow(max(dot(finalNormal, halfwayDir), 0.0), eye_spec_power);
-                eyeSpecular += specAmount * lightColor;
-            }
-        }
-        finalColor += fresnel * eye_fresnel_strength + eyeSpecular * 0.5;
     }
 
     FragColor = vec4(finalColor, baseColor.a);

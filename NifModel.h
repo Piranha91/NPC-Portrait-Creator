@@ -53,6 +53,7 @@ struct MeshShape {
     // --- Shader Flags
     bool hasSpecularFlag = false; // To store the state of the SLSF1_Specular flag
     bool hasEnvMapFlag = false;
+    bool hasEyeEnvMapFlag = false;
 
     // --- Misc
 	bool has_specular_map = false; // Whether a specular map is assigned
