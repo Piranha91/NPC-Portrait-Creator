@@ -294,7 +294,6 @@ found_head:
         // --- Stage 3: GPU Skinning Data Extraction ---
         auto start_stage3 = std::chrono::high_resolution_clock::now();
         if (niShape->IsSkinned()) {
-            mesh.isSkinned = true;
             auto* skinInst = nif.GetHeader().GetBlock<nifly::NiSkinInstance>(niShape->SkinInstanceRef());
             auto* skinData = nif.GetHeader().GetBlock<nifly::NiSkinData>(skinInst->dataRef);
             auto* skinPartition = nif.GetHeader().GetBlock<nifly::NiSkinPartition>(skinInst->skinPartitionRef);
@@ -474,6 +473,13 @@ found_head:
                 mesh.hasSpecularFlag = true;
                 if (debugMode) {
                     std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Specular.\n";
+                }
+            }
+
+            if (bslsp->shaderFlags1 & (1U << 1)) { // Check for the SLSF1_Skinned flag (bit 1)
+                mesh.isSkinned = true;
+                if (debugMode) {
+                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Skinned.\n";
                 }
             }
 
