@@ -185,6 +185,27 @@ void Renderer::init(bool headless) {
     glEnable(GL_DEPTH_TEST);
     glViewport(0, 0, screenWidth, screenHeight);
     shader.load("shaders/basic.vert", "shaders/basic.frag");
+    depthShader.load("shaders/depth_shader.vert", "shaders/depth_shader.frag");
+
+    // --- NEW: Create Framebuffer for Shadow Map ---
+    glGenFramebuffers(1, &depthMapFBO);
+
+    glGenTextures(1, &depthMapTexture);
+    glBindTexture(GL_TEXTURE_2D, depthMapTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMapTexture, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    // --- END NEW ---
 
     // ## Only load profile from file if one hasn't been set by command line already ##
     if (lights.empty()) {
@@ -456,6 +477,40 @@ void Renderer::renderFrame() {
         return;
     }
 
+    // --- 1. DEPTH PASS (Render scene from light's perspective) ---
+    glm::mat4 lightProjection, lightView;
+    glm::mat4 lightSpaceMatrix;
+    float near_plane = 1.0f, far_plane = 1500.0f; // Adjust these values to fit your scene
+
+    // Find the primary directional light to use for shadows
+    glm::vec3 lightDir = glm::vec3(-0.5f, -0.5f, -1.0f); // Default fallback
+    for (const auto& light : lights) {
+        if (light.type == 2) { // type 2 is directional
+            lightDir = light.direction;
+            break;
+        }
+    }
+
+    lightProjection = glm::ortho(-500.0f, 500.0f, -500.0f, 500.0f, near_plane, far_plane);
+    lightView = glm::lookAt(-lightDir * 500.0f, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
+    lightSpaceMatrix = lightProjection * lightView;
+
+    depthShader.use();
+    depthShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+
+    glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+    glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    if (model) {
+        model->drawDepthOnly(depthShader);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+
+    // --- 2. MAIN RENDER PASS (Render scene normally from camera's perspective) ---
+    glViewport(0, 0, screenWidth, screenHeight);
     glClearColor(backgroundColor.r, backgroundColor.g, backgroundColor.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -497,6 +552,12 @@ void Renderer::renderFrame() {
     shader.setMat4("projection", projection);
     shader.setMat4("view", view);
     shader.setVec3("viewPos", camera.Position);
+    shader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+
+    // Bind the shadow map to a new texture unit (e.g., 8)
+    glActiveTexture(GL_TEXTURE8);
+    glBindTexture(GL_TEXTURE_2D, depthMapTexture);
+    shader.setInt("shadowMap", 8);
 
     if (model) {
         model->draw(shader, camera.Position);

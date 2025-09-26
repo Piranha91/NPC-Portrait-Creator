@@ -13,10 +13,12 @@ out vec2 TexCoords;
 out vec4 vertexColor;
 out mat3 TBN;           // For tangent-space normal mapping
 out mat3 NormalMatrix;  // For model-space normal mapping
+out vec4 FragPosLightSpace;
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform mat4 lightSpaceMatrix;
 
 uniform bool uIsSkinned;
 const int MAX_BONES = 80;
@@ -47,6 +49,7 @@ void main()
 
     // 4. Calculate values needed for fragment shader lighting.
     FragPos = vec3(view * model * vertexPosition);
+    FragPosLightSpace = lightSpaceMatrix * model * vertexPosition;
     NormalMatrix = mat3(transpose(inverse(view * model)));
 
     // Create the TBN matrix for transforming tangent-space normals to view space

@@ -512,8 +512,19 @@ found_head:
                 }
             }
 
+            // --- NEW FLAG CHECKS for shaderFlags2 ---
             mesh.doubleSided = (bslsp->shaderFlags2 & (1U << 4));
             mesh.zBufferWrite = (bslsp->shaderFlags2 & (1U << 0));
+
+            // Check for SLSF2_Recieve_Shadows (bit 1). 
+            // The flag being set means it DOES receive shadows.
+            if (bslsp->shaderFlags2 & (1U << 1)) {
+                mesh.receiveShadows = true;
+                if (debugMode) {
+                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF2_Recieve_Shadows ENABLED.\n";
+                }
+            }
+
             const auto shaderType = bslsp->GetShaderType();
             if (shaderType == nifly::BSLSP_HAIRTINT) {
                 mesh.hasTintColor = true;
@@ -827,6 +838,32 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     // This prevents our function from affecting the state of other renderers (like ImGui).
     glActiveTexture(GL_TEXTURE0);
     checkGlErrors("End of NifModel::draw"); // <<-- ADD
+}
+
+void NifModel::drawDepthOnly(Shader& depthShader) {
+    depthShader.use();
+
+    GLint boneMatricesLocation = glGetUniformLocation(depthShader.ID, "uBoneMatrices");
+
+    auto render_shape_depth = [&](const MeshShape& shape) {
+        // Don't render shapes that don't receive shadows in the depth pass,
+        // as they can't cast them either in this engine.
+        if (!shape.receiveShadows) return;
+
+        depthShader.setMat4("model", shape.transform);
+        depthShader.setBool("uIsSkinned", shape.isSkinned);
+
+        if (shape.isSkinned && !shape.boneMatrices.empty()) {
+            GLsizei boneCount = static_cast<GLsizei>(shape.boneMatrices.size());
+            if (boneCount > MAX_BONES) boneCount = MAX_BONES;
+            glUniformMatrix4fv(boneMatricesLocation, boneCount, GL_FALSE, glm::value_ptr(shape.boneMatrices[0]));
+        }
+        shape.draw();
+        };
+
+    for (const auto& shape : opaqueShapes) render_shape_depth(shape);
+    for (const auto& shape : alphaTestShapes) render_shape_depth(shape);
+    // Transparent shapes typically do not cast shadows, so they are skipped.
 }
 
 void NifModel::cleanup() {

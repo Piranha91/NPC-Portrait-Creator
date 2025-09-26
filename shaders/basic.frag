@@ -7,6 +7,7 @@ in vec2 TexCoords;
 in vec4 vertexColor;
 in mat3 TBN;
 in mat3 NormalMatrix;
+in vec4 FragPosLightSpace;
 
 #define MAX_LIGHTS 5
 
@@ -27,6 +28,7 @@ uniform sampler2D texture_face_tint;
 uniform sampler2D texture_envmap_2d;   // <-- ADD for 2D maps
 uniform samplerCube texture_envmap_cube; // <-- ADD for cubemaps
 uniform sampler2D texture_envmask;
+uniform sampler2D shadowMap;
 
 uniform bool has_normal_map;
 uniform bool has_skin_map;
@@ -56,6 +58,32 @@ uniform mat4 view;
 uniform vec3 viewPos;
 
 uniform Light lights[MAX_LIGHTS];
+
+// --- HELPER FUNCTION (DEFINED *BEFORE* MAIN) ---
+float calculateShadow(vec4 fragPosLightSpace)
+{
+    // Perspective divide
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    // Transform to [0,1] range
+    projCoords = projCoords * 0.5 + 0.5;
+
+    // Return 1.0 (not in shadow) if the fragment is outside the light's view
+    if (projCoords.z > 1.0) {
+        return 1.0;
+    }
+
+    // Get closest depth from light's perspective
+    float closestDepth = texture(shadowMap, projCoords.xy).r;
+    // Get current fragment's depth from light's perspective
+    float currentDepth = projCoords.z;
+
+    // Add a small bias to prevent "shadow acne" artifact
+    float bias = 0.005;
+    float shadow = currentDepth - bias > closestDepth ? 0.0 : 1.0;
+
+    return shadow;
+}
+
 
 void main()
 {    
@@ -101,16 +129,17 @@ void main()
         // It's already been transformed to view space in the vertex shader.
         finalNormal = normalize(TBN[2]);
     }
-    
-    // --- Dynamic Lighting Calculation (Unchanged) ---
-    vec3 finalColor = vec3(0.0);
-    for (int i = 0; i < MAX_LIGHTS; i++) {
-        if (lights[i].type == 0) continue; 
 
+    
+    // --- Dynamic Lighting Calculation ---
+    vec3 finalColor = vec3(0.0);
+    float shadow = calculateShadow(FragPosLightSpace); 
+
+    for (int i = 0; i < MAX_LIGHTS; i++) {
+        if (lights[i].type == 0) continue;
         vec3 lightColor = lights[i].color * lights[i].intensity;
 
         if (lights[i].type == 1) { // Ambient
-            // MODIFICATION: Ambient light should affect the base color, not just be added.
             finalColor += lightColor * baseColor.rgb;
         }
         else if (lights[i].type == 2) { // Directional
@@ -119,9 +148,9 @@ void main()
             vec3 diffuse = diffuseStrength * lightColor;
 
             vec3 specular = vec3(0.0);
-            if (has_specular) { // Check the flag, not the texture
-                float specularStrength = 1.0; // Default strength if no map
-                if (has_specular_map) { // Still check for map to get per-texel strength
+            if (has_specular) {
+                float specularStrength = 1.0;
+                if (has_specular_map) {
                     specularStrength = texture(texture_specular, TexCoords).r;
                 }
             
@@ -130,9 +159,12 @@ void main()
                 float specAmount = pow(max(dot(finalNormal, halfwayDir), 0.0), 32.0);
                 specular = specAmount * specularStrength * lightColor;
             }
-        finalColor += diffuse * baseColor.rgb + specular;
+            
+            // Apply lighting only ONCE, with the shadow factor.
+            finalColor += (diffuse * shadow + specular * shadow) * baseColor.rgb;
         }
     }
+    
     
     // Apply subsurface scattering and detail maps after main lighting
     vec3 subsurfaceColor = vec3(0.0);

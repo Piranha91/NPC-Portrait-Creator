@@ -88,6 +88,7 @@ private:
     // --- Core Members ---
     GLFWwindow* window = nullptr;
     Shader shader;
+    Shader depthShader;
     glm::vec3 backgroundColor;
     std::unique_ptr<NifModel> model;
     AssetManager assetManager;
@@ -120,6 +121,11 @@ private:
     std::string lightingProfileJsonString;
     std::vector<Light> lights;
     void loadLightingProfile(const std::string& path);
+
+    // --- Shadow Mapping Members ---
+    GLuint depthMapFBO;
+    GLuint depthMapTexture;
+    const unsigned int SHADOW_WIDTH = 2048, SHADOW_HEIGHT = 2048;
 
     // Camera settings
     float camX = 0.0f, camY = 0.0f, camZ = 0.0f;
