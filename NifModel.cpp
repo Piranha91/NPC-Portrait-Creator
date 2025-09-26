@@ -5,6 +5,7 @@
 #include "Skeleton.h"
 #include "Shader.h"
 #include "TextureManager.h" 
+#include "Renderer.h"
 #include <iostream>
 #include <set>
 #include <glad/glad.h>
@@ -456,18 +457,30 @@ found_head:
                 for (size_t i = 0; i < textureSet->textures.size(); ++i) {
                     std::string texPath = textureSet->textures[i].get();
                     if (texPath.empty()) continue;
+
+                    // --- CORRECTED LOGIC ---
+                    // Call the function once and store the full TextureInfo result.
+                    TextureInfo texInfo = textureManager.loadTexture(texPath);
+
+                    // Now assign the members of the struct to the mesh.
                     switch (i) {
-                    case 0: mesh.diffuseTextureID = textureManager.loadTexture(texPath); break;
-                    case 1: mesh.normalTextureID = textureManager.loadTexture(texPath); break;
-                    case 2: mesh.skinTextureID = textureManager.loadTexture(texPath); break;
-                    case 3: mesh.detailTextureID = textureManager.loadTexture(texPath); break;
-                    case 6: mesh.faceTintColorMaskID = textureManager.loadTexture(texPath); break;
-                    case 7: mesh.specularTextureID = textureManager.loadTexture(texPath); break;
+                    case 0: mesh.diffuseTextureID = texInfo.id; break;
+                    case 1: mesh.normalTextureID = texInfo.id; break;
+                    case 2: mesh.skinTextureID = texInfo.id; break;
+                    case 3: mesh.detailTextureID = texInfo.id; break;
+                    case 4: // Environment Map - store both ID and target
+                        mesh.environmentMapID = texInfo.id;
+                        mesh.environmentMapTarget = texInfo.target;
+                        break;
+                    case 5: mesh.environmentMaskID = texInfo.id; break;   // Masks are always 2D
+                    case 6: mesh.faceTintColorMaskID = texInfo.id; break;
+                    case 7: mesh.specularTextureID = texInfo.id; break;
                     default: break;
                     }
                 }
             }
         }
+
         if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
             if (bslsp->shaderFlags1 & (1U << 0)) { // (1U << 0) is the mask for SLSF1_Specular
                 mesh.hasSpecularFlag = true;
@@ -481,6 +494,15 @@ found_head:
                 if (debugMode) {
                     std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Skinned.\n";
                 }
+            }
+
+            if (bslsp->shaderFlags1 & (1U << 2)) { // Check for SLSF1_Environment_Mapping (bit 2)
+                mesh.hasEnvMapFlag = true;
+                // Also grab the environment map scale from the shader property
+                mesh.envMapScale = bslsp->environmentMapScale;
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Environment_Mapping.\n";
+                    }
             }
 
             mesh.doubleSided = (bslsp->shaderFlags2 & (1U << 4));
@@ -627,15 +649,21 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     shader.setInt("texture_detail", 3);
     shader.setInt("texture_specular", 4);
     shader.setInt("texture_face_tint", 5);
+    shader.setInt("texture_envmap_2d", 6);   // <-- ADD
+    shader.setInt("texture_envmap_cube", 6); // <-- ADD (points to the same texture unit)
+    shader.setInt("texture_envmask", 7);
 
     shader.setFloat("eye_fresnel_strength", 0.3f);
     shader.setFloat("eye_spec_power", 80.0f);
 
     // Get location for bone matrix uniform array (cache it for performance)
     GLint boneMatricesLocation = glGetUniformLocation(shader.ID, "uBoneMatrices");
+    checkGlErrors("After getting bone uniform location"); // <<-- ADD
 
     // Helper lambda to render a single shape, setting all its unique uniforms
     auto render_shape = [&](const MeshShape& shape) {
+        checkGlErrors(("Start of render_shape for '" + shape.name + "'").c_str()); // <<-- ADD
+
         shader.setMat4("model", shape.transform);
         shader.setBool("is_eye", shape.isEye);
         shader.setBool("is_model_space", shape.isModelSpace); // Set model space uniform
@@ -665,6 +693,9 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
             glUniformMatrix4fv(boneMatricesLocation, boneCount, GL_FALSE, glm::value_ptr(shape.boneMatrices[0]));
         }
 
+        checkGlErrors(("After setting uniforms for '" + shape.name + "'").c_str()); // <<-- ADD
+
+
         // Bind all textures and set corresponding 'has_' flags for the fragment shader
         glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
 
@@ -687,7 +718,27 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
         shader.setBool("has_face_tint_map", shape.faceTintColorMaskID != 0);
         if (shape.faceTintColorMaskID != 0) { glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, shape.faceTintColorMaskID); }
 
+        bool useEffectiveEnvMap = shape.hasEnvMapFlag && shape.environmentMapID != 0;
+        shader.setBool("has_environment_map", useEffectiveEnvMap);
+        if (useEffectiveEnvMap) {
+            shader.setBool("is_envmap_cube", shape.environmentMapTarget == GL_TEXTURE_CUBE_MAP); // <-- ADD
+            shader.setFloat("envMapScale", shape.envMapScale);
+        }
+
+        if (shape.environmentMapID != 0) {
+            glActiveTexture(GL_TEXTURE6);
+            glBindTexture(shape.environmentMapTarget, shape.environmentMapID);
+        }
+        if (shape.environmentMaskID != 0) {
+            glActiveTexture(GL_TEXTURE7);
+            glBindTexture(GL_TEXTURE_2D, shape.environmentMaskID);
+        }
+        checkGlErrors(("After binding textures for '" + shape.name + "'").c_str()); // <<-- ADD
+
+
         shape.draw();
+        checkGlErrors(("IMMEDIATELY AFTER shape.draw() for '" + shape.name + "'").c_str()); // <<-- CRITICAL: ADD THIS
+
         };
 
     // --- PASS 1: OPAQUE OBJECTS ---
@@ -698,10 +749,13 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     glDisable(GL_BLEND);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
+  
     shader.setBool("use_alpha_test", false);
+    checkGlErrors("Before opaque loop"); // <<-- ADD
     for (const auto& shape : opaqueShapes) {
         render_shape(shape);
     }
+    checkGlErrors("After opaque loop"); // <<-- ADD
 
     // --- PASS 2: ALPHA-TEST (CUTOUT) OBJECTS ---
     // Render objects with cutout transparency (like hair or grates).
@@ -709,6 +763,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     // MSAA is used to smooth the hard edges of the cutouts.
     glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
     shader.setBool("use_alpha_test", true);
+    checkGlErrors("Before alpha-test loop"); // <<-- ADD
     for (const auto& shape : alphaTestShapes) {
         shader.setFloat("alpha_threshold", shape.alphaThreshold);
 
@@ -723,6 +778,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
             render_shape(shape);
         }
     }
+    checkGlErrors("After alpha-test loop"); // <<-- ADD
     shader.setBool("use_alpha_test", false);
     glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
 
@@ -739,6 +795,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
         glEnable(GL_BLEND);
         glDepthMask(GL_FALSE); // CRITICAL: Disable depth writes
 
+        checkGlErrors("Before transparent loop"); // <<-- ADD
         for (const auto& shape : transparentShapes) {
             glBlendFunc(shape.srcBlend, shape.dstBlend);
             if (shape.doubleSided) {
@@ -750,6 +807,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
             }
             render_shape(shape);
         }
+        checkGlErrors("After transparent loop"); // <<-- ADD
     }
 
     // --- Reset to default OpenGL state ---
@@ -757,6 +815,10 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     glDisable(GL_BLEND);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
+    // Reset the active texture unit to the default before returning.
+    // This prevents our function from affecting the state of other renderers (like ImGui).
+    glActiveTexture(GL_TEXTURE0);
+    checkGlErrors("End of NifModel::draw"); // <<-- ADD
 }
 
 void NifModel::cleanup() {

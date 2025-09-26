@@ -24,6 +24,9 @@ uniform sampler2D texture_skin;
 uniform sampler2D texture_detail;
 uniform sampler2D texture_specular;
 uniform sampler2D texture_face_tint;
+uniform sampler2D texture_envmap_2d;   // <-- ADD for 2D maps
+uniform samplerCube texture_envmap_cube; // <-- ADD for cubemaps
+uniform sampler2D texture_envmask;
 
 uniform bool has_normal_map;
 uniform bool has_skin_map;
@@ -31,8 +34,13 @@ uniform bool has_detail_map;
 uniform bool has_specular;
 uniform bool has_specular_map;
 uniform bool has_face_tint_map;
+uniform bool has_environment_map;
+uniform bool is_envmap_cube;
+uniform bool has_env_mask;
 uniform bool use_alpha_test;
+
 uniform float alpha_threshold;
+uniform float envMapScale;
 
 uniform bool has_tint_color;
 uniform vec3 tint_color;
@@ -137,8 +145,31 @@ void main()
         finalColor = mix(finalColor, detailColor, 0.3);
     }
 
-    // --- REMOVED CONFLICTING LINE ---
-    // vec3 finalColor = (ambientColor + diffuse + subsurfaceColor) * baseColor.rgb + specular;
+    if (has_environment_map) {
+        vec3 viewDir = normalize(-FragPos);
+        vec3 reflectDir = reflect(-viewDir, finalNormal);
+        vec3 envColor;
+
+        if (is_envmap_cube) {
+            // For cubemaps, we need to transform the reflection vector from view space to world space
+            // The inverse of the view matrix does this.
+            vec3 reflectDir_world = inverse(mat3(view)) * reflectDir;
+            envColor = texture(texture_envmap_cube, reflectDir_world).rgb;
+        } else {
+            // For 2D maps, use the existing spherical mapping
+            vec2 envCoords = normalize(reflectDir.xy) * 0.5 + 0.5;
+            envColor = texture(texture_envmap_2d, envCoords).rgb;
+        }
+
+        float reflectionStrength = 0.5; // Default strength
+        if (has_env_mask) {
+            reflectionStrength = texture(texture_envmask, TexCoords).r;
+        } else if (has_specular_map) {
+            reflectionStrength = texture(texture_specular, TexCoords).r;
+        }
+
+        finalColor += envColor * reflectionStrength * envMapScale;
+    }
 
     // --- MODIFIED EYE SHADER LOGIC ---
     if (is_eye) {

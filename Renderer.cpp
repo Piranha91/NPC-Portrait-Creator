@@ -180,6 +180,7 @@ void Renderer::init(bool headless) {
         throw std::runtime_error("Failed to initialize GLAD");
     }
 
+    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
     glEnable(GL_MULTISAMPLE);
     glEnable(GL_DEPTH_TEST);
     glViewport(0, 0, screenWidth, screenHeight);

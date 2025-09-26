@@ -23,6 +23,8 @@ struct Light {
     float intensity = 1.0f;
 };
 
+void checkGlErrors(const char* location);
+
 class Renderer {
 
 public:

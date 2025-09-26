@@ -52,10 +52,14 @@ struct MeshShape {
 
     // --- Shader Flags
     bool hasSpecularFlag = false; // To store the state of the SLSF1_Specular flag
-
+    bool hasEnvMapFlag = false;
 
     // --- Misc
 	bool has_specular_map = false; // Whether a specular map is assigned
+    GLuint environmentMapID = 0;   // Slot 4: _e.dds or _em.dds
+    GLenum environmentMapTarget = GL_TEXTURE_2D;
+    GLuint environmentMaskID = 0;  // Slot 5: _m.dds
+    float envMapScale = 1.0f;
 
 
     void draw() const;

@@ -13,42 +13,39 @@ TextureManager::~TextureManager() {
     cleanup();
 }
 
-GLuint TextureManager::loadTexture(const std::string& relativePath) {
+TextureInfo TextureManager::loadTexture(const std::string& relativePath) {
     if (relativePath.empty()) {
-        return 0;
+        return { 0, GL_TEXTURE_2D };
     }
 
-    // 1. Check GPU cache
     auto it = textureCache.find(relativePath);
     if (it != textureCache.end()) {
         return it->second;
     }
 
-    // 2. Use the AssetManager to get the raw file data.
     std::vector<char> fileData = assetManager.extractFile(relativePath);
 
-    // 3. If data was found, upload it to the GPU.
     if (!fileData.empty()) {
-        GLuint textureID = uploadDDSToGPU(fileData);
-        if (textureID != 0) {
-            textureCache[relativePath] = textureID;
-            return textureID;
+        TextureInfo texInfo = uploadDDSToGPU(fileData); // <-- Get the full struct
+        if (texInfo.id != 0) {
+            textureCache[relativePath] = texInfo;
+            return texInfo;
         }
     }
 
-    // If the process fails at any point, log a warning and cache the failure.
     std::cerr << "Warning: Texture not found or failed to load: " << relativePath << std::endl;
-    textureCache[relativePath] = 0;
-    return 0;
+    textureCache[relativePath] = { 0, GL_TEXTURE_2D };
+    return { 0, GL_TEXTURE_2D };
 }
 
-GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
+
+TextureInfo TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
     // START PROFILING ASSET GET/UPLOAD
     auto start_get = std::chrono::high_resolution_clock::now();
 
     gli::texture tex = gli::load(data.data(), data.size());
     if (tex.empty()) {
-        return 0;
+        return { 0, GL_TEXTURE_2D };
     }
 
     gli::gl gl(gli::gl::PROFILE_GL33);
@@ -83,7 +80,7 @@ GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
         glTexStorage3D(target, static_cast<GLint>(tex.levels()), format.Internal, extent.x, extent.y, extent.z);
         break;
     default:
-        return 0;
+        return {};
     }
 
     for (std::size_t layer = 0; layer < tex.layers(); ++layer) {
@@ -125,13 +122,13 @@ GLuint TextureManager::uploadDDSToGPU(const std::vector<char>& data) {
     auto duration_get = std::chrono::duration_cast<std::chrono::milliseconds>(end_get - start_get);
     std::cout << "    [Profile] Asset Get/Upload took: " << duration_get.count() << " ms\n";
 
-    return textureID;
+    return { textureID, target };
 }
 
 void TextureManager::cleanup() {
-    for (auto const& [path, id] : textureCache) {
-        if (id != 0) {
-            glDeleteTextures(1, &id);
+    for (auto const& [path, texInfo] : textureCache) {
+        if (texInfo.id != 0) {
+            glDeleteTextures(1, &texInfo.id);
         }
     }
     textureCache.clear();
