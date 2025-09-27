@@ -8,18 +8,37 @@ Camera::Camera(glm::vec3 target, float radius, float yaw, float pitch) :
     Front(glm::vec3(0.0f, 0.0f, -1.0f)), WorldUp(glm::vec3(0.0f, 1.0f, 0.0f)),
     MouseSensitivity(SENSITIVITY),
     PanSensitivity(PAN_SENSITIVITY) {
-    updateCameraVectors();
+    // Set a default initial state before any model is loaded
+    SetInitialState(glm::vec3(0.0f, 50.0f, 0.0f), DEFAULT_RADIUS, YAW, PITCH);
+    // Apply this initial state
+    Reset();
 }
 
 glm::mat4 Camera::GetViewMatrix() {
     return glm::lookAt(Position, Target, Up);
 }
 
+// Saves the calculated "zero position"
+void Camera::SetInitialState(glm::vec3 target, float radius, float yaw, float pitch) {
+    m_initialTarget = target;
+    m_initialRadius = radius;
+    m_initialYaw = yaw;
+    m_initialPitch = pitch;
+}
+
+// Now uses the saved initial state instead of hardcoded values
 void Camera::Reset() {
-    Target = glm::vec3(0.0f, 50.0f, 0.0f);
-    Radius = DEFAULT_RADIUS;
-    Yaw = YAW;
-    Pitch = PITCH;
+    std::cout << "\n--- Resetting Camera Position ---" << std::endl;
+    std::cout << "  [Reset] Target: " << glm::to_string(m_initialTarget) << std::endl;
+    std::cout << "  [Reset] Radius: " << m_initialRadius << std::endl;
+    std::cout << "  [Reset] Yaw:    " << m_initialYaw << std::endl;
+    std::cout << "  [Reset] Pitch:  " << m_initialPitch << std::endl;
+    std::cout << "---------------------------------" << std::endl;
+
+    Target = m_initialTarget;
+    Radius = m_initialRadius;
+    Yaw = m_initialYaw;
+    Pitch = m_initialPitch;
     updateCameraVectors();
 }
 

@@ -18,6 +18,7 @@ const float SENSITIVITY = 0.25f;
 const float PAN_SENSITIVITY = 0.001f;
 const float DEFAULT_RADIUS = 300.0f; // Default zoom level
 
+
 class Camera {
 public:
     // Camera Attributes
@@ -41,6 +42,7 @@ public:
 
     glm::mat4 GetViewMatrix();
     void Reset();
+    void SetInitialState(glm::vec3 target, float radius, float yaw, float pitch);
 
     // Input processing
     void ProcessMouseOrbit(float xoffset, float yoffset);
@@ -50,5 +52,9 @@ public:
     void updateCameraVectors();
 
 private:
-    
+    // Variables to store the correct "zero position"
+    glm::vec3 m_initialTarget;
+    float m_initialRadius;
+    float m_initialYaw;
+    float m_initialPitch;
 };

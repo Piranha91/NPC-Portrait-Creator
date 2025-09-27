@@ -838,6 +838,7 @@ void Renderer::loadNifModel(const std::string& path) {
             camera.Pitch = camPitch;
             camera.Yaw = camYaw;
             camera.updateCameraVectors();
+            camera.SetInitialState(camera.Target, camera.Radius, camera.Yaw, camera.Pitch);
             std::cout << "  [Camera Debug] Position set to: (" << camX << ", " << camY << ", " << camZ << ")\n";
             std::cout << "  [Camera Debug] Rotation set to: Pitch=" << camPitch << ", Yaw=" << camYaw << "\n";
             std::cout << "-------------------------------------\n" << std::endl;
@@ -897,6 +898,9 @@ void Renderer::loadNifModel(const std::string& path) {
             camera.Yaw = 90.0f; // Use 90 for a direct front-on view
             camera.Pitch = 0.0f;
             camera.updateCameraVectors();
+
+            // Save the calculated position as the new "zero"
+            camera.SetInitialState(camera.Target, camera.Radius, camera.Yaw, camera.Pitch);
 
             std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target) << std::endl;
             std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << frameHeight << std::endl;
