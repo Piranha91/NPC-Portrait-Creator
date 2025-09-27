@@ -19,6 +19,7 @@ class Skeleton;
 
 struct MeshShape {
     std::string name;
+    bool visible = true;
     GLuint VAO = 0, VBO = 0, EBO = 0;
     GLsizei indexCount = 0;
     glm::mat4 transform = glm::mat4(1.0f); // Initialize to identity matrix
@@ -81,6 +82,10 @@ public:
     void draw(Shader& shader, const glm::vec3& cameraPos);
     void drawDepthOnly(Shader& depthShader);
     void cleanup();
+
+    std::vector<MeshShape>& getOpaqueShapes() { return opaqueShapes; }
+    std::vector<MeshShape>& getAlphaTestShapes() { return alphaTestShapes; }
+    std::vector<MeshShape>& getTransparentShapes() { return transparentShapes; }
 
     std::vector<std::string> getTextures() const;
 

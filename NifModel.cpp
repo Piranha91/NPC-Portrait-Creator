@@ -699,6 +699,8 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
 
     // Helper lambda to render a single shape, setting all its unique uniforms
     auto render_shape = [&](const MeshShape& shape) {
+        if (!shape.visible) return;
+
         checkGlErrors(("Start of render_shape for '" + shape.name + "'").c_str()); // <<-- ADD
 
         shader.setMat4("model", shape.transform);
@@ -870,6 +872,8 @@ void NifModel::drawDepthOnly(Shader& depthShader) {
     GLint boneMatricesLocation = glGetUniformLocation(depthShader.ID, "uBoneMatrices");
 
     auto render_shape_depth = [&](const MeshShape& shape) {
+        if (!shape.visible) return;
+
         // Don't render shapes that don't receive shadows in the depth pass,
         // as they can't cast them either in this engine.
         if (!shape.receiveShadows) return;
