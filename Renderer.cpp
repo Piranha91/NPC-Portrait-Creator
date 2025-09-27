@@ -305,21 +305,25 @@ void Renderer::run() {
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
+        // 1. Start a new ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        // 2. Build your UI. This now happens BEFORE you render the 3D scene.
         renderUI();
-        ImGui::Render();
 
+        // 3. Render the 3D scene in the background. This function ALSO
+        //    creates the light interaction overlay window for ImGui.
         int display_w, display_h;
         glfwGetFramebufferSize(window, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
-
         renderFrame();
 
-        // --- NEW: Check if a screenshot was requested ---
-		// --- Note : This is done after rendering the frame but before swapping buffers to avoid capturing the UI ---
+        // 4. NOW that all UI is defined, finalize the ImGui draw data.
+        ImGui::Render();
+
+        // (Your screenshot logic can stay here)
         if (!screenshotPath.empty()) {
             try {
                 saveToPNG(screenshotPath);
@@ -329,21 +333,22 @@ void Renderer::run() {
                 std::cerr << "Error saving PNG: " << e.what() << std::endl;
                 tinyfd_messageBox("Error", e.what(), "ok", "error", 1);
             }
-            screenshotPath.clear(); // Clear the path to avoid saving every frame.
+            screenshotPath.clear();
         }
-        // --- End of new code ---
 
+        // 5. Render the ImGui draw data ON TOP of the 3D scene.
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        // --- STOP the timer and log the total duration ---
+        // (Your timer logic can stay here)
         if (newModelLoaded) {
             auto endTime = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - nifLoadStartTime);
             std::cout << "\n--- [Total Load Time] From file selection to first render: "
                 << duration.count() << " ms ---\n" << std::endl;
-            newModelLoaded = false; // Reset the flag for the next time
+            newModelLoaded = false;
         }
 
+        // 6. Swap buffers to show the final image.
         glfwSwapBuffers(window);
     }
 }
@@ -432,6 +437,22 @@ void Renderer::renderUI() {
                     loadLightingProfile(filePath);
                     lightingProfilePath = filePath; // Save the new path to be remembered
                     saveConfig();
+                }
+            }
+
+            if (ImGui::MenuItem("Save Lighting Profile")) {
+                if (!lightingProfilePath.empty()) {
+                    saveLightingProfile(lightingProfilePath);
+                }
+                else {
+                    // If no file is loaded, prompt for a new one
+                    const char* filterPatterns[1] = { "*.json" };
+                    const char* filePath = tinyfd_saveFileDialog("Save Lighting Profile", "lighting.json", 1, filterPatterns, "JSON Files");
+                    if (filePath) {
+                        lightingProfilePath = filePath;
+                        saveConfig();
+                        saveLightingProfile(lightingProfilePath);
+                    }
                 }
             }
 
@@ -557,6 +578,26 @@ void Renderer::renderUI() {
 
         ImGui::EndMainMenuBar();
     }
+
+    if (ImGui::BeginPopup("light_context_menu")) {
+        if (m_interactingLightIndex != -1 && m_interactingLightIndex < lights.size()) {
+            Light& light = lights[m_interactingLightIndex]; // Get a reference to the light
+
+            ImGui::Text("Light #%d", m_interactingLightIndex + 1);
+            ImGui::Separator();
+
+            // Add a slider for intensity
+            if (ImGui::DragFloat("Intensity", &light.intensity, 0.01f, 0.0f, 10.0f)) {
+                // Optional: Actions to take while dragging, like saving
+            }
+
+            // Add a color picker
+            if (ImGui::ColorEdit3("Color", &light.color.r)) {
+                // Optional: Actions to take while changing color
+            }
+        }
+        ImGui::EndPopup();
+    }
 }
 
 void Renderer::shutdownUI() {
@@ -681,57 +722,85 @@ void Renderer::renderFrame() {
 
     // The drawing logic remains here, so the arrows are drawn every frame
     if (m_visualizeLights) {
+        // We create a transparent, full-screen window to host the invisible buttons
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+        ImGui::Begin("LightInteractionOverlay", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+        // --- Drawing Logic (remains mostly the same) ---
         glDisable(GL_DEPTH_TEST);
         m_debugLineShader.use();
-
-        glm::mat4 arrowProjection = glm::perspective(glm::radians(45.0f), (float)screenWidth / screenHeight, 0.1f, 100.0f);
-        m_debugLineShader.setMat4("projection", arrowProjection);
-        m_debugLineShader.setMat4("view", glm::mat4(1.0f));
-
+        m_debugLineShader.setMat4("projection", projection);
+        m_debugLineShader.setMat4("view", originalView);
         glBindVertexArray(m_arrowVAO);
 
-        // --- REPLACE THE ENTIRE 'for' LOOP WITH THIS ---
         int lightIndex = 0;
-        for (const auto& light : lights) {
+        for (auto& light : lights) { // Note: now a non-const reference to allow modification
             if (light.type == 2) {
                 m_debugLineShader.setVec3("lineColor", light.color);
 
-                // Define the coordinate conversion matrix
                 glm::mat4 conversionMatrix = glm::mat4(
                     -1.0f, 0.0f, 0.0f, 0.0f,
                     0.0f, 0.0f, 1.0f, 0.0f,
                     0.0f, 1.0f, 0.0f, 0.0f,
                     0.0f, 0.0f, 0.0f, 1.0f
                 );
+                glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f));
+                glm::vec3 arrowPos = camera.Target - (transformedDir * 50.0f);
 
-                // Transform the light's direction to be relative to the camera's view
-                glm::vec3 transformedDir = glm::mat3(originalView) * glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f));
-
-                // --- START OF NEW POSITIONING LOGIC ---
-                // Place arrows at fixed HUD positions to ensure they are visible and separate
-                // First light on the left, second on the right.
-                float x_offset = (lightIndex == 0) ? -0.8f : 0.8f;
-                glm::vec3 arrowPos = glm::vec3(x_offset, -0.6f, -2.5f);
-                // --- END OF NEW POSITIONING LOGIC ---
-
-                // Build the model matrix in the correct order: Translate * Rotate * Scale
                 glm::mat4 modelMatrix =
                     glm::translate(glm::mat4(1.0f), arrowPos) *
                     glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), glm::normalize(transformedDir))) *
-                    glm::scale(glm::mat4(1.0f), glm::vec3(0.25f * light.intensity));
+                    glm::scale(glm::mat4(1.0f), glm::vec3(20.0f * light.intensity));
 
                 m_debugLineShader.setMat4("model", modelMatrix);
-
                 glLineWidth(light.intensity * 2.0f + 1.0f);
                 glDrawArrays(GL_LINES, 0, 10);
 
+                // --- NEW: Interaction Logic ---
+                // Project the 3D arrow position to 2D screen coordinates
+                glm::vec4 viewport = glm::vec4(0, 0, screenWidth, screenHeight);
+                glm::vec3 screenPos = glm::project(arrowPos, originalView, projection, viewport);
+
+                if (screenPos.z < 1.0f) { // Only interact with arrows in front of the camera
+                    ImGui::SetCursorScreenPos(ImVec2(screenPos.x - 16, screenHeight - screenPos.y - 16)); // Center the button, flipping the Y-axis
+
+                    ImGui::PushID(lightIndex); // Give each button a unique ID
+                    ImGui::InvisibleButton("##light_handle", ImVec2(32, 32));
+
+                    //if (ImGui::IsItemHovered()) { // Only draw when the mouse is over it
+                        ImGui::GetForegroundDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(255, 255, 0, 255));
+                    //}
+
+                    // Handle Right-Click for Context Menu
+                    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                        m_interactingLightIndex = lightIndex;
+                        ImGui::OpenPopup("light_context_menu");
+                    }
+
+                    // Handle Left-Click Drag for Direction
+                    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+                        m_interactingLightIndex = lightIndex;
+
+                        ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
+                        float dragSpeed = 0.005f;
+
+                        // Create quaternions for the rotation delta based on mouse movement
+                        glm::quat rotY = glm::angleAxis(-mouseDelta.x * dragSpeed, camera.Up);
+                        glm::quat rotX = glm::angleAxis(-mouseDelta.y * dragSpeed, camera.Right);
+
+                        // Apply the rotation delta to the light's CURRENT direction
+                        light.direction = glm::normalize((rotY * rotX) * light.direction);
+                    }
+                    ImGui::PopID();
+                }
                 lightIndex++;
             }
         }
-        // --- END OF REPLACEMENT ---
         glBindVertexArray(0);
         glLineWidth(1.0f);
         glEnable(GL_DEPTH_TEST);
+        ImGui::End(); // End the overlay window
     }
 
     // NEW: At the end of the function, update the last state for the next frame
@@ -1430,6 +1499,37 @@ void Renderer::loadLightingProfile(const std::string& path) {
         // This fallback handles corrupt files or invalid default JSON.
         this->lights.clear();
         this->lightingProfileJsonString = "{}";
+    }
+}
+
+void Renderer::saveLightingProfile(const std::string& path) {
+    if (path.empty()) {
+        std::cerr << "Cannot save lighting profile: no path specified." << std::endl;
+        return;
+    }
+
+    nlohmann::json data;
+    data["lights"] = nlohmann::json::array();
+    for (const auto& light : lights) {
+        nlohmann::json lightJson;
+        if (light.type == 1) lightJson["type"] = "ambient";
+        if (light.type == 2) lightJson["type"] = "directional";
+
+        lightJson["color"] = { light.color.r, light.color.g, light.color.b };
+        lightJson["intensity"] = light.intensity;
+        if (light.type == 2) {
+            lightJson["direction"] = { light.direction.x, light.direction.y, light.direction.z };
+        }
+        data["lights"].push_back(lightJson);
+    }
+
+    try {
+        std::ofstream o(path);
+        o << std::setw(4) << data << std::endl;
+        std::cout << "Lighting profile saved to \"" << path << "\"." << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error saving lighting profile: " << e.what() << std::endl;
     }
 }
 

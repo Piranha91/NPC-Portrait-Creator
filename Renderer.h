@@ -122,6 +122,11 @@ private:
     std::string lightingProfileJsonString;
     std::vector<Light> lights;
     void loadLightingProfile(const std::string& path);
+    void saveLightingProfile(const std::string& path);
+
+    // -- - NEW: Light Interaction State-- -
+    int m_interactingLightIndex = -1; // -1 means no light is being interacted with
+    glm::vec3 m_originalDragDirection;    // Stores the light's direction when a drag begins
 
     // --- Shadow Mapping Members ---
     GLuint depthMapFBO;
