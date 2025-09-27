@@ -89,6 +89,7 @@ private:
     GLFWwindow* window = nullptr;
     Shader shader;
     Shader depthShader;
+    Shader m_debugLineShader;
     glm::vec3 backgroundColor;
     std::unique_ptr<NifModel> model;
     AssetManager assetManager;
@@ -145,6 +146,13 @@ private:
     // --- Add these for high-level load profiling ---
     std::chrono::high_resolution_clock::time_point nifLoadStartTime;
     bool newModelLoaded = false;
+
+    // Arrow resources
+    unsigned int m_arrowVAO;      // <-- Add this
+    unsigned int m_arrowVBO;      // <-- Add this
+
+    // UI State
+    bool m_visualizeLights = false; // <-- Add this
 };
 
 #endif // RENDERER_H

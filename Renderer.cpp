@@ -28,6 +28,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/string_cast.hpp> // For logging glm::vec3
+#include <glm/gtx/quaternion.hpp>
 
 // --- ImGui Includes ---
 #include "imgui.h"
@@ -96,6 +97,9 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
 }
 
 Renderer::~Renderer() {
+    glDeleteVertexArrays(1, &m_arrowVAO);
+    glDeleteBuffers(1, &m_arrowVBO);
+
     if (uiInitialized) {
         shutdownUI();
     }
@@ -186,6 +190,31 @@ void Renderer::init(bool headless) {
     glViewport(0, 0, screenWidth, screenHeight);
     shader.load("shaders/basic.vert", "shaders/basic.frag");
     depthShader.load("shaders/depth_shader.vert", "shaders/depth_shader.frag");
+    m_debugLineShader.load("shaders/debug_line.vert", "shaders/debug_line.frag"); // <-- LOAD THE NEW SHADER
+
+    // --- SETUP ARROW GEOMETRY ---
+    float arrowVertices[] = {
+        // Shaft (1 line)
+        0.0f, 0.0f,  0.5f,
+        0.0f, 0.0f, -0.5f,
+        // Head (4 lines)
+        0.0f, 0.0f, -0.5f,  0.2f, 0.2f, -0.2f,
+        0.0f, 0.0f, -0.5f, -0.2f, 0.2f, -0.2f,
+        0.0f, 0.0f, -0.5f, -0.2f,-0.2f, -0.2f,
+        0.0f, 0.0f, -0.5f,  0.2f,-0.2f, -0.2f
+    };
+
+    glGenVertexArrays(1, &m_arrowVAO);
+    glGenBuffers(1, &m_arrowVBO);
+
+    glBindVertexArray(m_arrowVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_arrowVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(arrowVertices), arrowVertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    // --- END ARROW SETUP ---
 
     // --- NEW: Create Framebuffer for Shadow Map ---
     glGenFramebuffers(1, &depthMapFBO);
@@ -503,6 +532,8 @@ void Renderer::renderUI() {
                 create_checkboxes("Alpha-Test Parts", model->getAlphaTestShapes());
                 create_checkboxes("Transparent Parts", model->getTransparentShapes());
             }
+            ImGui::Separator();
+            ImGui::Checkbox("Visualize Lights", &m_visualizeLights);
             ImGui::EndMenu();
         }
 
@@ -605,6 +636,50 @@ void Renderer::renderFrame() {
 
     if (model) {
         model->draw(shader, camera.Position);
+    }
+    
+    if (m_visualizeLights) {
+        glDisable(GL_DEPTH_TEST); // Draw on top of everything
+        m_debugLineShader.use();
+        m_debugLineShader.setMat4("projection", projection);
+        m_debugLineShader.setMat4("view", view);
+
+        glBindVertexArray(m_arrowVAO);
+
+        for (const auto& light : lights) {
+            // We only visualize directional lights (type 2)
+            if (light.type == 2) {
+                // --- Arrow color ---
+                m_debugLineShader.setVec3("lineColor", light.color);
+
+                // --- Position, Rotation, and Scale (for intensity) ---
+                // 1. Define the Scale based on intensity
+                float arrowLength = 20.0f * light.intensity; // Base length of 20
+                glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(arrowLength));
+
+                // 2. Define the Rotation to match the light's direction
+                glm::quat rotation = glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), glm::normalize(light.direction));
+                glm::mat4 rotationMatrix = glm::mat4_cast(rotation);
+
+                // 3. Define the Translation (Position)
+                // Use your desired small distance, like 0.01f or 5.0f
+                glm::vec3 arrowPos = camera.Target - (light.direction * 0.01f);
+                glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), arrowPos);
+
+                // 4. Combine matrices in the correct order: Translate * Rotate * Scale
+                glm::mat4 modelMatrix = translationMatrix * rotationMatrix * scaleMatrix;
+
+                m_debugLineShader.setMat4("model", modelMatrix);
+
+                // An arrow is 5 lines (10 vertices), drawn with GL_LINES
+                // Use glLineWidth to set thickness
+                glLineWidth(light.intensity * 4.0f + 1.0f); // Make line thicker based on intensity
+                glDrawArrays(GL_LINES, 0, 10);
+            }
+        }
+        glBindVertexArray(0);
+        glLineWidth(1.0f); // Reset line width to default
+        glEnable(GL_DEPTH_TEST); // Re-enable depth testing
     }
 
     checkGlErrors("end of renderFrame");
