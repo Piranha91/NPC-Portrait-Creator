@@ -1,9 +1,13 @@
 #include "Camera.h"
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/string_cast.hpp> // For printing glm::vec3
+#include <iostream>
 
 Camera::Camera(glm::vec3 target, float radius, float yaw, float pitch) :
     Target(target), Radius(radius), Yaw(yaw), Pitch(pitch),
     Front(glm::vec3(0.0f, 0.0f, -1.0f)), WorldUp(glm::vec3(0.0f, 1.0f, 0.0f)),
-    MouseSensitivity(SENSITIVITY) {
+    MouseSensitivity(SENSITIVITY),
+    PanSensitivity(PAN_SENSITIVITY) {
     updateCameraVectors();
 }
 
@@ -31,8 +35,15 @@ void Camera::ProcessMouseOrbit(float xoffset, float yoffset) {
 }
 
 void Camera::ProcessMousePan(float xoffset, float yoffset) {
-    // Scale panning speed by the camera's distance to the target
-    float panSpeed = 0.001f * Radius;
+    // --- TEMPORARY DEBUGGING BLOCK ---
+    std::cout << "--- Panning ---" << std::endl;
+    std::cout << "Mouse Input (x, y): " << xoffset << ", " << yoffset << std::endl;
+    std::cout << "Camera Right Vector: " << glm::to_string(Right) << std::endl;
+    std::cout << "Camera Up Vector:    " << glm::to_string(Up) << std::endl;
+    std::cout << "-----------------" << std::endl;
+    // --- END DEBUGGING ---
+
+    float panSpeed = PanSensitivity * Radius;
     Target -= Right * (xoffset * panSpeed);
     Target += Up * (yoffset * panSpeed);
     updateCameraVectors();

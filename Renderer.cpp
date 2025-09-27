@@ -1338,7 +1338,7 @@ void Renderer::HandleCursorPosition(double xpos, double ypos) {
         camera.ProcessMouseOrbit(xoffset, yoffset);
     }
     if (isPanning) {
-        camera.ProcessMousePan(xoffset, ypos);
+        camera.ProcessMousePan(xoffset, yoffset);
     }
 }
 
