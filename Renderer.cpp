@@ -461,55 +461,52 @@ void Renderer::renderUI() {
             }
             ImGui::EndMenu();
         }
+        if (model && ImGui::BeginMenu("View")) {
+            // --- MOVE THE MESH PARTS HEADER HERE ---
+            // We removed ImGuiTreeNodeFlags_DefaultOpen to make it start collapsed.
+            if (ImGui::CollapsingHeader("Mesh Parts")) {
 
-        ImGui::EndMainMenuBar();
-    }
+                // Helper lambda to create checkboxes for a vector of shapes
+                auto create_checkboxes = [](const char* group_name, std::vector<MeshShape>& shapes) {
+                    if (shapes.empty()) {
+                        return;
+                    }
 
-    if (model) {
-        ImGui::Begin("Scene Explorer");
+                    if (ImGui::TreeNode(group_name)) {
+                        ImGui::PushID(group_name); // Unique ID scope for buttons
 
-        if (ImGui::CollapsingHeader("Mesh Parts", ImGuiTreeNodeFlags_DefaultOpen)) {
-
-            // Helper lambda to create checkboxes for a vector of shapes
-            auto create_checkboxes = [](const char* group_name, std::vector<MeshShape>& shapes) {
-                if (shapes.empty()) {
-                    return;
-                }
-
-                if (ImGui::TreeNode(group_name)) {
-                    ImGui::PushID(group_name); // Unique ID scope for buttons
-
-                    if (ImGui::Button("Show All")) {
-                        for (auto& shape : shapes) {
-                            shape.visible = true;
+                        if (ImGui::Button("Show All")) {
+                            for (auto& shape : shapes) {
+                                shape.visible = true;
+                            }
                         }
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Hide All")) {
-                        for (auto& shape : shapes) {
-                            shape.visible = false;
+                        ImGui::SameLine();
+                        if (ImGui::Button("Hide All")) {
+                            for (auto& shape : shapes) {
+                                shape.visible = false;
+                            }
                         }
+                        ImGui::Separator();
+
+                        ImGui::PopID(); // End button scope
+
+                        for (size_t i = 0; i < shapes.size(); ++i) {
+                            ImGui::PushID(static_cast<int>(i));
+                            ImGui::Checkbox(shapes[i].name.c_str(), &shapes[i].visible);
+                            ImGui::PopID();
+                        }
+                        ImGui::TreePop();
                     }
-                    ImGui::Separator();
+                    };
 
-                    ImGui::PopID(); // End button scope
-
-                    for (size_t i = 0; i < shapes.size(); ++i) {
-                        // Use ImGui::PushID to ensure unique IDs for checkboxes
-                        ImGui::PushID(static_cast<int>(i));
-                        ImGui::Checkbox(shapes[i].name.c_str(), &shapes[i].visible);
-                        ImGui::PopID();
-                    }
-                    ImGui::TreePop();
-                }
-                };
-
-            create_checkboxes("Opaque Parts", model->getOpaqueShapes());
-            create_checkboxes("Alpha-Test Parts", model->getAlphaTestShapes());
-            create_checkboxes("Transparent Parts", model->getTransparentShapes());
+                create_checkboxes("Opaque Parts", model->getOpaqueShapes());
+                create_checkboxes("Alpha-Test Parts", model->getAlphaTestShapes());
+                create_checkboxes("Transparent Parts", model->getTransparentShapes());
+            }
+            ImGui::EndMenu();
         }
 
-        ImGui::End();
+        ImGui::EndMainMenuBar();
     }
 }
 
