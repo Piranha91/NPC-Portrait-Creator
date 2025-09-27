@@ -424,6 +424,24 @@ void Renderer::renderUI() {
             }
 
             ImGui::Separator();
+
+            if (ImGui::MenuItem("Load Lighting Profile...")) {
+                const char* filterPatterns[1] = { "*.json" };
+                const char* filePath = tinyfd_openFileDialog("Open Lighting Profile", "", 1, filterPatterns, "JSON Files", 0);
+                if (filePath) {
+                    loadLightingProfile(filePath);
+                    lightingProfilePath = filePath; // Save the new path to be remembered
+                    saveConfig();
+                }
+            }
+
+            if (ImGui::MenuItem("Clear Lighting Profile")) {
+                loadLightingProfile(""); // Calling with an empty path loads the default
+                lightingProfilePath = "";  // Clear the saved path
+                saveConfig();
+            }
+
+            ImGui::Separator();
             if (ImGui::MenuItem("Exit")) { glfwSetWindowShouldClose(window, true); }
             ImGui::EndMenu();
         }
@@ -607,29 +625,26 @@ void Renderer::renderFrame() {
     }
 
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)screenWidth / (float)screenHeight, 10.0f, 10000.0f);
-    glm::mat4 view = camera.GetViewMatrix();
+    // 1. Get the original, unmodified view matrix from the camera
+    glm::mat4 originalView = camera.GetViewMatrix();
 
+    // 2. Create a modified view matrix specifically for the NIF model
+    glm::mat4 modelView = originalView;
     glm::mat4 conversionMatrix = glm::mat4(
         -1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f
     );
-    view = view * conversionMatrix;
+    modelView = modelView * conversionMatrix;
 
-    /*
-    std::cout << "--- [Debug Matrices] ---" << std::endl;
-    std::cout << "  Camera Position: " << glm::to_string(camera.Position) << std::endl;
-    std::cout << "  View Matrix:\n" << glm::to_string(view) << std::endl;
-    std::cout << "  Projection Matrix:\n" << glm::to_string(projection) << std::endl;
-    */
+    // --- END OF CHANGES ---
 
     shader.setMat4("projection", projection);
-    shader.setMat4("view", view);
+    shader.setMat4("view", modelView); // <-- Use the MODIFIED view for the main model
     shader.setVec3("viewPos", camera.Position);
     shader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
 
-    // Bind the shadow map to a new texture unit (e.g., 8)
     glActiveTexture(GL_TEXTURE8);
     glBindTexture(GL_TEXTURE_2D, depthMapTexture);
     shader.setInt("shadowMap", 8);
@@ -637,50 +652,67 @@ void Renderer::renderFrame() {
     if (model) {
         model->draw(shader, camera.Position);
     }
-    
+
+    if (m_visualizeLights && !m_visualizeLights_lastState) {
+        // All console output now goes inside this block, so it only runs once.
+        int lightIndex = 0;
+        std::cout << "\n--- Light Visualization Enabled: Calculation Details ---" << std::endl;
+        for (const auto& light : lights) {
+            if (light.type == 2) {
+                std::cout << "--- Processing Arrow for Light #" << lightIndex + 1 << " ---" << std::endl;
+                std::cout << "  [Input] Raw Direction: " << glm::to_string(light.direction) << std::endl;
+                std::cout << "  [Input] Raw Color:     " << glm::to_string(light.color) << std::endl;
+                std::cout << "  [Input] Raw Intensity: " << light.intensity << std::endl;
+
+                glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f));
+                std::cout << "  [Calc] Transformed Dir: " << glm::to_string(transformedDir) << std::endl;
+
+                glm::vec3 arrowPos = camera.Target - (transformedDir * 50.0f);
+                std::cout << "  [Calc] Arrow Position:  " << glm::to_string(arrowPos) << std::endl;
+
+                float arrowLength = 20.0f * light.intensity;
+                std::cout << "  [Calc] Arrow Length:    " << arrowLength << std::endl;
+
+                lightIndex++;
+            }
+        }
+        std::cout << "--------------------------------------------------------" << std::endl;
+    }
+
+    // The drawing logic remains here, so the arrows are drawn every frame
     if (m_visualizeLights) {
-        glDisable(GL_DEPTH_TEST); // Draw on top of everything
+        glDisable(GL_DEPTH_TEST);
         m_debugLineShader.use();
         m_debugLineShader.setMat4("projection", projection);
-        m_debugLineShader.setMat4("view", view);
-
+        m_debugLineShader.setMat4("view", originalView);
         glBindVertexArray(m_arrowVAO);
 
         for (const auto& light : lights) {
-            // We only visualize directional lights (type 2)
             if (light.type == 2) {
-                // --- Arrow color ---
                 m_debugLineShader.setVec3("lineColor", light.color);
 
-                // --- Position, Rotation, and Scale (for intensity) ---
-                // 1. Define the Scale based on intensity
-                float arrowLength = 20.0f * light.intensity; // Base length of 20
-                glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(arrowLength));
+                glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f));
+                glm::vec3 arrowPos = camera.Target - (transformedDir * 50.0f);
 
-                // 2. Define the Rotation to match the light's direction
-                glm::quat rotation = glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), glm::normalize(light.direction));
-                glm::mat4 rotationMatrix = glm::mat4_cast(rotation);
-
-                // 3. Define the Translation (Position)
-                // Use your desired small distance, like 0.01f or 5.0f
-                glm::vec3 arrowPos = camera.Target - (light.direction * 0.01f);
-                glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), arrowPos);
-
-                // 4. Combine matrices in the correct order: Translate * Rotate * Scale
-                glm::mat4 modelMatrix = translationMatrix * rotationMatrix * scaleMatrix;
+                glm::mat4 modelMatrix =
+                    glm::translate(glm::mat4(1.0f), arrowPos) *
+                    glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), glm::normalize(transformedDir))) *
+                    glm::scale(glm::mat4(1.0f), glm::vec3(20.0f * light.intensity));
 
                 m_debugLineShader.setMat4("model", modelMatrix);
-
-                // An arrow is 5 lines (10 vertices), drawn with GL_LINES
-                // Use glLineWidth to set thickness
-                glLineWidth(light.intensity * 4.0f + 1.0f); // Make line thicker based on intensity
+                glLineWidth(light.intensity * 2.0f + 1.0f);
                 glDrawArrays(GL_LINES, 0, 10);
             }
         }
         glBindVertexArray(0);
-        glLineWidth(1.0f); // Reset line width to default
-        glEnable(GL_DEPTH_TEST); // Re-enable depth testing
+        glLineWidth(1.0f);
+        glEnable(GL_DEPTH_TEST);
     }
+
+    // NEW: At the end of the function, update the last state for the next frame
+    m_visualizeLights_lastState = m_visualizeLights;
+
+    // --- END OF MODIFIED VISUALIZATION LOGIC ---
 
     checkGlErrors("end of renderFrame");
 }
@@ -1332,7 +1364,7 @@ void Renderer::loadLightingProfile(const std::string& path) {
     std::string jsonContent;
 
     if (path.empty() || !std::filesystem::exists(path)) {
-        std::cout << "Lighting profile not found. Using default lighting." << std::endl;
+        std::cout << "Did not find lighting profile at \"" << path << "\". Using default." << std::endl;
         nlohmann::json defaultJson;
         defaultJson["lights"] = nlohmann::json::array({
             {

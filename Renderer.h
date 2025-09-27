@@ -153,6 +153,7 @@ private:
 
     // UI State
     bool m_visualizeLights = false; // <-- Add this
+    bool m_visualizeLights_lastState = false;
 };
 
 #endif // RENDERER_H
