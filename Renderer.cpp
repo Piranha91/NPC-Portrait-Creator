@@ -683,27 +683,52 @@ void Renderer::renderFrame() {
     if (m_visualizeLights) {
         glDisable(GL_DEPTH_TEST);
         m_debugLineShader.use();
-        m_debugLineShader.setMat4("projection", projection);
-        m_debugLineShader.setMat4("view", originalView);
+
+        glm::mat4 arrowProjection = glm::perspective(glm::radians(45.0f), (float)screenWidth / screenHeight, 0.1f, 100.0f);
+        m_debugLineShader.setMat4("projection", arrowProjection);
+        m_debugLineShader.setMat4("view", glm::mat4(1.0f));
+
         glBindVertexArray(m_arrowVAO);
 
+        // --- REPLACE THE ENTIRE 'for' LOOP WITH THIS ---
+        int lightIndex = 0;
         for (const auto& light : lights) {
             if (light.type == 2) {
                 m_debugLineShader.setVec3("lineColor", light.color);
 
-                glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f));
-                glm::vec3 arrowPos = camera.Target - (transformedDir * 50.0f);
+                // Define the coordinate conversion matrix
+                glm::mat4 conversionMatrix = glm::mat4(
+                    -1.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 1.0f, 0.0f,
+                    0.0f, 1.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 1.0f
+                );
 
+                // Transform the light's direction to be relative to the camera's view
+                glm::vec3 transformedDir = glm::mat3(originalView) * glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f));
+
+                // --- START OF NEW POSITIONING LOGIC ---
+                // Place arrows at fixed HUD positions to ensure they are visible and separate
+                // First light on the left, second on the right.
+                float x_offset = (lightIndex == 0) ? -0.8f : 0.8f;
+                glm::vec3 arrowPos = glm::vec3(x_offset, -0.6f, -2.5f);
+                // --- END OF NEW POSITIONING LOGIC ---
+
+                // Build the model matrix in the correct order: Translate * Rotate * Scale
                 glm::mat4 modelMatrix =
                     glm::translate(glm::mat4(1.0f), arrowPos) *
                     glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), glm::normalize(transformedDir))) *
-                    glm::scale(glm::mat4(1.0f), glm::vec3(20.0f * light.intensity));
+                    glm::scale(glm::mat4(1.0f), glm::vec3(0.25f * light.intensity));
 
                 m_debugLineShader.setMat4("model", modelMatrix);
+
                 glLineWidth(light.intensity * 2.0f + 1.0f);
                 glDrawArrays(GL_LINES, 0, 10);
+
+                lightIndex++;
             }
         }
+        // --- END OF REPLACEMENT ---
         glBindVertexArray(0);
         glLineWidth(1.0f);
         glEnable(GL_DEPTH_TEST);
