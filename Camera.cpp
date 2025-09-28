@@ -64,7 +64,7 @@ void Camera::ProcessMousePan(float xoffset, float yoffset) {
 
     float panSpeed = PanSensitivity * Radius;
     Target -= Right * (xoffset * panSpeed);
-    Target += Up * (yoffset * panSpeed);
+    Target -= Up * (yoffset * panSpeed);
     updateCameraVectors();
 }
 
