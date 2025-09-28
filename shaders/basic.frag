@@ -134,6 +134,14 @@ void main()
         finalNormal = normalize(TBN[2]);
     }
 
+    // ============================ FIX START ============================
+    // For eye meshes, the normals are often inverted in the model file
+    // to make environment maps work correctly. We need to flip them
+    // back for standard lighting calculations.
+    if (is_eye) {
+        finalNormal = -finalNormal;
+    }
+    // ============================= FIX END =============================
     
     // --- Dynamic Lighting Calculation ---
     vec3 finalColor = vec3(0.0);
