@@ -1622,7 +1622,16 @@ void Renderer::saveLightingProfile(const std::string& path) {
 
 // --- NEW PUBLIC HANDLER IMPLEMENTATIONS ---
 void Renderer::HandleMouseButton(int button, int action, int mods) {
-    if (ImGui::GetIO().WantCaptureMouse) return;
+    bool captureMouse = ImGui::GetIO().WantCaptureMouse;
+    if (m_visualizeLights) {
+        // We now ONLY check if an item is hovered.
+        captureMouse = ImGui::IsAnyItemHovered();
+    }
+    if (captureMouse) {
+        isRotating = false;
+        isPanning = false;
+        return;
+    }
 
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
         if (action == GLFW_PRESS) {
@@ -1645,6 +1654,17 @@ void Renderer::HandleMouseButton(int button, int action, int mods) {
 }
 
 void Renderer::HandleCursorPosition(double xpos, double ypos) {
+    bool captureMouse = ImGui::GetIO().WantCaptureMouse;
+    if (m_visualizeLights) {
+        // We now ONLY check if an item is hovered.
+        captureMouse = ImGui::IsAnyItemHovered();
+    }
+    if (captureMouse) {
+        isRotating = false;
+        isPanning = false;
+        return;
+    }
+
     if (firstMouse) {
         lastX = xpos;
         lastY = ypos;
@@ -1666,7 +1686,13 @@ void Renderer::HandleCursorPosition(double xpos, double ypos) {
 }
 
 void Renderer::HandleScroll(double xoffset, double yoffset) {
-    if (ImGui::GetIO().WantCaptureMouse) return;
+    bool captureMouse = ImGui::GetIO().WantCaptureMouse;
+    if (m_visualizeLights) {
+        // We now ONLY check if an item is hovered.
+        captureMouse = ImGui::IsAnyItemHovered();
+    }
+    if (captureMouse) return;
+
     camera.ProcessMouseScroll(yoffset);
 }
 
