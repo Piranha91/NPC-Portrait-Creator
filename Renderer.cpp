@@ -858,18 +858,55 @@ void Renderer::renderFrame() {
                     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
                         m_interactingLightIndex = lightIndex;
 
-                        // Get how much the mouse has moved since the last frame
                         ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
                         float dragSpeed = 0.005f;
 
-                        // Create a rotation for horizontal mouse movement (around the camera's Up axis)
-                        glm::quat rotY = glm::angleAxis(mouseDelta.x * dragSpeed, camera.Up);
+                        bool axisLockActive = false;
+                        glm::vec3 rotationAxis;
+                        float rotationAngle = 0.0f;
 
-                        // Create a rotation for vertical mouse movement (around the camera's Right axis)
-                        glm::quat rotX = glm::angleAxis(mouseDelta.y * dragSpeed, camera.Right);
+                        // Check for axis-lock keys. The rotation axes are defined in Skyrim's
+                        // coordinate space to match the light.direction vector.
+                        if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
+                            // Lock to Skyrim's X-axis (tilt/pitch).
+                            rotationAxis = glm::vec3(1.0f, 0.0f, 0.0f);
+                            rotationAngle = mouseDelta.y * dragSpeed; // Use vertical mouse movement
+                            axisLockActive = true;
+                        }
+                        else if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS) {
+                            // Lock to Skyrim's Y-axis (depth/roll).
+                            rotationAxis = glm::vec3(0.0f, 1.0f, 0.0f);
+                            rotationAngle = -mouseDelta.x * dragSpeed; // Use horizontal mouse movement for roll
+                            axisLockActive = true;
+                        }
+                        else if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
+                            // Lock to Skyrim's Z-axis (up/yaw).
+                            rotationAxis = glm::vec3(0.0f, 0.0f, 1.0f);
+                            rotationAngle = -mouseDelta.x * dragSpeed; // Use horizontal mouse movement for yaw
+                            axisLockActive = true;
+                        }
 
-                        // Apply the combined rotation to the light's current direction vector
-                        light.direction = glm::normalize((rotY * rotX) * light.direction);
+                        if (axisLockActive) {
+                            // Apply the axis-locked rotation directly in Skyrim space.
+                            glm::quat rotation = glm::angleAxis(rotationAngle, rotationAxis);
+                            light.direction = glm::normalize(rotation * light.direction);
+                        }
+                        else {
+                            // --- IMPROVED: Original free-form rotation (relative to camera) ---
+                            // 1. Get the light's direction in the renderer's coordinate space.
+                            glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f));
+
+                            // 2. Create rotation based on camera's axes (which are in renderer space).
+                            glm::quat rotY = glm::angleAxis(mouseDelta.x * dragSpeed, camera.Up);   // Horizontal mouse
+                            glm::quat rotX = glm::angleAxis(mouseDelta.y * dragSpeed, camera.Right); // Vertical mouse
+
+                            // 3. Apply the combined rotation in renderer space.
+                            glm::vec3 newTransformedDir = glm::normalize((rotY * rotX) * transformedDir);
+
+                            // 4. Convert the new direction back to Skyrim space and save it.
+                            // The conversion matrix is its own inverse.
+                            light.direction = glm::normalize(glm::vec3(conversionMatrix * glm::vec4(newTransformedDir, 0.0f)));
+                        }
                     }
 
                     ImGui::PopID();
