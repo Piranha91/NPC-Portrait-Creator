@@ -779,10 +779,12 @@ void Renderer::renderFrame() {
         m_debugLineShader.setMat4("view", originalView);
         glBindVertexArray(m_arrowVAO);
 
-        int lightIndex = 0;
-        for (auto& light : lights) { // Note: now a non-const reference to allow modification
-            if (light.type == 2) {
-                m_debugLineShader.setVec3("lineColor", light.color);
+        int directionalLightCounter = 0; // For UI display numbering
+        for (int i = 0; i < lights.size(); ++i) {
+            if (lights[i].type == 2) { // We only visualize directional lights
+                directionalLightCounter++;
+
+                m_debugLineShader.setVec3("lineColor", lights[i].color);
 
                 glm::mat4 conversionMatrix = glm::mat4(
                     -1.0f, 0.0f, 0.0f, 0.0f,
@@ -790,16 +792,16 @@ void Renderer::renderFrame() {
                     0.0f, 1.0f, 0.0f, 0.0f,
                     0.0f, 0.0f, 0.0f, 1.0f
                 );
-                glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f));
+                glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(lights[i].direction, 0.0f));
                 glm::vec3 arrowPos = camera.Target - (transformedDir * 50.0f);
 
                 glm::mat4 modelMatrix =
                     glm::translate(glm::mat4(1.0f), arrowPos) *
                     glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), glm::normalize(transformedDir))) *
-                    glm::scale(glm::mat4(1.0f), glm::vec3(20.0f * light.intensity));
+                    glm::scale(glm::mat4(1.0f), glm::vec3(20.0f * lights[i].intensity));
 
                 m_debugLineShader.setMat4("model", modelMatrix);
-                glLineWidth(light.intensity * 2.0f + 1.0f);
+                glLineWidth(lights[i].intensity * 2.0f + 1.0f);
                 glDrawArrays(GL_LINES, 0, 10);
 
                 // --- Interaction Logic ---
@@ -808,22 +810,19 @@ void Renderer::renderFrame() {
 
                 if (screenPos.z < 1.0f) {
                     ImGui::SetCursorScreenPos(ImVec2(screenPos.x - 16, screenHeight - screenPos.y - 16));
-                    ImGui::PushID(lightIndex);
+                    ImGui::PushID(i); // Use the absolute and correct index `i`
 
                     // Create the button that the context menu will attach to
                     ImGui::InvisibleButton("##light_handle", ImVec2(32, 32));
 
-                    // --- NEW & IMPROVED CONTEXT MENU ---
-                    // This single block replaces both the old IsItemClicked check and the separate BeginPopup.
-                    // It automatically listens for a right-click on the InvisibleButton above.
+                    // --- Context Menu ---
                     if (ImGui::BeginPopupContextItem("light_context_menu")) {
-                        // Set the interacting index now that the menu is confirmed to be open
-                        m_interactingLightIndex = lightIndex;
+                        m_interactingLightIndex = i; // Store the correct index
 
-                        ImGui::Text("Light #%d", m_interactingLightIndex + 1);
+                        ImGui::Text("Arrow #%d", directionalLightCounter);
                         ImGui::Separator();
-                        ImGui::DragFloat("Intensity", &light.intensity, 0.01f, 0.0f, 10.0f);
-                        ImGui::ColorEdit3("Color", &light.color.r);
+                        ImGui::DragFloat("Intensity", &lights[i].intensity, 0.01f, 0.0f, 10.0f);
+                        ImGui::ColorEdit3("Color", &lights[i].color.r);
                         ImGui::Separator();
 
                         int directionalLightCount = 0;
@@ -831,8 +830,11 @@ void Renderer::renderFrame() {
 
                         if (directionalLightCount > 1) {
                             if (ImGui::MenuItem("Delete Light")) {
-                                lights.erase(lights.begin() + m_interactingLightIndex);
-                                // No need to CloseCurrentPopup, MenuItem click does it
+                                lights.erase(lights.begin() + i); // Use the correct index `i`
+                                // Break the loop immediately since we've modified the vector.
+                                ImGui::EndPopup();
+                                ImGui::PopID();
+                                break;
                             }
                         }
                         else {
@@ -852,11 +854,11 @@ void Renderer::renderFrame() {
                         ImGui::EndPopup();
                     }
 
-                    // Your other logic remains
                     ImGui::GetForegroundDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(255, 255, 0, 255));
 
+                    // --- Dragging Logic ---
                     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-                        m_interactingLightIndex = lightIndex;
+                        m_interactingLightIndex = i; // Use the correct index `i`
 
                         ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
                         float dragSpeed = 0.005f;
@@ -865,55 +867,40 @@ void Renderer::renderFrame() {
                         glm::vec3 rotationAxis;
                         float rotationAngle = 0.0f;
 
-                        // Check for axis-lock keys. The rotation axes are defined in Skyrim's
-                        // coordinate space to match the light.direction vector.
                         if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
-                            // Lock to Skyrim's X-axis (tilt/pitch).
                             rotationAxis = glm::vec3(1.0f, 0.0f, 0.0f);
-                            rotationAngle = mouseDelta.y * dragSpeed; // Use vertical mouse movement
+                            rotationAngle = mouseDelta.y * dragSpeed;
                             axisLockActive = true;
                         }
                         else if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS) {
-                            // Lock to Skyrim's Y-axis (depth/roll).
                             rotationAxis = glm::vec3(0.0f, 1.0f, 0.0f);
-                            rotationAngle = -mouseDelta.x * dragSpeed; // Use horizontal mouse movement for roll
+                            rotationAngle = -mouseDelta.x * dragSpeed;
                             axisLockActive = true;
                         }
                         else if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
-                            // Lock to Skyrim's Z-axis (up/yaw).
                             rotationAxis = glm::vec3(0.0f, 0.0f, 1.0f);
-                            rotationAngle = -mouseDelta.x * dragSpeed; // Use horizontal mouse movement for yaw
+                            rotationAngle = -mouseDelta.x * dragSpeed;
                             axisLockActive = true;
                         }
 
                         if (axisLockActive) {
-                            // Apply the axis-locked rotation directly in Skyrim space.
                             glm::quat rotation = glm::angleAxis(rotationAngle, rotationAxis);
-                            light.direction = glm::normalize(rotation * light.direction);
+                            lights[i].direction = glm::normalize(rotation * lights[i].direction);
                         }
                         else {
-                            // --- IMPROVED: Original free-form rotation (relative to camera) ---
-                            // 1. Get the light's direction in the renderer's coordinate space.
-                            glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f));
-
-                            // 2. Create rotation based on camera's axes (which are in renderer space).
-                            glm::quat rotY = glm::angleAxis(mouseDelta.x * dragSpeed, camera.Up);   // Horizontal mouse
-                            glm::quat rotX = glm::angleAxis(mouseDelta.y * dragSpeed, camera.Right); // Vertical mouse
-
-                            // 3. Apply the combined rotation in renderer space.
+                            glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(lights[i].direction, 0.0f));
+                            glm::quat rotY = glm::angleAxis(mouseDelta.x * dragSpeed, camera.Up);
+                            glm::quat rotX = glm::angleAxis(mouseDelta.y * dragSpeed, camera.Right);
                             glm::vec3 newTransformedDir = glm::normalize((rotY * rotX) * transformedDir);
-
-                            // 4. Convert the new direction back to Skyrim space and save it.
-                            // The conversion matrix is its own inverse.
-                            light.direction = glm::normalize(glm::vec3(conversionMatrix * glm::vec4(newTransformedDir, 0.0f)));
+                            lights[i].direction = glm::normalize(glm::vec3(conversionMatrix * glm::vec4(newTransformedDir, 0.0f)));
                         }
                     }
 
                     ImGui::PopID();
                 }
-                lightIndex++;
             }
         }
+
         glBindVertexArray(0);
         glLineWidth(1.0f);
         glEnable(GL_DEPTH_TEST);
