@@ -863,10 +863,10 @@ void Renderer::renderFrame() {
                         float dragSpeed = 0.005f;
 
                         // Create a rotation for horizontal mouse movement (around the camera's Up axis)
-                        glm::quat rotY = glm::angleAxis(-mouseDelta.x * dragSpeed, camera.Up);
+                        glm::quat rotY = glm::angleAxis(mouseDelta.x * dragSpeed, camera.Up);
 
                         // Create a rotation for vertical mouse movement (around the camera's Right axis)
-                        glm::quat rotX = glm::angleAxis(-mouseDelta.y * dragSpeed, camera.Right);
+                        glm::quat rotX = glm::angleAxis(mouseDelta.y * dragSpeed, camera.Right);
 
                         // Apply the combined rotation to the light's current direction vector
                         light.direction = glm::normalize((rotY * rotX) * light.direction);
