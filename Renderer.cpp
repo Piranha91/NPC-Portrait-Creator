@@ -644,12 +644,12 @@ void Renderer::renderFrame() {
         if (i < lights.size()) {
             shader.setInt(base + ".type", lights[i].type);
             // ============================ FIX START ============================
-            // Transform the light's direction from the NIF's Z-up coordinate system
-            // to the renderer's Y-up system before sending it to the shader.
-            // The shader needs the vector *to* the light, which is the opposite of
-            // the arrow's travel direction. Negate the vector here.
-            glm::vec3 transformedDirection = glm::vec3(conversionMatrix * glm::vec4(lights[i].direction, 0.0f));
-            shader.setVec3(base + ".direction", -transformedDirection);
+            // Send the ORIGINAL, UNMODIFIED light direction to the shader.
+            // The special 'view' uniform already contains the conversion matrix,
+            // so it will correctly transform both the model's normals AND the
+            // light's direction in the same way.
+            // We still negate the vector to get the direction *to* the light source.
+            shader.setVec3(base + ".direction", -lights[i].direction);
             // ============================= FIX END =============================
 
             shader.setVec3(base + ".color", lights[i].color);
