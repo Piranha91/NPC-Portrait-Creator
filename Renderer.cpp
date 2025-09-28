@@ -629,12 +629,29 @@ void Renderer::renderFrame() {
     shader.use();
 
     // --- SET LIGHT UNIFORMS ---
+    // This is the conversion matrix that correctly transforms the model for rendering.
+    // We will now use it for the light direction as well.
+    glm::mat4 conversionMatrix = glm::mat4(
+        -1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    );
+
     int maxLights = 5; // Should match shader's MAX_LIGHTS
     for (int i = 0; i < maxLights; ++i) {
         std::string base = "lights[" + std::to_string(i) + "]";
         if (i < lights.size()) {
             shader.setInt(base + ".type", lights[i].type);
-            shader.setVec3(base + ".direction", lights[i].direction);
+            // ============================ FIX START ============================
+            // Transform the light's direction from the NIF's Z-up coordinate system
+            // to the renderer's Y-up system before sending it to the shader.
+            // The shader needs the vector *to* the light, which is the opposite of
+            // the arrow's travel direction. Negate the vector here.
+            glm::vec3 transformedDirection = glm::vec3(conversionMatrix * glm::vec4(lights[i].direction, 0.0f));
+            shader.setVec3(base + ".direction", -transformedDirection);
+            // ============================= FIX END =============================
+
             shader.setVec3(base + ".color", lights[i].color);
             shader.setFloat(base + ".intensity", lights[i].intensity);
         }
@@ -649,12 +666,6 @@ void Renderer::renderFrame() {
 
     // 2. Create a modified view matrix specifically for the NIF model
     glm::mat4 modelView = originalView;
-    glm::mat4 conversionMatrix = glm::mat4(
-        -1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f
-    );
     modelView = modelView * conversionMatrix;
 
     // --- END OF CHANGES ---
