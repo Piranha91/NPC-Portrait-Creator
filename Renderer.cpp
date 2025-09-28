@@ -578,26 +578,6 @@ void Renderer::renderUI() {
 
         ImGui::EndMainMenuBar();
     }
-
-    if (ImGui::BeginPopup("light_context_menu")) {
-        if (m_interactingLightIndex != -1 && m_interactingLightIndex < lights.size()) {
-            Light& light = lights[m_interactingLightIndex]; // Get a reference to the light
-
-            ImGui::Text("Light #%d", m_interactingLightIndex + 1);
-            ImGui::Separator();
-
-            // Add a slider for intensity
-            if (ImGui::DragFloat("Intensity", &light.intensity, 0.01f, 0.0f, 10.0f)) {
-                // Optional: Actions to take while dragging, like saving
-            }
-
-            // Add a color picker
-            if (ImGui::ColorEdit3("Color", &light.color.r)) {
-                // Optional: Actions to take while changing color
-            }
-        }
-        ImGui::EndPopup();
-    }
 }
 
 void Renderer::shutdownUI() {
@@ -727,7 +707,13 @@ void Renderer::renderFrame() {
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
         ImGui::Begin("LightInteractionOverlay", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-        // --- Drawing Logic (remains mostly the same) ---
+        // --- NEW: Logging Logic ---
+        // Check if a right-click occurred anywhere in this overlay window
+        bool rightClickHappened = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+        // This flag will track if the click landed on a button
+        bool clickWasOnHandle = false;
+
+        // --- Drawing Logic ---
         glDisable(GL_DEPTH_TEST);
         m_debugLineShader.use();
         m_debugLineShader.setMat4("projection", projection);
@@ -757,41 +743,76 @@ void Renderer::renderFrame() {
                 glLineWidth(light.intensity * 2.0f + 1.0f);
                 glDrawArrays(GL_LINES, 0, 10);
 
-                // --- NEW: Interaction Logic ---
-                // Project the 3D arrow position to 2D screen coordinates
+                // --- Interaction Logic ---
                 glm::vec4 viewport = glm::vec4(0, 0, screenWidth, screenHeight);
                 glm::vec3 screenPos = glm::project(arrowPos, originalView, projection, viewport);
 
-                if (screenPos.z < 1.0f) { // Only interact with arrows in front of the camera
-                    ImGui::SetCursorScreenPos(ImVec2(screenPos.x - 16, screenHeight - screenPos.y - 16)); // Center the button, flipping the Y-axis
+                if (screenPos.z < 1.0f) {
+                    ImGui::SetCursorScreenPos(ImVec2(screenPos.x - 16, screenHeight - screenPos.y - 16));
+                    ImGui::PushID(lightIndex);
 
-                    ImGui::PushID(lightIndex); // Give each button a unique ID
+                    // Create the button that the context menu will attach to
                     ImGui::InvisibleButton("##light_handle", ImVec2(32, 32));
 
-                    //if (ImGui::IsItemHovered()) { // Only draw when the mouse is over it
-                        ImGui::GetForegroundDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(255, 255, 0, 255));
-                    //}
-
-                    // Handle Right-Click for Context Menu
-                    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    // --- NEW & IMPROVED CONTEXT MENU ---
+                    // This single block replaces both the old IsItemClicked check and the separate BeginPopup.
+                    // It automatically listens for a right-click on the InvisibleButton above.
+                    if (ImGui::BeginPopupContextItem("light_context_menu")) {
+                        // Set the interacting index now that the menu is confirmed to be open
                         m_interactingLightIndex = lightIndex;
-                        ImGui::OpenPopup("light_context_menu");
+
+                        ImGui::Text("Light #%d", m_interactingLightIndex + 1);
+                        ImGui::Separator();
+                        ImGui::DragFloat("Intensity", &light.intensity, 0.01f, 0.0f, 10.0f);
+                        ImGui::ColorEdit3("Color", &light.color.r);
+                        ImGui::Separator();
+
+                        int directionalLightCount = 0;
+                        for (const auto& l : lights) { if (l.type == 2) { directionalLightCount++; } }
+
+                        if (directionalLightCount > 1) {
+                            if (ImGui::MenuItem("Delete Light")) {
+                                lights.erase(lights.begin() + m_interactingLightIndex);
+                                // No need to CloseCurrentPopup, MenuItem click does it
+                            }
+                        }
+                        else {
+                            ImGui::TextDisabled("Delete Light");
+                            if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Cannot delete the last directional light."); }
+                        }
+
+                        if (ImGui::MenuItem("Add New Light")) {
+                            Light newLight;
+                            newLight.type = 2;
+                            newLight.direction = glm::vec3(0.0f, 0.0f, -1.0f);
+                            newLight.color = glm::vec3(1.0f, 1.0f, 1.0f);
+                            newLight.intensity = 0.8f;
+                            lights.push_back(newLight);
+                        }
+
+                        ImGui::EndPopup();
                     }
 
-                    // Handle Left-Click Drag for Direction
+                    // Your other logic remains
+                    ImGui::GetForegroundDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(255, 255, 0, 255));
+
                     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
                         m_interactingLightIndex = lightIndex;
 
+                        // Get how much the mouse has moved since the last frame
                         ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
                         float dragSpeed = 0.005f;
 
-                        // Create quaternions for the rotation delta based on mouse movement
+                        // Create a rotation for horizontal mouse movement (around the camera's Up axis)
                         glm::quat rotY = glm::angleAxis(-mouseDelta.x * dragSpeed, camera.Up);
+
+                        // Create a rotation for vertical mouse movement (around the camera's Right axis)
                         glm::quat rotX = glm::angleAxis(-mouseDelta.y * dragSpeed, camera.Right);
 
-                        // Apply the rotation delta to the light's CURRENT direction
+                        // Apply the combined rotation to the light's current direction vector
                         light.direction = glm::normalize((rotY * rotX) * light.direction);
                     }
+
                     ImGui::PopID();
                 }
                 lightIndex++;
@@ -800,6 +821,13 @@ void Renderer::renderFrame() {
         glBindVertexArray(0);
         glLineWidth(1.0f);
         glEnable(GL_DEPTH_TEST);
+
+        // --- NEW: Logging Logic ---
+        // If a right click happened but it wasn't on any of the handles, log it.
+        if (rightClickHappened && !clickWasOnHandle) {
+            std::cout << "Right click detected | Not on Light Interaction Box" << std::endl;
+        }
+
         ImGui::End(); // End the overlay window
     }
 
