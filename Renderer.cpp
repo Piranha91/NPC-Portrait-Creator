@@ -90,11 +90,21 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
     lastX(width / 2.0f), lastY(height / 2.0f),
     backgroundColor(0.227f, 0.239f, 0.251f),
     appDirectory(app_dir),
-    assetManager(), // Default construct AssetManager
-    textureManager(assetManager) // Pass the AssetManager reference to the TextureManager
-{
-    configPath = (std::filesystem::path(appDirectory) / "NPC_Portrait_Creator.json").string();
-}
+    assetManager(),
+    textureManager(assetManager),
+    // CORRECTED: Use only one set of {} braces inside the () parentheses
+    m_arrowVertices({
+    // Shaft
+    {0.0f, 0.0f,  0.5f}, {0.0f, 0.0f, -0.5f},
+    // Head
+    {0.0f, 0.0f, -0.5f}, { 0.2f,  0.2f, -0.2f},
+    {0.0f, 0.0f, -0.5f}, {-0.2f,  0.2f, -0.2f},
+    {0.0f, 0.0f, -0.5f}, {-0.2f, -0.2f, -0.2f},
+    {0.0f, 0.0f, -0.5f}, { 0.2f, -0.2f, -0.2f}
+        }) 
+    {
+        configPath = (std::filesystem::path(appDirectory) / "NPC_Portrait_Creator.json").string();
+    }
 
 Renderer::~Renderer() {
     glDeleteVertexArrays(1, &m_arrowVAO);
@@ -192,24 +202,12 @@ void Renderer::init(bool headless) {
     depthShader.load("shaders/depth_shader.vert", "shaders/depth_shader.frag");
     m_debugLineShader.load("shaders/debug_line.vert", "shaders/debug_line.frag"); // <-- LOAD THE NEW SHADER
 
-    // --- SETUP ARROW GEOMETRY ---
-    float arrowVertices[] = {
-        // Shaft (1 line)
-        0.0f, 0.0f,  0.5f,
-        0.0f, 0.0f, -0.5f,
-        // Head (4 lines)
-        0.0f, 0.0f, -0.5f,  0.2f, 0.2f, -0.2f,
-        0.0f, 0.0f, -0.5f, -0.2f, 0.2f, -0.2f,
-        0.0f, 0.0f, -0.5f, -0.2f,-0.2f, -0.2f,
-        0.0f, 0.0f, -0.5f,  0.2f,-0.2f, -0.2f
-    };
-
     glGenVertexArrays(1, &m_arrowVAO);
     glGenBuffers(1, &m_arrowVBO);
 
     glBindVertexArray(m_arrowVAO);
     glBindBuffer(GL_ARRAY_BUFFER, m_arrowVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(arrowVertices), arrowVertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, m_arrowVertices.size() * sizeof(glm::vec3), m_arrowVertices.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -698,6 +696,67 @@ void Renderer::renderFrame() {
             }
         }
         std::cout << "--------------------------------------------------------" << std::endl;
+
+        // 1. Define the current view-projection matrix for calculations
+        glm::mat4 view = camera.GetViewMatrix();
+        glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)screenWidth / (float)screenHeight, 10.0f, 10000.0f);
+        glm::mat4 viewProjection = proj * view;
+
+        // 2. We will find the single maximum zoom factor required.
+        float maxZoomFactor = 1.0f;
+
+        // 3. Pre-calculate the UI box padding in NDC space
+        float box_half_width_ndc = 16.0f / (screenWidth / 2.0f);
+        float box_half_height_ndc = 16.0f / (screenHeight / 2.0f);
+
+        for (const auto& light : lights) {
+            if (light.type == 2) {
+                // --- CRITICAL: Please ensure your matrix definition matches this exactly ---
+                glm::mat4 conversionMatrix = glm::mat4(
+                    -1.0f, 0.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 1.0f, 0.0f,
+                    0.0f, 1.0f, 0.0f, 0.0f,
+                    0.0f, 0.0f, 0.0f, 1.0f
+                );
+
+                // Calculate the arrow's full model matrix, just like the drawing logic
+                glm::vec3 transformedDir = glm::normalize(glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f)));
+                glm::vec3 arrowPos = camera.Target - (transformedDir * 50.0f);
+                glm::mat4 modelMatrix =
+                    glm::translate(glm::mat4(1.0f), arrowPos) *
+                    glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), transformedDir)) *
+                    glm::scale(glm::mat4(1.0f), glm::vec3(20.0f * light.intensity));
+
+                // Helper lambda to get the required zoom for a single 3D point
+                auto getRequiredZoomForPoint = [&](const glm::vec3& worldPos) -> float {
+                    glm::vec4 clipPos = viewProjection * glm::vec4(worldPos, 1.0f);
+
+                    if (clipPos.w <= 0.0f) { return 1.0f; }
+
+                    glm::vec3 ndcPos = glm::vec3(clipPos) / clipPos.w;
+                    float requiredX = abs(ndcPos.x) + box_half_width_ndc;
+                    float requiredY = abs(ndcPos.y) + box_half_height_ndc;
+                    return std::max(requiredX, requiredY);
+                    };
+
+                // --- NEW: Iterate over every single vertex of the arrow model ---
+                for (const auto& localVertex : m_arrowVertices) {
+                    glm::vec3 worldPos = glm::vec3(modelMatrix * glm::vec4(localVertex, 1.0));
+                    maxZoomFactor = std::max(maxZoomFactor, getRequiredZoomForPoint(worldPos));
+                }
+            }
+        }
+
+        // 5. If the max required zoom is greater than 1.0, apply it
+        if (maxZoomFactor > 1.0f) {
+            float finalZoomFactor = maxZoomFactor * 1.25f;
+
+            std::cout << "[Auto-Zoom] Arrows out of view. Zooming out by a factor of "
+                << finalZoomFactor << " (base: " << maxZoomFactor << " * 1.25 margin)." << std::endl;
+
+            camera.Radius *= finalZoomFactor;
+            camera.updateCameraVectors();
+        }
     }
 
     // The drawing logic remains here, so the arrows are drawn every frame

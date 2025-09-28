@@ -13,6 +13,8 @@
 #include "Version.h"
 #include <chrono> 
 #include <nlohmann/json.hpp>
+#include <vector>       // Add this include
+#include <glm/glm.hpp>  // Add this include
 
 struct GLFWwindow;
 enum class SkeletonType { None, Female, Male, FemaleBeast, MaleBeast, Custom };
@@ -155,6 +157,7 @@ private:
     // Arrow resources
     unsigned int m_arrowVAO;      // <-- Add this
     unsigned int m_arrowVBO;      // <-- Add this
+    const std::vector<glm::vec3> m_arrowVertices;
 
     // UI State
     bool m_visualizeLights = false; // <-- Add this
