@@ -137,6 +137,7 @@ private:
 
     // --- Centralized FOV ---
     float m_cameraFovY = 25.0f; // Vertical Field of View in degrees
+    float m_mugshotFrameHeight = 0.0f; // Stores the calculated height for framing
 
     // Camera settings
     float camX = 0.0f, camY = 0.0f, camZ = 0.0f;

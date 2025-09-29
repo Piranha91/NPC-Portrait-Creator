@@ -528,7 +528,26 @@ void Renderer::renderUI() {
             ImGui::EndMenu();
         }
         if (model && ImGui::BeginMenu("View")) {
-            // --- MOVE THE MESH PARTS HEADER HERE ---
+            ImGui::SeparatorText("Camera");
+
+            // When the slider is moved, recalculate camera distance to maintain framing
+            if (ImGui::SliderFloat("Field of View", &m_cameraFovY, 10.0f, 90.0f, "%.1f deg")) {
+                if (m_mugshotFrameHeight > 0.0f) {
+                    const float fovYRadians = glm::radians(m_cameraFovY);
+                    camera.Radius = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
+                    camera.updateCameraVectors();
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Reset")) {
+                m_cameraFovY = 25.0f; // Reset to default
+                if (m_mugshotFrameHeight > 0.0f) {
+                    const float fovYRadians = glm::radians(m_cameraFovY);
+                    camera.Radius = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
+                    camera.updateCameraVectors();
+                }
+            }
+            ImGui::Separator();
             // We removed ImGuiTreeNodeFlags_DefaultOpen to make it start collapsed.
             if (ImGui::CollapsingHeader("Mesh Parts")) {
 
@@ -1135,11 +1154,12 @@ void Renderer::loadNifModel(const std::string& path) {
             // --- MODIFICATION END ---
 
             float frameHeight = frameTop_Yup - frameBottom_Yup;
+            m_mugshotFrameHeight = frameHeight;
             float frameCenterY = (frameTop_Yup + frameBottom_Yup) / 2.0f;
 
             // 4. Calculate required camera distance based on the vertical frame ONLY
             const float fovYRadians = glm::radians(m_cameraFovY);
-            float distanceForHeight = (frameHeight / 2.0f) / tan(fovYRadians / 2.0f);
+            float distanceForHeight = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
             // 5. Set camera properties
             camera.Radius = distanceForHeight;
             camera.Target = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
