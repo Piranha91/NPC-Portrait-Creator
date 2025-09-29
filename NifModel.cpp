@@ -851,7 +851,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         // Input: Vertex in shape's local model space (Z-up)
         // Transformation: model_matrix = (NIF Root -> World Y-up) * (Shape Local -> NIF Root Z-up)
         // Output: Vertex in renderer's world space (Y-up)
-        shader.setMat4("model", nifRootToWorld_conversionMatrix_zUpToYUp * shape.shapeLocalToNifRoot_transform_zUp);
+        shader.setMat4("u_model_localToWorld", nifRootToWorld_conversionMatrix_zUpToYUp * shape.shapeLocalToNifRoot_transform_zUp);
 
         shader.setBool("is_eye", shape.isEye);
         shader.setBool("is_model_space", shape.isModelSpace); // Set model space uniform
@@ -1037,7 +1037,7 @@ void NifModel::drawDepthOnly(Shader& depthShader) {
         // Input: Vertex in shape's local model space (Z-up)
         // Transformation: model_matrix = (Shape Local -> NIF Root Z-up)
         // Output: Vertex in NIF's root space (Z-up), ready for the Z-up light-space projection.
-        depthShader.setMat4("model", shape.shapeLocalToNifRoot_transform_zUp);
+        depthShader.setMat4("u_modelToNifRoot_transform_zUp", shape.shapeLocalToNifRoot_transform_zUp);
         depthShader.setBool("uIsSkinned", shape.isSkinned);
 
         if (shape.isSkinned && !shape.skinToBonePose_transforms_zUp.empty()) {

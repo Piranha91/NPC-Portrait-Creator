@@ -766,8 +766,8 @@ void Renderer::renderFrame() {
     }
 
     // 3. SET THE REST OF THE UNIFORMS
-    shader.setMat4("projection", cameraProjection_yUp);
-    shader.setMat4("view", cameraView_yUp);
+    shader.setMat4("u_proj_viewToClip", cameraProjection_yUp);
+    shader.setMat4("u_view_worldToView", cameraView_yUp);
     shader.setVec3("viewPos", camera.Position_worldSpace_yUp);
     shader.setMat4("lightSpaceMatrix", lightSpace_transform_zUp);
 
@@ -893,8 +893,8 @@ void Renderer::renderFrame() {
         // --- Drawing Logic ---
         glDisable(GL_DEPTH_TEST);
         m_debugLineShader.use();
-        m_debugLineShader.setMat4("projection", cameraProjection_yUp); // <-- Use the correct projection matrix
-        m_debugLineShader.setMat4("view", cameraView_yUp);
+        m_debugLineShader.setMat4("u_proj_viewToClip_yUp", cameraProjection_yUp);
+        m_debugLineShader.setMat4("u_view_worldToView_yUp", cameraView_yUp);
         glBindVertexArray(m_arrowVAO);
 
         int directionalLightCounter = 0; // For UI display numbering
@@ -922,7 +922,7 @@ void Renderer::renderFrame() {
                     glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), glm::normalize(lightDir_worldSpace_yUp))) *
                     glm::scale(glm::mat4(1.0f), glm::vec3(20.0f * lights[i].intensity));
 
-                m_debugLineShader.setMat4("model", arrowModel_transform_yUp);
+                m_debugLineShader.setMat4("u_model_localToWorld_yUp", arrowModel_transform_yUp);
                 glLineWidth(lights[i].intensity * 2.0f + 1.0f);
                 glDrawArrays(GL_LINES, 0, 10);
 
