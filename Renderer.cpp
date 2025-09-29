@@ -527,6 +527,39 @@ void Renderer::renderUI() {
             }
             ImGui::EndMenu();
         }
+
+        if (ImGui::BeginMenu("Lighting")) {
+            ImGui::SeparatorText("Ambient Light");
+
+            // Find the first ambient light to control
+            Light* ambientLight = nullptr;
+            auto it = std::find_if(lights.begin(), lights.end(), [](const Light& l) { return l.type == 1; });
+            if (it != lights.end()) {
+                ambientLight = &(*it);
+            }
+
+            if (ambientLight) {
+                // If an ambient light exists, show controls for it
+                ImGui::ColorEdit3("Color", &ambientLight->color.r);
+                ImGui::DragFloat("Intensity", &ambientLight->intensity, 0.01f, 0.0f, 10.0f);
+            }
+            else {
+                // If no ambient light exists, show a button to add one
+                if (ImGui::Button("Add Ambient Light")) {
+                    Light newLight;
+                    newLight.type = 1; // Ambient type
+                    newLight.color = glm::vec3(0.15f, 0.15f, 0.15f);
+                    newLight.intensity = 1.0f;
+                    lights.push_back(newLight);
+                }
+            }
+
+            ImGui::SeparatorText("Directional Lights");
+            ImGui::Checkbox("Edit Directional Lights", &m_visualizeLights);
+
+            ImGui::EndMenu();
+        }
+
         if (model && ImGui::BeginMenu("View")) {
             ImGui::SeparatorText("Camera");
 
@@ -588,8 +621,6 @@ void Renderer::renderUI() {
                 create_checkboxes("Alpha-Test Parts", model->getAlphaTestShapes());
                 create_checkboxes("Transparent Parts", model->getTransparentShapes());
             }
-            ImGui::Separator();
-            ImGui::Checkbox("Visualize Lights", &m_visualizeLights);
             ImGui::EndMenu();
         }
 
