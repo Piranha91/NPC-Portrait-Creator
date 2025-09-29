@@ -135,6 +135,9 @@ private:
     GLuint depthMapTexture;
     const unsigned int SHADOW_WIDTH = 2048, SHADOW_HEIGHT = 2048;
 
+    // --- Centralized FOV ---
+    float m_cameraFovY = 25.0f; // Vertical Field of View in degrees
+
     // Camera settings
     float camX = 0.0f, camY = 0.0f, camZ = 0.0f;
     float camPitch = 0.0f, camYaw = 0.0f;

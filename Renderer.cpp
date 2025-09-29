@@ -660,7 +660,7 @@ void Renderer::renderFrame() {
         }
     }
 
-    glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)screenWidth / (float)screenHeight, 10.0f, 10000.0f);
+    glm::mat4 projection = glm::perspective(glm::radians(m_cameraFovY), (float)screenWidth / (float)screenHeight, 10.0f, 10000.0f);
     // 1. Get the original, unmodified view matrix from the camera
     glm::mat4 originalView = camera.GetViewMatrix();
 
@@ -1138,7 +1138,7 @@ void Renderer::loadNifModel(const std::string& path) {
             float frameCenterY = (frameTop_Yup + frameBottom_Yup) / 2.0f;
 
             // 4. Calculate required camera distance based on the vertical frame ONLY
-            const float fovYRadians = glm::radians(45.0f);
+            const float fovYRadians = glm::radians(m_cameraFovY);
             float distanceForHeight = (frameHeight / 2.0f) / tan(fovYRadians / 2.0f);
             // 5. Set camera properties
             camera.Radius = distanceForHeight;
