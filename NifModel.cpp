@@ -42,6 +42,100 @@ glm::vec3 CalculateCentroid(const std::vector<Vertex>& vertices) {
     return sum / static_cast<float>(vertices.size());
 }
 
+struct ShaderFlagSet {
+    // Flags from shaderFlags1 (SLSF1)
+    bool SLSF1_Specular = false;
+    bool SLSF1_Skinned = false;
+    bool SLSF1_Environment_Mapping = false;
+    bool SLSF1_Hair_Soft_Lighting = false;
+    bool SLSF1_Receive_Shadows = false;
+    bool SLSF1_Cast_Shadows = false;
+    bool SLSF1_Eye_Environment_Mapping = false;
+    bool SLSF1_Decal = false;
+    bool SLSF1_Own_Emit = false;
+    bool SLSF1_Vertex_Alpha = false;
+    bool SLSF1_Model_Space_Normals = false;
+    bool SLSF1_FaceGen_Detail_Map = false;
+
+    // Flags from shaderFlags2 (SLSF2)
+    bool SLSF2_ZBuffer_Write = false;
+    bool SLSF2_Packed_Tangent = false;
+    bool SLSF2_Double_Sided = false;
+    bool SLSF2_Remappable_Textures = false;
+    bool SLSF2_Vertex_Colors = false;
+    bool SLSF2_Assume_Shadowmask = false;
+    bool SLSF2_Soft_Lighting = false;
+    bool SLSF2_EnvMap_Light_Fade = false;
+};
+
+// Parses the raw integer shader flags into a structured ShaderFlagSet.
+ShaderFlagSet ParseShaderFlags(uint32_t shaderFlags1, uint32_t shaderFlags2) {
+    ShaderFlagSet flags;
+
+    // --- Parse shaderFlags1 ---
+    flags.SLSF1_Specular = (shaderFlags1 >> 0) & 1;
+    flags.SLSF1_Skinned = (shaderFlags1 >> 1) & 1;
+    flags.SLSF1_Environment_Mapping = (shaderFlags1 >> 2) & 1;
+    flags.SLSF1_Hair_Soft_Lighting = (shaderFlags1 >> 3) & 1;
+    flags.SLSF1_Receive_Shadows = (shaderFlags1 >> 7) & 1;
+    flags.SLSF1_Cast_Shadows = (shaderFlags1 >> 8) & 1;
+    flags.SLSF1_Eye_Environment_Mapping = (shaderFlags1 >> 10) & 1;
+    flags.SLSF1_Decal = (shaderFlags1 >> 11) & 1;
+    flags.SLSF1_Own_Emit = (shaderFlags1 >> 14) & 1;
+    flags.SLSF1_Vertex_Alpha = (shaderFlags1 >> 24) & 1;
+    flags.SLSF1_Model_Space_Normals = (shaderFlags1 >> 28) & 1;
+    flags.SLSF1_FaceGen_Detail_Map = (shaderFlags1 >> 30) & 1;
+
+    // --- Parse shaderFlags2 ---
+    flags.SLSF2_ZBuffer_Write = (shaderFlags2 >> 0) & 1;
+    flags.SLSF2_Packed_Tangent = (shaderFlags2 >> 1) & 1;
+    flags.SLSF2_Double_Sided = (shaderFlags2 >> 4) & 1;
+    flags.SLSF2_Remappable_Textures = (shaderFlags2 >> 5) & 1;
+    flags.SLSF2_Vertex_Colors = (shaderFlags2 >> 7) & 1;
+    flags.SLSF2_Assume_Shadowmask = (shaderFlags2 >> 10) & 1;
+    flags.SLSF2_Soft_Lighting = (shaderFlags2 >> 13) & 1;
+    flags.SLSF2_EnvMap_Light_Fade = (shaderFlags2 >> 25) & 1;
+
+    return flags;
+}
+
+// Helper function to decode a 32-bit integer of shader flags into a string
+std::string GetFlagsString(const ShaderFlagSet& flags, int set_number) {
+    std::stringstream ss;
+    bool first = true;
+    auto add_flag = [&](const std::string& name) {
+        if (!first) ss << " | ";
+        ss << name;
+        first = false;
+        };
+
+    if (set_number == 1) { // Stringify SLSF1 flags
+        if (flags.SLSF1_Specular)              add_flag("SLSF1_Specular");
+        if (flags.SLSF1_Skinned)               add_flag("SLSF1_Skinned");
+        if (flags.SLSF1_Environment_Mapping)   add_flag("SLSF1_Environment_Mapping");
+        if (flags.SLSF1_Hair_Soft_Lighting)    add_flag("SLSF1_Hair_Soft_Lighting");
+        if (flags.SLSF1_Receive_Shadows)       add_flag("SLSF1_Receive_Shadows");
+        if (flags.SLSF1_Cast_Shadows)          add_flag("SLSF1_Cast_Shadows");
+        if (flags.SLSF1_Eye_Environment_Mapping) add_flag("SLSF1_Eye_Environment_Mapping");
+        if (flags.SLSF1_Decal)                 add_flag("SLSF1_Decal");
+        if (flags.SLSF1_Own_Emit)              add_flag("SLSF1_Own_Emit");
+        if (flags.SLSF1_Vertex_Alpha)          add_flag("SLSF1_Vertex_Alpha");
+        if (flags.SLSF1_Model_Space_Normals)   add_flag("SLSF1_Model_Space_Normals");
+        if (flags.SLSF1_FaceGen_Detail_Map)    add_flag("SLSF1_FaceGen_Detail_Map");
+    }
+    else { // Stringify SLSF2 flags
+        if (flags.SLSF2_ZBuffer_Write)         add_flag("SLSF2_ZBuffer_Write");
+        if (flags.SLSF2_Packed_Tangent)        add_flag("SLSF2_Packed_Tangent");
+        if (flags.SLSF2_Double_Sided)          add_flag("SLSF2_Double_Sided");
+        if (flags.SLSF2_Remappable_Textures)   add_flag("SLSF2_Remappable_Textures");
+        if (flags.SLSF2_Vertex_Colors)         add_flag("SLSF2_Vertex_Colors");
+        if (flags.SLSF2_Assume_Shadowmask)     add_flag("SLSF2_Assume_Shadowmask");
+        if (flags.SLSF2_Soft_Lighting)         add_flag("SLSF2_Soft_Lighting");
+        if (flags.SLSF2_EnvMap_Light_Fade)     add_flag("SLSF2_EnvMap_Light_Fade");
+    }
+    return ss.str();
+}
+
 // Helper function to get the full world transform of any scene graph object (Node or Shape)
 nifly::MatTransform GetAVObjectTransformToGlobal(const nifly::NifFile& nifFile, nifly::NiAVObject* obj, bool debugMode = false) {
     if (!obj) {
@@ -482,6 +576,11 @@ found_head:
         }
 
         if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
+            ShaderFlagSet flags = ParseShaderFlags(bslsp->shaderFlags1, bslsp->shaderFlags2);
+		    std::cout << "    [Flag Parse] Parsed shader flags for shape '" << mesh.name << " (Debug Only; these are not all used for rendering)':\n";
+            std::cout << "    [Flag Parse] shaderFlags1 (raw: " << bslsp->shaderFlags1 << "): " << GetFlagsString(flags, 1) << "\n";
+            std::cout << "    [Flag Parse] shaderFlags2 (raw: " << bslsp->shaderFlags2 << "): " << GetFlagsString(flags, 2) << "\n";
+
             if (bslsp->shaderFlags1 & (1U << 0)) { // (1U << 0) is the mask for SLSF1_Specular
                 mesh.hasSpecularFlag = true;
                 if (debugMode) {
