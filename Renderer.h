@@ -61,6 +61,7 @@ public:
     void setAbsoluteCamera(float x, float y, float z, float p, float yw) {
         camX = x; camY = y; camZ = z; camPitch = p; camYaw = yw;
     }
+    void setFov(float fov) { m_cameraFovY = fov; }
     void setLightingProfile(const std::string& path) { lightingProfilePath = path; }
     void setLightingProfileFromJsonString(const std::string& jsonString);
     bool TryParseLightingJson(const std::string& jsonString, std::vector<Light>& outLights) const;

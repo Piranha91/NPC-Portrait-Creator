@@ -1537,6 +1537,8 @@ void Renderer::loadConfig() {
             }
         }
 
+        m_cameraFovY = data.value("camera_fov", 25.0f); // Default to 25 if not found
+
         // Load camera settings
         camX = data.value("camX", 0.0f);
         camY = data.value("camY", 0.0f);
@@ -1586,6 +1588,7 @@ void Renderer::saveConfig() {
         data["image_resolution_y"] = imageYRes;
 
         data["background_color"] = { backgroundColor.r, backgroundColor.g, backgroundColor.b };
+        data["camera_fov"] = m_cameraFovY;
 
         data["lighting_profile_path"] = lightingProfilePath;
 

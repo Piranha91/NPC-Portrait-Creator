@@ -50,6 +50,7 @@ int main(int argc, char** argv) {
         ("imgX", "Horizontal resolution of the output PNG", cxxopts::value<int>())
         ("imgY", "Vertical resolution of the output PNG", cxxopts::value<int>())
         ("bgcolor", "Background R,G,B color (e.g. \"0.1,0.5,1.0\")", cxxopts::value<std::string>())
+        ("fov", "Camera vertical Field of View in degrees", cxxopts::value<float>())
         ("v,version", "Print the program version and exit")
         ("h,help", "Print usage");
     auto result = options.parse(argc, argv);
@@ -94,6 +95,9 @@ int main(int argc, char** argv) {
         }
         if (result.count("imgY")) {
             renderer.setImageResolutionY(result["imgY"].as<int>());
+        }
+        if (result.count("fov")) {
+            renderer.setFov(result["fov"].as<float>());
         }
 
         // Always override camera if specified on command line
