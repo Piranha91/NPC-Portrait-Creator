@@ -126,9 +126,22 @@ private:
     void loadLightingProfile(const std::string& path);
     void saveLightingProfile(const std::string& path);
 
-    // -- - NEW: Light Interaction State-- -
+    // --- Light Interaction State-- -
     int m_interactingLightIndex = -1; // -1 means no light is being interacted with
     glm::vec3 m_originalDragDirection;    // Stores the light's direction when a drag begins
+
+    // --- Texture Slot Toggles ---
+    struct TextureToggleState {
+        bool diffuse = true;
+        bool normal = true;
+        bool skin = true;
+        bool detail = true;
+        bool specular = true;
+        bool faceTint = true;
+        bool environment = true;
+        bool emissive = true;
+    };
+    TextureToggleState m_textureToggles;
 
     // --- Shadow Mapping Members ---
     GLuint depthMapFBO;

@@ -42,6 +42,15 @@ uniform bool is_envmap_cube;
 uniform bool has_env_mask;
 uniform bool use_alpha_test;
 
+uniform bool u_useDiffuseMap;
+uniform bool u_useNormalMap;
+uniform bool u_useSkinMap;
+uniform bool u_useDetailMap;
+uniform bool u_useSpecularMap;
+uniform bool u_useFaceTintMap;
+uniform bool u_useEnvironmentMap;
+uniform bool u_useEmissive;
+
 uniform float alpha_threshold;
 uniform float envMapScale;
 
@@ -91,7 +100,10 @@ float calculateShadow(vec4 fragPosLightSpace)
 
 void main()
 {    
-    vec4 baseColor = texture(texture_diffuse1, TexCoords);
+    vec4 baseColor = vec4(1.0); // Default to white if diffuse map is off
+    if (u_useDiffuseMap) {
+        baseColor = texture(texture_diffuse1, TexCoords);
+    }
     baseColor.rgb *= vertexColor.rgb;
     baseColor.a *= vertexColor.a;
 
@@ -103,14 +115,14 @@ void main()
         baseColor.rgb *= tint_color;
     }
 
-    if (has_face_tint_map) {
+    if (has_face_tint_map && u_useFaceTintMap) {
         vec4 tintSample = texture(texture_face_tint, TexCoords);
         baseColor.rgb = mix(baseColor.rgb, tintSample.rgb, tintSample.a);
     }
 
     // --- NORMAL CALCULATION ---
     vec3 finalNormal;
-    if (has_normal_map) {
+    if (has_normal_map && u_useNormalMap) {
         // Sample the normal map. 
         vec3 normal_tangent = texture(texture_normal, TexCoords).rgb;
         
@@ -160,7 +172,7 @@ void main()
             vec3 diffuse = diffuseStrength * lightColor;
 
             vec3 specular = vec3(0.0);
-            if (has_specular) {
+            if (has_specular && u_useSpecularMap) {
                 float specularStrength = 1.0;
                 if (has_specular_map) {
                     specularStrength = texture(texture_specular, TexCoords).r;
@@ -180,17 +192,17 @@ void main()
     
     // Apply subsurface scattering and detail maps after main lighting
     vec3 subsurfaceColor = vec3(0.0);
-    if (has_skin_map) {
+    if (has_skin_map && u_useSkinMap) {
         subsurfaceColor = texture(texture_skin, TexCoords).r * vec3(1.0, 0.3, 0.2);
         finalColor += subsurfaceColor * baseColor.rgb;
     }
     
-    if (has_detail_map) {
+    if (has_detail_map && u_useDetailMap) {
         vec3 detailColor = texture(texture_detail, TexCoords).rgb;
         finalColor = mix(finalColor, detailColor, 0.3);
     }
 
-    if (has_eye_environment_map && is_envmap_cube) {
+    if (has_eye_environment_map && is_envmap_cube && u_useEnvironmentMap) {
         // --- Eye-Specific Cubemap Reflection ---
         vec3 viewDir = normalize(-FragPos);
         vec3 reflectDir = reflect(-viewDir, finalNormal);
@@ -200,7 +212,7 @@ void main()
         // Eye reflections are typically direct and bright
         finalColor += envColor * envMapScale;
 
-    } else if (has_environment_map) {
+    } else if (has_environment_map && u_useEnvironmentMap) {
         // --- Regular Environment Mapping (2D or Cube) ---
         vec3 viewDir = normalize(-FragPos);
         vec3 reflectDir = reflect(-viewDir, finalNormal);
@@ -225,7 +237,7 @@ void main()
 
     // --- Add Emissive Color ---
     // This is added after all other lighting, as it's independent of lights and shadows.
-    if (has_emissive) {
+    if (has_emissive && u_useEmissive) {
         finalColor += emissiveColor * emissiveMultiple;
     }
 

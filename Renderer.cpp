@@ -621,6 +621,20 @@ void Renderer::renderUI() {
                 create_checkboxes("Alpha-Test Parts", model->getAlphaTestShapes());
                 create_checkboxes("Transparent Parts", model->getTransparentShapes());
             }
+
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Texture Slots")) {
+                ImGui::Checkbox("Diffuse / Base Color", &m_textureToggles.diffuse);
+                ImGui::Checkbox("Normal Map", &m_textureToggles.normal);
+                ImGui::Checkbox("Skin / Subsurface", &m_textureToggles.skin);
+                ImGui::Checkbox("Detail Map", &m_textureToggles.detail);
+                ImGui::Checkbox("Specular Map", &m_textureToggles.specular);
+                ImGui::Checkbox("Face Tint", &m_textureToggles.faceTint);
+                ImGui::Checkbox("Environment Map", &m_textureToggles.environment);
+                ImGui::Checkbox("Emissive", &m_textureToggles.emissive);
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMenu();
         }
 
@@ -724,6 +738,15 @@ void Renderer::renderFrame() {
     shader.setMat4("view", modelView); // <-- Use the MODIFIED view for the main model
     shader.setVec3("viewPos", camera.Position);
     shader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+
+    shader.setBool("u_useDiffuseMap", m_textureToggles.diffuse);
+    shader.setBool("u_useNormalMap", m_textureToggles.normal);
+    shader.setBool("u_useSkinMap", m_textureToggles.skin);
+    shader.setBool("u_useDetailMap", m_textureToggles.detail);
+    shader.setBool("u_useSpecularMap", m_textureToggles.specular);
+    shader.setBool("u_useFaceTintMap", m_textureToggles.faceTint);
+    shader.setBool("u_useEnvironmentMap", m_textureToggles.environment);
+    shader.setBool("u_useEmissive", m_textureToggles.emissive);
 
     glActiveTexture(GL_TEXTURE8);
     glBindTexture(GL_TEXTURE_2D, depthMapTexture);
