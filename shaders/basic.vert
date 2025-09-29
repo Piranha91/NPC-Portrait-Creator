@@ -1,38 +1,55 @@
 #version 330 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aNormal;
+
+// === INPUTS (Per-Vertex Data) ===
+// All input attributes are in the mesh's local Model Space.
+layout (location = 0) in vec3 aPos_modelSpace;
+layout (location = 1) in vec3 aNormal_modelSpace;
 layout (location = 2) in vec2 aTexCoords;
 layout (location = 3) in vec4 aColor;
 layout (location = 4) in ivec4 aBoneIDs;
 layout (location = 5) in vec4 aWeights;
-layout (location = 6) in vec3 aTangent;
-layout (location = 7) in vec3 aBitangent;
+layout (location = 6) in vec3 aTangent_modelSpace;
+layout (location = 7) in vec3 aBitangent_modelSpace;
 
-out vec3 FragPos;
+// === OUTPUTS (Varyings to Fragment Shader) ===
+// The fragment's position in camera View Space (Y-up).
+out vec3 v_viewSpacePos;
+// The texture coordinates, passed through.
 out vec2 TexCoords;
+// The vertex color, passed through.
 out vec4 vertexColor;
-out mat3 TBN;           // For tangent-space normal mapping
-out mat3 NormalMatrix;  // For model-space normal mapping
-out vec4 FragPosLightSpace;
+// A 3x3 matrix that transforms a normal vector from Tangent Space to View Space.
+out mat3 v_tangentToViewMatrix;
+// A 3x3 matrix that transforms a normal vector from Model Space to View Space.
+out mat3 v_modelToViewNormalMatrix;
+// The fragment's position in the shadow-casting light's Clip Space.
+out vec4 v_lightClipSpacePos;
 
-uniform mat4 model;
-uniform mat4 view;
-uniform mat4 projection;
-uniform mat4 lightSpaceMatrix;
+// === UNIFORMS ===
+// Transforms a vertex from the mesh's local Model Space to the renderer's World Space (Y-up).
+uniform mat4 u_model_localToWorld;
+// Transforms a vertex from World Space (Y-up) to the camera's View Space (Y-up).
+uniform mat4 u_view_worldToView;
+// Transforms a vertex from View Space (Y-up) to Clip Space.
+uniform mat4 u_proj_viewToClip;
+// Transforms a vertex from World Space (Y-up) to the light's Clip Space (for shadow mapping).
+uniform mat4 u_worldToLightClip_transform;
 
 uniform bool uIsSkinned;
 const int MAX_BONES = 80;
+// Bone matrices transform a vertex from its bind-pose Model Space to its animated-pose Model Space.
 uniform mat4 uBoneMatrices[MAX_BONES];
 
 void main()
 {
-    // 1. Start with the original vertex position.
-    vec4 vertexPosition = vec4(aPos, 1.0);
+    vec4 pos_worldSpace_yUp;
+    mat3 normalMatrix_modelToWorld_yUp;
 
-    // 2. If the mesh is skinned, calculate the skinned position IN MODEL SPACE.
     if (uIsSkinned)
     {
-        // Normalize weights to ensure they sum to 1
+        // For skinned meshes, the bone matrices transform the vertex directly
+        // from bind-pose model space into the final posed world space.
+        // This effectively replaces the 'u_model_localToWorld' matrix.
         float totalWeight = aWeights.x + aWeights.y + aWeights.z + aWeights.w;
         if (totalWeight > 0.0) {
            mat4 skinMatrix = (aWeights.x * uBoneMatrices[aBoneIDs.x] +
@@ -40,25 +57,40 @@ void main()
                               aWeights.z * uBoneMatrices[aBoneIDs.z] +
                               aWeights.w * uBoneMatrices[aBoneIDs.w]) / totalWeight;
             
-           vertexPosition = skinMatrix * vertexPosition;
+           pos_worldSpace_yUp = skinMatrix * vec4(aPos_modelSpace, 1.0);
+           normalMatrix_modelToWorld_yUp = mat3(transpose(inverse(skinMatrix)));
+        } else {
+            // Fallback for zero-weight vertices
+            pos_worldSpace_yUp = u_model_localToWorld * vec4(aPos_modelSpace, 1.0);
+            normalMatrix_modelToWorld_yUp = mat3(transpose(inverse(u_model_localToWorld)));
         }
     }
+    else
+    {
+        // For non-skinned meshes, use the standard model matrix.
+        pos_worldSpace_yUp = u_model_localToWorld * vec4(aPos_modelSpace, 1.0);
+        normalMatrix_modelToWorld_yUp = mat3(transpose(inverse(u_model_localToWorld)));
+    }
     
-    // 3. Apply the standard Model-View-Projection transformation.
-    gl_Position = projection * view * model * vertexPosition;
-
-    // 4. Calculate values needed for fragment shader lighting.
-    FragPos = vec3(view * model * vertexPosition);
-    FragPosLightSpace = lightSpaceMatrix * model * vertexPosition;
-    NormalMatrix = mat3(transpose(inverse(view * model)));
-
-    // Create the TBN matrix for transforming tangent-space normals to view space
-    vec3 T = normalize(NormalMatrix * aTangent);
-    vec3 B = normalize(NormalMatrix * aBitangent);
-    vec3 N = normalize(NormalMatrix * aNormal);
-    TBN = mat3(T, B, N);
+    // --- Common Calculations for All Vertex Types ---
     
+    // Final clip-space position.
+    gl_Position = u_proj_viewToClip * u_view_worldToView * pos_worldSpace_yUp;
+
+    // Calculate outputs for the fragment shader.
+    v_viewSpacePos = vec3(u_view_worldToView * pos_worldSpace_yUp);
+    v_lightClipSpacePos = u_worldToLightClip_transform * pos_worldSpace_yUp;
+
+    // Create the normal and TBN matrices for view space.
+    mat3 normalMatrix_modelToView_yUp = mat3(u_view_worldToView) * normalMatrix_modelToWorld_yUp;
+    v_modelToViewNormalMatrix = normalMatrix_modelToView_yUp;
+    
+    vec3 T_viewSpace = normalize(normalMatrix_modelToView_yUp * aTangent_modelSpace);
+    vec3 B_viewSpace = normalize(normalMatrix_modelToView_yUp * aBitangent_modelSpace);
+    vec3 N_viewSpace = normalize(normalMatrix_modelToView_yUp * aNormal_modelSpace);
+    v_tangentToViewMatrix = mat3(T_viewSpace, B_viewSpace, N_viewSpace);
+    
+    // Pass through other attributes.
     TexCoords = aTexCoords;
     vertexColor = aColor;
 }
-

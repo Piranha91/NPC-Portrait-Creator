@@ -1,35 +1,40 @@
 #version 330 core
 out vec4 FragColor;
 
-// Data received from the vertex shader
-in vec3 FragPos;
+// === INPUTS (Varyings from Vertex Shader) ===
+// The fragment's position in camera View Space.
+in vec3 v_viewSpacePos;
 in vec2 TexCoords;
 in vec4 vertexColor;
-in mat3 TBN;
-in mat3 NormalMatrix;
-in vec4 FragPosLightSpace;
+// Transforms a normal from Tangent Space to View Space.
+in mat3 v_tangentToViewMatrix;
+// Transforms a normal from Model Space to View Space.
+in mat3 v_modelToViewNormalMatrix;
+// The fragment's position in the light's Clip Space.
+in vec4 v_lightClipSpacePos;
 
 #define MAX_LIGHTS 5
 
 struct Light {
     int type; // 0:disabled, 1:ambient, 2:directional
-    vec3 direction; // For directional lights
+    // Light direction is pre-transformed into View Space on the CPU.
+    vec3 direction;
     vec3 color;
-    float intensity;
-};
+    float intensity; };
 
-// --- UNIFORMS ---
+// --- TEXTURE SAMPLERS ---
 uniform sampler2D texture_diffuse1;
 uniform sampler2D texture_normal;
 uniform sampler2D texture_skin;
 uniform sampler2D texture_detail;
 uniform sampler2D texture_specular;
 uniform sampler2D texture_face_tint;
-uniform sampler2D texture_envmap_2d;   // <-- ADD for 2D maps
-uniform samplerCube texture_envmap_cube; // <-- ADD for cubemaps
+uniform sampler2D texture_envmap_2d; // For 2D spherical maps
+uniform samplerCube texture_envmap_cube; // For cubemaps
 uniform sampler2D texture_envmask;
 uniform sampler2D shadowMap;
 
+// --- MATERIAL FLAGS (from NIF file) ---
 uniform bool has_normal_map;
 uniform bool has_skin_map;
 uniform bool has_detail_map;
@@ -39,9 +44,13 @@ uniform bool has_face_tint_map;
 uniform bool has_environment_map;
 uniform bool has_eye_environment_map;
 uniform bool is_envmap_cube;
-uniform bool has_env_mask;
-uniform bool use_alpha_test;
+uniform bool has_env_mask; // Environment map mask
+uniform bool has_tint_color;
+uniform bool has_emissive;
+uniform bool is_model_space; // For _msn.dds normal maps
 
+// --- RENDERER TOGGLES (from UI) ---
+uniform bool use_alpha_test;
 uniform bool u_useDiffuseMap;
 uniform bool u_useNormalMap;
 uniform bool u_useSkinMap;
@@ -51,195 +60,178 @@ uniform bool u_useFaceTintMap;
 uniform bool u_useEnvironmentMap;
 uniform bool u_useEmissive;
 
+// --- MATERIAL PROPERTIES ---
 uniform float alpha_threshold;
 uniform float envMapScale;
-
-uniform bool has_tint_color;
 uniform vec3 tint_color;
+uniform vec3 emissiveColor;
+uniform float emissiveMultiple;
 
+// --- EYE SHADER PROPERTIES ---
 uniform bool is_eye;
 uniform float eye_fresnel_strength;
 uniform float eye_spec_power;
 
-uniform bool is_model_space;
-uniform mat4 view;
-
-uniform vec3 viewPos;
-
+// --- GENERAL UNIFORMS ---
+// Transforms from World Space to View Space. Used to get reflection vectors back into world space for cubemapping.
+uniform mat4 u_view_worldToView;
+// The camera's position in World Space. NOTE: Not used in current view-space lighting model.
+uniform vec3 u_cameraPos_worldSpace_yUp;
 uniform Light lights[MAX_LIGHTS];
 
-uniform bool has_emissive;
-uniform vec3 emissiveColor;
-uniform float emissiveMultiple;
-
-// --- HELPER FUNCTION (DEFINED *BEFORE* MAIN) ---
-float calculateShadow(vec4 fragPosLightSpace)
+// Calculates the shadow contribution (1.0 = lit, 0.0 = in shadow).
+float calculateShadow(vec4 pos_lightClipSpace)
 {
-    // Perspective divide
-    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
-    // Transform to [0,1] range
-    projCoords = projCoords * 0.5 + 0.5;
+    // Perspective divide to get Normalized Device Coordinates (NDC) from the light's perspective.
+    vec3 pos_lightNDC = pos_lightClipSpace.xyz / pos_lightClipSpace.w;
+    // Transform from [-1,1] range to [0,1] range to use as texture coordinates.
+pos_lightNDC = pos_lightNDC * 0.5 + 0.5;
+    // If the fragment is outside the shadow map's frustum, it's considered lit.
+if (pos_lightNDC.z > 1.0) {
+        return 1.0; }
 
-    // Return 1.0 (not in shadow) if the fragment is outside the light's view
-    if (projCoords.z > 1.0) {
-        return 1.0;
-    }
-
-    // Get closest depth from light's perspective
-    float closestDepth = texture(shadowMap, projCoords.xy).r;
-    // Get current fragment's depth from light's perspective
-    float currentDepth = projCoords.z;
-
-    // Add a small bias to prevent "shadow acne" artifact
-    float bias = 0.005;
+    // Get the closest depth stored in the shadow map at this position.
+    float closestDepth = texture(shadowMap, pos_lightNDC.xy).r;
+    // Get the current fragment's depth from the light's perspective.
+float currentDepth = pos_lightNDC.z;
+    // Add a small bias to prevent "shadow acne" self-shadowing artifacts.
+float bias = 0.005;
     float shadow = currentDepth - bias > closestDepth ? 0.0 : 1.0;
 
-    return shadow;
-}
+    return shadow; }
 
 
 void main()
-{    
-    vec4 baseColor = vec4(1.0); // Default to white if diffuse map is off
-    if (u_useDiffuseMap) {
-        baseColor = texture(texture_diffuse1, TexCoords);
-    }
+{
+    // --- 1. BASE COLOR & ALPHA TEST ---
+    vec4 baseColor = vec4(1.0);
+if (u_useDiffuseMap) {
+        baseColor = texture(texture_diffuse1, TexCoords); }
     baseColor.rgb *= vertexColor.rgb;
     baseColor.a *= vertexColor.a;
-
-    if (use_alpha_test && baseColor.a < alpha_threshold) {
-        discard;
-    }
+if (use_alpha_test && baseColor.a < alpha_threshold) {
+        discard; }
 
     if (has_tint_color) {
-        baseColor.rgb *= tint_color;
-    }
+        baseColor.rgb *= tint_color; }
 
     if (has_face_tint_map && u_useFaceTintMap) {
         vec4 tintSample = texture(texture_face_tint, TexCoords);
-        baseColor.rgb = mix(baseColor.rgb, tintSample.rgb, tintSample.a);
+        // Mix the base color with the tint color based on the tint mask's alpha channel.
+baseColor.rgb = mix(baseColor.rgb, tintSample.rgb, tintSample.a);
     }
 
-    // --- NORMAL CALCULATION ---
-    vec3 finalNormal;
-    if (has_normal_map && u_useNormalMap) {
-        // Sample the normal map. 
-        vec3 normal_tangent = texture(texture_normal, TexCoords).rgb;
+    // --- 2. NORMAL CALCULATION ---
+    // This will be the final normal vector in View Space, used for all lighting.
+    vec3 normal_viewSpace;
+if (has_normal_map && u_useNormalMap) {
+        // Sample the normal from the texture. It's stored in Tangent Space.
+vec3 normal_tangentSpace = texture(texture_normal, TexCoords).rgb;
         
         // For Skyrim's DirectX-style normal maps, the green channel must be inverted for OpenGL.
-        normal_tangent.g = 1.0 - normal_tangent.g;
+normal_tangentSpace.g = 1.0 - normal_tangentSpace.g;
 
-        // Unpack from [0,1] range to [-1,1] range
-        normal_tangent = normal_tangent * 2.0 - 1.0;
-        
-        if (is_model_space) {
-             // Model-Space Normal Path (_msn.dds)
-            finalNormal = normalize(NormalMatrix * normal_tangent);
-        } else {
-            // Tangent-Space Normal Path (_n.dds)
-            // Use the TBN matrix to transform the normal from tangent space to view space.
-            finalNormal = normalize(TBN * normal_tangent);
+        // Unpack from [0,1] color range to [-1,1] vector range.
+        normal_tangentSpace = normal_tangentSpace * 2.0 - 1.0;
+if (is_model_space) {
+             // Model-Space Normal Path (_msn.dds): Transform from Model Space to View Space.
+            normal_viewSpace = normalize(v_modelToViewNormalMatrix * normal_tangentSpace);
+} else {
+            // Tangent-Space Normal Path (_n.dds): Transform from Tangent Space to View Space.
+normal_viewSpace = normalize(v_tangentToViewMatrix * normal_tangentSpace);
         }
     } else {
-        // If no normal map, just use the vertex normal.
-        // It's already been transformed to view space in the vertex shader.
-        finalNormal = normalize(TBN[2]);
-    }
+        // If no normal map, just use the vertex normal, which is the 3rd column (index 2) of the TBN matrix.
+normal_viewSpace = normalize(v_tangentToViewMatrix[2]); }
 
-    // ============================ FIX START ============================
-    // For eye meshes, the normals are often inverted in the model file
-    // to make environment maps work correctly. We need to flip them
-    // back for standard lighting calculations.
-    if (is_eye) {
-        finalNormal = -finalNormal;
-    }
-    // ============================= FIX END =============================
+    // For eye meshes, normals are often inverted in the NIF to make environment maps work.
+// We flip them back for correct lighting.
+if (is_eye) {
+        //normal_viewSpace = -normal_viewSpace;
+}
     
-    // --- Dynamic Lighting Calculation ---
+    // --- 3. DYNAMIC LIGHTING ---
     vec3 finalColor = vec3(0.0);
-    float shadow = calculateShadow(FragPosLightSpace); 
+    // Calculate shadow factor once for all lights.
+float shadow = calculateShadow(v_lightClipSpacePos);
 
     for (int i = 0; i < MAX_LIGHTS; i++) {
-        if (lights[i].type == 0) continue;
-        vec3 lightColor = lights[i].color * lights[i].intensity;
+        if (lights[i].type == 0) continue; // Skip disabled lights
+vec3 lightColor = lights[i].color * lights[i].intensity;
 
-        if (lights[i].type == 1) { // Ambient
-            finalColor += lightColor * baseColor.rgb;
-        }
-        else if (lights[i].type == 2) { // Directional
-            vec3 lightDir_view = normalize(mat3(view) * lights[i].direction);
-            float diffuseStrength = max(dot(finalNormal, lightDir_view), 0.0);
+        if (lights[i].type == 1) { // Ambient Light
+            finalColor += lightColor * baseColor.rgb; }
+        else if (lights[i].type == 2) { // Directional Light
+            // The direction uniform is pre-transformed to View Space on the CPU.
+vec3 lightDir_viewSpace = normalize(lights[i].direction);
+            float diffuseStrength = max(dot(normal_viewSpace, lightDir_viewSpace), 0.0);
             vec3 diffuse = diffuseStrength * lightColor;
 
             vec3 specular = vec3(0.0);
-            if (has_specular && u_useSpecularMap) {
+if (has_specular && u_useSpecularMap) {
                 float specularStrength = 1.0;
-                if (has_specular_map) {
-                    specularStrength = texture(texture_specular, TexCoords).r;
-                }
+if (has_specular_map) {
+                    specularStrength = texture(texture_specular, TexCoords).r; }
             
-                vec3 viewDir = normalize(-FragPos);
-                vec3 halfwayDir = normalize(lightDir_view + viewDir);
-                float specAmount = pow(max(dot(finalNormal, halfwayDir), 0.0), 32.0);
-                specular = specAmount * specularStrength * lightColor;
-            }
+                // In View Space, the view direction is simply the vector from the fragment position to the origin.
+                vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
+vec3 halfwayDir_viewSpace = normalize(lightDir_viewSpace + viewDir_viewSpace);
+                float specAmount = pow(max(dot(normal_viewSpace, halfwayDir_viewSpace), 0.0), 32.0);
+                specular = specAmount * specularStrength * lightColor; }
             
-            // Apply lighting only ONCE, with the shadow factor.
-            finalColor += (diffuse * shadow + specular * shadow) * baseColor.rgb;
-        }
+            // Apply diffuse and specular, both modulated by the shadow factor and base color.
+finalColor += (diffuse * shadow + specular * shadow) * baseColor.rgb; }
     }
     
-    
-    // Apply subsurface scattering and detail maps after main lighting
+    // --- 4. POST-LIGHTING EFFECTS ---
     vec3 subsurfaceColor = vec3(0.0);
-    if (has_skin_map && u_useSkinMap) {
-        subsurfaceColor = texture(texture_skin, TexCoords).r * vec3(1.0, 0.3, 0.2);
-        finalColor += subsurfaceColor * baseColor.rgb;
+if (has_skin_map && u_useSkinMap) {
+        subsurfaceColor = texture(texture_skin, TexCoords).r * vec3(1.0, 0.3, 0.2); // Reddish tint
+finalColor += subsurfaceColor * baseColor.rgb;
     }
     
     if (has_detail_map && u_useDetailMap) {
         vec3 detailColor = texture(texture_detail, TexCoords).rgb;
-        finalColor = mix(finalColor, detailColor, 0.3);
+        // Mix the detail map over the existing color.
+finalColor = mix(finalColor, detailColor, 0.3);
     }
 
+    // --- 5. ENVIRONMENT MAPPING / REFLECTIONS ---
     if (has_eye_environment_map && is_envmap_cube && u_useEnvironmentMap) {
-        // --- Eye-Specific Cubemap Reflection ---
-        vec3 viewDir = normalize(-FragPos);
-        vec3 reflectDir = reflect(-viewDir, finalNormal);
-        vec3 reflectDir_world = inverse(mat3(view)) * reflectDir;
-        vec3 envColor = texture(texture_envmap_cube, reflectDir_world).rgb;
-
-        // Eye reflections are typically direct and bright
-        finalColor += envColor * envMapScale;
-
-    } else if (has_environment_map && u_useEnvironmentMap) {
-        // --- Regular Environment Mapping (2D or Cube) ---
-        vec3 viewDir = normalize(-FragPos);
-        vec3 reflectDir = reflect(-viewDir, finalNormal);
+        // Eye-Specific Cubemap Reflection: uses a simpler, brighter reflection model.
+        vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
+vec3 reflectDir_viewSpace = reflect(-viewDir_viewSpace, normal_viewSpace);
+        // Transform reflection vector from View Space back to World Space for cubemap sampling.
+        vec3 reflectDir_worldSpace = inverse(mat3(u_view_worldToView)) * reflectDir_viewSpace;
+        vec3 envColor = texture(texture_envmap_cube, reflectDir_worldSpace).rgb;
+finalColor += envColor * envMapScale;
+} else if (has_environment_map && u_useEnvironmentMap) {
+        // Regular Environment Mapping (2D or Cube)
+        vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
+vec3 reflectDir_viewSpace = reflect(-viewDir_viewSpace, normal_viewSpace);
         vec3 envColor;
 
         if (is_envmap_cube) {
-            vec3 reflectDir_world = inverse(mat3(view)) * reflectDir;
-            envColor = texture(texture_envmap_cube, reflectDir_world).rgb;
-        } else {
-            vec2 envCoords = normalize(reflectDir.xy) * 0.5 + 0.5;
-            envColor = texture(texture_envmap_2d, envCoords).rgb;
+            vec3 reflectDir_worldSpace = inverse(mat3(u_view_worldToView)) * reflectDir_viewSpace;
+envColor = texture(texture_envmap_cube, reflectDir_worldSpace).rgb;
+        } else { // 2D spherical map
+            vec2 envCoords = normalize(reflectDir_viewSpace.xy) * 0.5 + 0.5;
+envColor = texture(texture_envmap_2d, envCoords).rgb;
         }
 
+        // The reflection's strength is controlled by a mask or the specular map.
         float reflectionStrength = 0.5;
-        if (has_env_mask) {
+if (has_env_mask) {
             reflectionStrength = texture(texture_envmask, TexCoords).r;
-        } else if (has_specular_map) {
-            reflectionStrength = texture(texture_specular, TexCoords).r;
-        }
-        finalColor += envColor * reflectionStrength * envMapScale;
-    }
+} else if (has_specular_map) {
+            reflectionStrength = texture(texture_specular, TexCoords).r; }
+        finalColor += envColor * reflectionStrength * envMapScale; }
 
-    // --- Add Emissive Color ---
-    // This is added after all other lighting, as it's independent of lights and shadows.
-    if (has_emissive && u_useEmissive) {
-        finalColor += emissiveColor * emissiveMultiple;
-    }
+    // --- 6. EMISSIVE COLOR ---
+    // This is added last as it's independent of lighting and shadows.
+if (has_emissive && u_useEmissive) {
+        finalColor += emissiveColor * emissiveMultiple; }
 
+    // --- 7. FINAL OUTPUT ---
     FragColor = vec4(finalColor, baseColor.a);
 }

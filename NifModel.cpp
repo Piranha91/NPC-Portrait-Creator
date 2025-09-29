@@ -136,18 +136,25 @@ std::string GetFlagsString(const ShaderFlagSet& flags, int set_number) {
     return ss.str();
 }
 
-// Helper function to get the full world transform of any scene graph object (Node or Shape)
+// Helper function to get the full world transform of any scene graph object (Node or Shape).
+// This calculates the transformation from the object's local space to the NIF file's root space.
 nifly::MatTransform GetAVObjectTransformToGlobal(const nifly::NifFile& nifFile, nifly::NiAVObject* obj, bool debugMode = false) {
     if (!obj) {
         return nifly::MatTransform();
     }
-    nifly::MatTransform xform = obj->GetTransformToParent();
+
+    // This matrix transforms from the object's local space to its parent's space.
+    // It is a row-major matrix within the NIF's Z-up coordinate system.
+    nifly::MatTransform objectToNifRoot_transform_zUp = obj->GetTransformToParent();
+
     nifly::NiNode* parent = nifFile.GetParentNode(obj);
     while (parent) {
-        xform = parent->GetTransformToParent().ComposeTransforms(xform);
+        // ComposeTransforms pre-multiplies, so the operation is: parent * current.
+        // This correctly concatenates the transforms up the scene graph hierarchy.
+        objectToNifRoot_transform_zUp = parent->GetTransformToParent().ComposeTransforms(objectToNifRoot_transform_zUp);
         parent = nifFile.GetParentNode(parent);
     }
-    return xform;
+    return objectToNifRoot_transform_zUp;
 }
 
 // Helper to convert NIF blend modes to OpenGL blend modes
@@ -227,7 +234,7 @@ NifModel::~NifModel() {
 
 bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton) {
     cleanup();
-	bool debugMode = true; // Set to true to enable debug output
+    bool debugMode = true; // Set to true to enable debug output
 
     std::stringstream nifStream(std::string(data.begin(), data.end()));
     if (nif.Load(nifStream) != 0) { // <-- Load from memory stream
@@ -241,19 +248,19 @@ bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, T
         return true;
     }
 
-    // Reset bounds for the new model
-    minBounds = glm::vec3(std::numeric_limits<float>::max());
-    maxBounds = glm::vec3(std::numeric_limits<float>::lowest());
+    // Reset bounds for the new model. These are calculated in the NIF's Z-up root space.
+    minBounds_nifRootSpace_zUp = glm::vec3(std::numeric_limits<float>::max());
+    maxBounds_nifRootSpace_zUp = glm::vec3(std::numeric_limits<float>::lowest());
     if (debugMode) {
-        std::cout << "[Bounds] Initial Min Bounds: (" << minBounds.x << ", " << minBounds.y << ", " << minBounds.z << ")\n";
-        std::cout << "[Bounds] Initial Max Bounds: (" << maxBounds.x << ", " << maxBounds.y << ", " << maxBounds.z << ")\n";
+        std::cout << "[Bounds] Initial Min Bounds: (" << minBounds_nifRootSpace_zUp.x << ", " << minBounds_nifRootSpace_zUp.y << ", " << minBounds_nifRootSpace_zUp.z << ")\n";
+        std::cout << "[Bounds] Initial Max Bounds: (" << maxBounds_nifRootSpace_zUp.x << ", " << maxBounds_nifRootSpace_zUp.y << ", " << maxBounds_nifRootSpace_zUp.z << ")\n";
     }
-    headMinBounds = glm::vec3(std::numeric_limits<float>::max());
-    headMaxBounds = glm::vec3(std::numeric_limits<float>::lowest());
+    headMinBounds_nifRootSpace_zUp = glm::vec3(std::numeric_limits<float>::max());
+    headMaxBounds_nifRootSpace_zUp = glm::vec3(std::numeric_limits<float>::lowest());
 
     // --- MODIFICATION: Initialize new head shape bound members ---
-    headShapeMinBounds = glm::vec3(std::numeric_limits<float>::max());
-    headShapeMaxBounds = glm::vec3(std::numeric_limits<float>::lowest());
+    headShapeMinBounds_nifRootSpace_zUp = glm::vec3(std::numeric_limits<float>::max());
+    headShapeMaxBounds_nifRootSpace_zUp = glm::vec3(std::numeric_limits<float>::lowest());
     bHasHeadShapeBounds = false;
 
     bHasEyeCenter = false;
@@ -264,9 +271,10 @@ bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, T
     const float PRETRANSLATED_THRESHOLD = 10.0f;
     for (auto* shape : shapeList) {
         if (!shape->IsSkinned()) continue;
-        nifly::MatTransform shapeTransform = GetAVObjectTransformToGlobal(nif, shape, false);
+        // This is the shape's transform from its local space to the NIF root space (Z-up).
+        nifly::MatTransform shapeToNifRoot_transform_zUp_nifly = GetAVObjectTransformToGlobal(nif, shape, false);
         // A hybrid model has skinned parts with no transform, but their vertices are far from the origin.
-        if (shapeTransform.IsNearlyEqualTo(nifly::MatTransform())) {
+        if (shapeToNifRoot_transform_zUp_nifly.IsNearlyEqualTo(nifly::MatTransform())) {
             const auto* v = nif.GetVertsForShape(shape);
             if (v && !v->empty()) {
                 glm::vec3 sum(0.0f); for (const auto& vert : *v) sum += glm::vec3(vert.x, vert.y, vert.z);
@@ -280,12 +288,14 @@ bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, T
         }
     }
 
-    nifly::MatTransform accessoryOffset;
+    // This transform is used to correctly position local-space accessories like hair or eyes
+    // relative to the main head mesh. It is in the NIF's Z-up root space.
+    nifly::MatTransform accessoryToNifRoot_offset_zUp_nifly;
     for (auto* shape : shapeList) {
         if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(shape->SkinInstanceRef())) {
             for (const auto& partition : skinInst->partitions) {
                 if (partition.partID == 30 || partition.partID == 230) { // Head partitions
-                    accessoryOffset = GetAVObjectTransformToGlobal(nif, shape, false);
+                    accessoryToNifRoot_offset_zUp_nifly = GetAVObjectTransformToGlobal(nif, shape, false);
                     goto found_head;
                 }
             }
@@ -294,13 +304,14 @@ bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, T
 found_head:
 
     // Find the skeleton root's transform, which is needed for some hybrid NIFs.
-    nifly::MatTransform skeletonRootTransform; // Default constructs to identity
+    // This represents the skeleton's root node's position and orientation within the NIF's Z-up root space.
+    nifly::MatTransform skeletonRootToNifRoot_transform_zUp_nifly; // Default constructs to identity
     for (auto* shape : shapeList) {
         if (shape->IsSkinned()) {
             if (auto* skinInst = nif.GetHeader().GetBlock<nifly::NiSkinInstance>(shape->SkinInstanceRef())) {
                 auto* skelRootNode = FindSkeletonRootLCA(nif, skinInst);
                 if (skelRootNode) {
-                    skeletonRootTransform = GetAVObjectTransformToGlobal(nif, skelRootNode);
+                    skeletonRootToNifRoot_transform_zUp_nifly = GetAVObjectTransformToGlobal(nif, skelRootNode);
                     if (debugMode) std::cout << "[NIF Analysis] Found skeleton root node: " << skelRootNode->name.get() << "\n";
                 }
             }
@@ -358,13 +369,15 @@ found_head:
         }
 
         // --- FINALIZED TRANSFORM LOGIC ---
-        nifly::MatTransform niflyTransform; // Default to identity
+        // This is the final calculated transform for this shape before converting to a GLM matrix.
+        // It represents the transformation from the shape's local space to the NIF root space (Z-up).
+        nifly::MatTransform finalShapeToNifRoot_transform_zUp_nifly; // Default to identity
         if (isHybridModel && niShape->IsSkinned()) {
             if (debugMode) std::cout << "    [Debug] Using identity transform for hybrid skinned part.\n";
         }
         else {
-            niflyTransform = GetAVObjectTransformToGlobal(nif, niShape, false);
-            if (niflyTransform.IsNearlyEqualTo(nifly::MatTransform())) {
+            finalShapeToNifRoot_transform_zUp_nifly = GetAVObjectTransformToGlobal(nif, niShape, false);
+            if (finalShapeToNifRoot_transform_zUp_nifly.IsNearlyEqualTo(nifly::MatTransform())) {
                 bool isLocalSpacePart = (
                     shapeName.find("Eyes") != std::string::npos ||
                     shapeName.find("Mouth") != std::string::npos ||
@@ -374,17 +387,18 @@ found_head:
 
                 if (isLocalSpacePart) {
                     if (debugMode) std::cout << "    [Debug] Applying accessory offset for local-space part '" << shapeName << "'.\n";
-                    niflyTransform = accessoryOffset;
+                    finalShapeToNifRoot_transform_zUp_nifly = accessoryToNifRoot_offset_zUp_nifly;
                 }
                 else {
                     // This is the restored logic for pre-translated parts in non-hybrid models.
                     // Their vertices are relative to the skeleton root, so we apply its transform.
                     if (debugMode) std::cout << "    [Debug] Applying skeleton root transform for pre-translated part '" << shapeName << "'.\n";
-                    niflyTransform = skeletonRootTransform;
+                    finalShapeToNifRoot_transform_zUp_nifly = skeletonRootToNifRoot_transform_zUp_nifly;
                 }
             }
         }
-        mesh.transform = glm::transpose(glm::make_mat4(&niflyTransform.ToMatrix()[0]));
+        // Convert the row-major nifly matrix to a column-major GLM matrix using transpose.
+        mesh.shapeLocalToNifRoot_transform_zUp = glm::transpose(glm::make_mat4(&finalShapeToNifRoot_transform_zUp_nifly.ToMatrix()[0]));
 
         // --- Stage 3: GPU Skinning Data Extraction ---
         auto start_stage3 = std::chrono::high_resolution_clock::now();
@@ -396,24 +410,37 @@ found_head:
             if (skinInst && skinData && skinPartition) {
                 if (debugMode) std::cout << "    [Debug] Extracting skinning data for GPU...\n";
 
-                mesh.boneMatrices.resize(skinData->bones.size());
+                mesh.skinToBonePose_transforms_zUp.resize(skinData->bones.size());
                 auto boneRefIt = skinInst->boneRefs.begin();
                 for (size_t i = 0; i < skinData->bones.size() && boneRefIt != skinInst->boneRefs.end(); ++i, ++boneRefIt) {
                     auto* boneNode = nif.GetHeader().GetBlock<nifly::NiNode>(*boneRefIt);
                     if (!boneNode) continue;
 
                     std::string boneName = boneNode->name.get();
-                    glm::mat4 boneWorld = glm::mat4(1.0f);
+
+                    // This matrix will hold the bone's animated pose transform.
+                    // If a skeleton is provided, it uses its Y-up world space transforms. Otherwise,
+                    // it falls back to the bone's transform within the NIF's Z-up root space.
+                    glm::mat4 boneToWorld_transform = glm::mat4(1.0f);
+
                     if (skeleton && skeleton->hasBone(boneName)) {
-                        boneWorld = skeleton->getBoneTransform(boneName);
+                        boneToWorld_transform = skeleton->getBoneTransform(boneName);
                     }
                     else {
-                        auto boneWorld_n = GetAVObjectTransformToGlobal(nif, boneNode, false);
-                        boneWorld = glm::transpose(glm::make_mat4(&boneWorld_n.ToMatrix()[0]));
+                        // This is the bone's transform from its local space to the NIF root space (Z-up, row-major).
+                        auto boneToNifRoot_transform_zUp_nifly = GetAVObjectTransformToGlobal(nif, boneNode, false);
+                        // Convert to GLM matrix (Z-up, column-major).
+                        boneToWorld_transform = glm::transpose(glm::make_mat4(&boneToNifRoot_transform_zUp_nifly.ToMatrix()[0]));
                     }
-                    const auto& skinToBone_n = skinData->bones[i].boneTransform;
-                    glm::mat4 skinToBone = glm::transpose(glm::make_mat4(&skinToBone_n.ToMatrix()[0]));
-                    mesh.boneMatrices[i] = boneWorld * skinToBone;
+
+                    // This is the inverse bind pose matrix from the nifly data (Z-up, row-major).
+                    // It transforms a vertex from the bone's space back to the mesh's original model space.
+                    const auto& skinToBone_transform_zUp_nifly = skinData->bones[i].boneTransform;
+                    // Convert to GLM matrix (Z-up, column-major).
+                    glm::mat4 skinToBone_transform_zUp_glm = glm::transpose(glm::make_mat4(&skinToBone_transform_zUp_nifly.ToMatrix()[0]));
+
+                    // The final matrix for the shader is: Bone's World Transform * Inverse Bind Pose Transform.
+                    mesh.skinToBonePose_transforms_zUp[i] = boneToWorld_transform * skinToBone_transform_zUp_glm;
                 }
 
                 for (const auto& partition : skinPartition->partitions) {
@@ -438,44 +465,66 @@ found_head:
         }
         auto end_stage3 = std::chrono::high_resolution_clock::now();
 
+        // --- MOVED FROM STAGE 5 ---
+        // Get the shader properties early to determine if the mesh is skinned.
+        // This is critical for the bounds calculation in Stage 4.
         const nifly::NiShader* shader = nif.GetShader(niShape);
         if (shader) {
             mesh.isModelSpace = shader->IsModelSpace();
+            if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
+                if (bslsp->shaderFlags1 & (1U << 1)) { // Check for the SLSF1_Skinned flag (bit 1)
+                    mesh.isSkinned = true;
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Skinned.\n";
+                    }
+                }
+            }
         }
+        // --- END MOVED BLOCK ---
 
         // --- Stage 4: Pose-Aware Bounds Calculation (CORRECTED) ---
         auto start_stage4 = std::chrono::high_resolution_clock::now();
-        glm::mat4 shapeBaseTransform = mesh.transform;
-        glm::vec3 shapeMinBounds(std::numeric_limits<float>::max());
-        glm::vec3 shapeMaxBounds(std::numeric_limits<float>::lowest());
 
-        std::vector<glm::vec3> posedVertices;
-        posedVertices.reserve(vertexData.size());
+        // This is the base transformation for the current, un-skinned shape.
+        // It transforms from the shape's local model space to the NIF root space (Z-up).
+        glm::mat4 shapeLocalToNifRoot_transform_zUp_glm = mesh.shapeLocalToNifRoot_transform_zUp;
 
-        if (mesh.isSkinned) {
+        glm::vec3 shapeMinBounds_nifRootSpace_zUp(std::numeric_limits<float>::max());
+        glm::vec3 shapeMaxBounds_nifRootSpace_zUp(std::numeric_limits<float>::lowest());
+
+        std::vector<glm::vec3> posedVertices_nifRootSpace_zUp;
+        posedVertices_nifRootSpace_zUp.reserve(vertexData.size());
+
+        if (mesh.isSkinned) { // <-- This check will now work correctly!
             if (debugMode) std::cout << "    [Debug] Performing precise, pose-aware bounds calculation.\n";
             for (const auto& vert : vertexData) {
-                glm::vec4 originalPos(vert.pos, 1.0f);
-                glm::vec4 finalPos(0.0f);
+                // Vertex position in the mesh's local bind-pose model space (Z-up).
+                glm::vec4 vertexPos_modelSpace_zUp(vert.pos, 1.0f);
+                // This will hold the final posed vertex position.
+                glm::vec4 posedVertexPos_modelSpace_zUp(0.0f);
 
                 float totalWeight = vert.weights.x + vert.weights.y + vert.weights.z + vert.weights.w;
                 if (totalWeight > 0.0f) {
-                    glm::mat4 skinMatrix = (vert.weights.x * mesh.boneMatrices[vert.boneIDs.x] +
-                        vert.weights.y * mesh.boneMatrices[vert.boneIDs.y] +
-                        vert.weights.z * mesh.boneMatrices[vert.boneIDs.z] +
-                        vert.weights.w * mesh.boneMatrices[vert.boneIDs.w]) / totalWeight;
-                    finalPos = skinMatrix * originalPos;
+                    // This matrix is the weighted average of the bone transforms for this vertex.
+                    // It transforms the vertex from bind-pose model space to the final animated pose space (Z-up).
+                    glm::mat4 skinBindToPose_transform_zUp = (vert.weights.x * mesh.skinToBonePose_transforms_zUp[vert.boneIDs.x] +
+                        vert.weights.y * mesh.skinToBonePose_transforms_zUp[vert.boneIDs.y] +
+                        vert.weights.z * mesh.skinToBonePose_transforms_zUp[vert.boneIDs.z] +
+                        vert.weights.w * mesh.skinToBonePose_transforms_zUp[vert.boneIDs.w]) / totalWeight;
+                    posedVertexPos_modelSpace_zUp = skinBindToPose_transform_zUp * vertexPos_modelSpace_zUp;
                 }
                 else {
-                    finalPos = originalPos;
+                    posedVertexPos_modelSpace_zUp = vertexPos_modelSpace_zUp;
                 }
-                posedVertices.push_back(glm::vec3(shapeBaseTransform * finalPos));
+                // Transform the final posed vertex into the NIF's root space for bounds calculation.
+                posedVertices_nifRootSpace_zUp.push_back(glm::vec3(shapeLocalToNifRoot_transform_zUp_glm * posedVertexPos_modelSpace_zUp));
             }
         }
         else {
             if (debugMode) std::cout << "    [Debug] Performing bounds calculation for unskinned mesh.\n";
             for (const auto& vert : vertexData) {
-                posedVertices.push_back(glm::vec3(shapeBaseTransform * glm::vec4(vert.pos, 1.0f)));
+                // For unskinned meshes, just transform the vertex into the NIF's root space.
+                posedVertices_nifRootSpace_zUp.push_back(glm::vec3(shapeLocalToNifRoot_transform_zUp_glm * glm::vec4(vert.pos, 1.0f)));
             }
         }
 
@@ -496,14 +545,14 @@ found_head:
             }
         }
 
-        for (const auto& pos : posedVertices) {
-            minBounds = glm::min(minBounds, pos);
-            maxBounds = glm::max(maxBounds, pos);
-            shapeMinBounds = glm::min(shapeMinBounds, pos);
-            shapeMaxBounds = glm::max(shapeMaxBounds, pos);
+        for (const auto& pos : posedVertices_nifRootSpace_zUp) {
+            minBounds_nifRootSpace_zUp = glm::min(minBounds_nifRootSpace_zUp, pos);
+            maxBounds_nifRootSpace_zUp = glm::max(maxBounds_nifRootSpace_zUp, pos);
+            shapeMinBounds_nifRootSpace_zUp = glm::min(shapeMinBounds_nifRootSpace_zUp, pos);
+            shapeMaxBounds_nifRootSpace_zUp = glm::max(shapeMaxBounds_nifRootSpace_zUp, pos);
             if (!isAccessoryPart) {
-                headMinBounds = glm::min(headMinBounds, pos);
-                headMaxBounds = glm::max(headMaxBounds, pos);
+                headMinBounds_nifRootSpace_zUp = glm::min(headMinBounds_nifRootSpace_zUp, pos);
+                headMaxBounds_nifRootSpace_zUp = glm::max(headMaxBounds_nifRootSpace_zUp, pos);
             }
         }
 
@@ -513,8 +562,8 @@ found_head:
                 for (const auto& partition : skinInst->partitions) {
                     // SBP_30_HEAD or SBP_230_HEAD (beast)
                     if (partition.partID == 30 || partition.partID == 230) {
-                        headShapeMinBounds = shapeMinBounds;
-                        headShapeMaxBounds = shapeMaxBounds;
+                        headShapeMinBounds_nifRootSpace_zUp = shapeMinBounds_nifRootSpace_zUp;
+                        headShapeMaxBounds_nifRootSpace_zUp = shapeMaxBounds_nifRootSpace_zUp;
                         bHasHeadShapeBounds = true;
                         if (debugMode) {
                             std::cout << "    [Head Bounds] Captured specific bounds from '" << shapeName << "' via partition ID " << partition.partID << ".\n";
@@ -526,19 +575,19 @@ found_head:
         }
 
         if (debugMode) {
-            std::cout << "    [Shape Bounds] '" << shapeName << "' Min: (" << shapeMinBounds.x << ", " << shapeMinBounds.y << ", " << shapeMinBounds.z << ")\n";
-            std::cout << "    [Shape Bounds] '" << shapeName << "' Max: (" << shapeMaxBounds.x << ", " << shapeMaxBounds.y << ", " << shapeMaxBounds.z << ")\n";
+            std::cout << "    [Shape Bounds] '" << shapeName << "' Min: (" << shapeMinBounds_nifRootSpace_zUp.x << ", " << shapeMinBounds_nifRootSpace_zUp.y << ", " << shapeMinBounds_nifRootSpace_zUp.z << ")\n";
+            std::cout << "    [Shape Bounds] '" << shapeName << "' Max: (" << shapeMaxBounds_nifRootSpace_zUp.x << ", " << shapeMaxBounds_nifRootSpace_zUp.y << ", " << shapeMaxBounds_nifRootSpace_zUp.z << ")\n";
         }
 
-        mesh.boundsCenter = (shapeMinBounds + shapeMaxBounds) * 0.5f;
+        mesh.boundsCenter_nifRootSpace_zUp = (shapeMinBounds_nifRootSpace_zUp + shapeMaxBounds_nifRootSpace_zUp) * 0.5f;
 
         if (mesh.isEye) {
             glm::vec3 sum(0.0f);
-            if (!posedVertices.empty()) {
-                for (const auto& pos : posedVertices) {
+            if (!posedVertices_nifRootSpace_zUp.empty()) {
+                for (const auto& pos : posedVertices_nifRootSpace_zUp) {
                     sum += pos;
                 }
-                eyeCenter = sum / static_cast<float>(posedVertices.size());
+                eyeCenter_nifRootSpace_zUp = sum / static_cast<float>(posedVertices_nifRootSpace_zUp.size());
             }
             bHasEyeCenter = true;
         }
@@ -577,7 +626,7 @@ found_head:
 
         if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
             ShaderFlagSet flags = ParseShaderFlags(bslsp->shaderFlags1, bslsp->shaderFlags2);
-		    std::cout << "    [Flag Parse] Parsed shader flags for shape '" << mesh.name << " (Debug Only; these are not all used for rendering)':\n";
+            std::cout << "    [Flag Parse] Parsed shader flags for shape '" << mesh.name << " (Debug Only; these are not all used for rendering)':\n";
             std::cout << "    [Flag Parse] shaderFlags1 (raw: " << bslsp->shaderFlags1 << "): " << GetFlagsString(flags, 1) << "\n";
             std::cout << "    [Flag Parse] shaderFlags2 (raw: " << bslsp->shaderFlags2 << "): " << GetFlagsString(flags, 2) << "\n";
 
@@ -588,22 +637,15 @@ found_head:
                 }
             }
 
-            if (bslsp->shaderFlags1 & (1U << 1)) { // Check for the SLSF1_Skinned flag (bit 1)
-                mesh.isSkinned = true;
-                if (debugMode) {
-                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Skinned.\n";
-                }
-            }
-
             if (bslsp->shaderFlags1 & (1U << 2)) { // Check for SLSF1_Environment_Mapping (bit 2)
                 mesh.hasEnvMapFlag = true;
                 // Also grab the environment map scale from the shader property
                 mesh.envMapScale = bslsp->environmentMapScale;
-                    if (debugMode) {
-                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Environment_Mapping.\n";
-                    }
+                if (debugMode) {
+                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Environment_Mapping.\n";
+                }
             }
-            
+
             if (bslsp->shaderFlags1 & (1U << 10)) { // Check for SLSF1_Eye_Environment_Mapping (bit 10)
                 mesh.hasEyeEnvMapFlag = true;
                 if (debugMode) {
@@ -747,10 +789,10 @@ found_head:
 
     if (debugMode) {
         std::cout << "\n--- Load Complete ---\n";
-        std::cout << "[Bounds] Final Min Bounds: (" << minBounds.x << ", " << minBounds.y << ", " << minBounds.z << ")\n";
-        std::cout << "[Bounds] Final Max Bounds: (" << maxBounds.x << ", " << maxBounds.y << ", " << maxBounds.z << ")\n";
-        std::cout << "Model Center: (" << getCenter().x << ", " << getCenter().y << ", " << getCenter().z << ")\n";
-        std::cout << "Model Bounds Size: (" << getBoundsSize().x << ", " << getBoundsSize().y << ", " << getBoundsSize().z << ")\n";
+        std::cout << "[Bounds] Final Min Bounds: (" << minBounds_nifRootSpace_zUp.x << ", " << minBounds_nifRootSpace_zUp.y << ", " << minBounds_nifRootSpace_zUp.z << ")\n";
+        std::cout << "[Bounds] Final Max Bounds: (" << maxBounds_nifRootSpace_zUp.x << ", " << maxBounds_nifRootSpace_zUp.y << ", " << maxBounds_nifRootSpace_zUp.z << ")\n";
+        std::cout << "Model Center: (" << getCenter_nifRootSpace_zUp().x << ", " << getCenter_nifRootSpace_zUp().y << ", " << getCenter_nifRootSpace_zUp().z << ")\n";
+        std::cout << "Model Bounds Size: (" << getBoundsSize_nifRootSpace_zUp().x << ", " << getBoundsSize_nifRootSpace_zUp().y << ", " << getBoundsSize_nifRootSpace_zUp().z << ")\n";
         std::cout << "---------------------\n\n";
     }
 
@@ -770,7 +812,7 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
 }
 
 
-void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
+void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4& nifRootToWorld_conversionMatrix_zUpToYUp) {
     /*
     std::cout << "\n--- [Debug Render] ---" << std::endl;
     std::cout << "  Opaque Shapes: " << opaqueShapes.size() << std::endl;
@@ -802,7 +844,15 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
 
         checkGlErrors(("Start of render_shape for '" + shape.name + "'").c_str()); // <<-- ADD
 
-        shader.setMat4("model", shape.transform);
+        // The final model matrix transforms vertices from the shape's local Z-up space
+        // all the way to the renderer's world Y-up space. This is done by composing
+        // the shape's local-to-NIF-root transform with the NIF-root-to-world conversion matrix.
+        //
+        // Input: Vertex in shape's local model space (Z-up)
+        // Transformation: model_matrix = (NIF Root -> World Y-up) * (Shape Local -> NIF Root Z-up)
+        // Output: Vertex in renderer's world space (Y-up)
+        shader.setMat4("model", nifRootToWorld_conversionMatrix_zUpToYUp * shape.shapeLocalToNifRoot_transform_zUp);
+
         shader.setBool("is_eye", shape.isEye);
         shader.setBool("is_model_space", shape.isModelSpace); // Set model space uniform
         shader.setBool("has_tint_color", shape.hasTintColor);
@@ -817,8 +867,8 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
 
         // Set skinning uniforms for the vertex shader
         shader.setBool("uIsSkinned", shape.isSkinned);
-        if (shape.isSkinned && !shape.boneMatrices.empty()) {
-            GLsizei boneCount = shape.boneMatrices.size();
+        if (shape.isSkinned && !shape.skinToBonePose_transforms_zUp.empty()) {
+            GLsizei boneCount = shape.skinToBonePose_transforms_zUp.size();
             if (boneCount > MAX_BONES) {
                 std::cerr << "!!! WARNING: Shape '" << shape.name // <-- You'll need to add 'name' to MeshShape struct
                     << "' has " << boneCount
@@ -831,9 +881,9 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
             std::cout << "  [Debug Skinning] Uploading uniforms for shape '" << shape.name
                 << "': Bone Count = " << boneCount
                 << ", Location = " << boneMatricesLocation << std::endl;
-				*/
+                */
 
-            glUniformMatrix4fv(boneMatricesLocation, boneCount, GL_FALSE, glm::value_ptr(shape.boneMatrices[0]));
+            glUniformMatrix4fv(boneMatricesLocation, boneCount, GL_FALSE, glm::value_ptr(shape.skinToBonePose_transforms_zUp[0]));
         }
 
         checkGlErrors(("After setting uniforms for '" + shape.name + "'").c_str()); // <<-- ADD
@@ -864,7 +914,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
         bool useEffectiveEnvMap = shape.hasEnvMapFlag && shape.environmentMapID != 0;
         shader.setBool("has_environment_map", useEffectiveEnvMap);
         shader.setBool("has_eye_environment_map", shape.hasEyeEnvMapFlag);
-        if (useEffectiveEnvMap || shape.hasEyeEnvMapFlag) { 
+        if (useEffectiveEnvMap || shape.hasEyeEnvMapFlag) {
             shader.setBool("is_envmap_cube", shape.environmentMapTarget == GL_TEXTURE_CUBE_MAP);
             shader.setFloat("envMapScale", shape.envMapScale);
         }
@@ -893,7 +943,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     glDisable(GL_BLEND);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
-  
+
     shader.setBool("use_alpha_test", false);
     checkGlErrors("Before opaque loop"); // <<-- ADD
     for (const auto& shape : opaqueShapes) {
@@ -933,7 +983,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos) {
     if (!transparentShapes.empty()) {
         std::sort(transparentShapes.begin(), transparentShapes.end(),
             [&cameraPos](const MeshShape& a, const MeshShape& b) {
-                return glm::distance2(a.boundsCenter, cameraPos) > glm::distance2(b.boundsCenter, cameraPos);
+                return glm::distance2(a.boundsCenter_nifRootSpace_zUp, cameraPos) > glm::distance2(b.boundsCenter_nifRootSpace_zUp, cameraPos);
             });
 
         glEnable(GL_BLEND);
@@ -980,13 +1030,20 @@ void NifModel::drawDepthOnly(Shader& depthShader) {
         // Only render shapes that are flagged to cast shadows into the depth map.
         if (!shape.castShadows) return;
 
-        depthShader.setMat4("model", shape.transform);
+        // Set the model matrix for the depth shader. Note that this does NOT include the
+        // Z-up to Y-up conversion. This implies the shadow mapping pass operates
+        // entirely within the NIF's native Z-up coordinate space.
+        //
+        // Input: Vertex in shape's local model space (Z-up)
+        // Transformation: model_matrix = (Shape Local -> NIF Root Z-up)
+        // Output: Vertex in NIF's root space (Z-up), ready for the Z-up light-space projection.
+        depthShader.setMat4("model", shape.shapeLocalToNifRoot_transform_zUp);
         depthShader.setBool("uIsSkinned", shape.isSkinned);
 
-        if (shape.isSkinned && !shape.boneMatrices.empty()) {
-            GLsizei boneCount = static_cast<GLsizei>(shape.boneMatrices.size());
+        if (shape.isSkinned && !shape.skinToBonePose_transforms_zUp.empty()) {
+            GLsizei boneCount = static_cast<GLsizei>(shape.skinToBonePose_transforms_zUp.size());
             if (boneCount > MAX_BONES) boneCount = MAX_BONES;
-            glUniformMatrix4fv(boneMatricesLocation, boneCount, GL_FALSE, glm::value_ptr(shape.boneMatrices[0]));
+            glUniformMatrix4fv(boneMatricesLocation, boneCount, GL_FALSE, glm::value_ptr(shape.skinToBonePose_transforms_zUp[0]));
         }
         shape.draw();
         };

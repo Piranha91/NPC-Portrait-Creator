@@ -101,10 +101,10 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
     {0.0f, 0.0f, -0.5f}, {-0.2f,  0.2f, -0.2f},
     {0.0f, 0.0f, -0.5f}, {-0.2f, -0.2f, -0.2f},
     {0.0f, 0.0f, -0.5f}, { 0.2f, -0.2f, -0.2f}
-        }) 
-    {
-        configPath = (std::filesystem::path(appDirectory) / "NPC_Portrait_Creator.json").string();
-    }
+        })
+{
+    configPath = (std::filesystem::path(appDirectory) / "NPC_Portrait_Creator.json").string();
+}
 
 Renderer::~Renderer() {
     glDeleteVertexArrays(1, &m_arrowVAO);
@@ -159,27 +159,27 @@ void Renderer::init(bool headless) {
     glfwMakeContextCurrent(window);
 
     // --- Set Program Icon ---
-    #ifdef _WIN32
-    #ifndef IDI_APP_ICON
-    #define IDI_APP_ICON 101
-    #endif
-        HWND hwnd = glfwGetWin32Window(window);
+#ifdef _WIN32
+#ifndef IDI_APP_ICON
+#define IDI_APP_ICON 101
+#endif
+    HWND hwnd = glfwGetWin32Window(window);
 
-        // load 32px & 16px versions from the embedded icon resource
-        HICON hIconBig = (HICON)LoadImage(
-            GetModuleHandle(nullptr),
-            MAKEINTRESOURCE(IDI_APP_ICON),
-            IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+    // load 32px & 16px versions from the embedded icon resource
+    HICON hIconBig = (HICON)LoadImage(
+        GetModuleHandle(nullptr),
+        MAKEINTRESOURCE(IDI_APP_ICON),
+        IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
 
-        HICON hIconSmall = (HICON)LoadImage(
-            GetModuleHandle(nullptr),
-            MAKEINTRESOURCE(IDI_APP_ICON),
-            IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+    HICON hIconSmall = (HICON)LoadImage(
+        GetModuleHandle(nullptr),
+        MAKEINTRESOURCE(IDI_APP_ICON),
+        IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
 
-        // apply to the window & taskbar
-        SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
-        SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
-    #endif
+    // apply to the window & taskbar
+    SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
+    SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
+#endif
 
 
     // --- Register Callbacks ---
@@ -567,7 +567,7 @@ void Renderer::renderUI() {
             if (ImGui::SliderFloat("Field of View", &m_cameraFovY, 10.0f, 90.0f, "%.1f deg")) {
                 if (m_mugshotFrameHeight > 0.0f) {
                     const float fovYRadians = glm::radians(m_cameraFovY);
-                    camera.Radius = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
+                    camera.RadiusFromTarget = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
                     camera.updateCameraVectors();
                 }
             }
@@ -576,7 +576,7 @@ void Renderer::renderUI() {
                 m_cameraFovY = 25.0f; // Reset to default
                 if (m_mugshotFrameHeight > 0.0f) {
                     const float fovYRadians = glm::radians(m_cameraFovY);
-                    camera.Radius = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
+                    camera.RadiusFromTarget = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
                     camera.updateCameraVectors();
                 }
             }
@@ -654,25 +654,38 @@ void Renderer::renderFrame() {
     }
 
     // --- 1. DEPTH PASS (Render scene from light's perspective) ---
-    glm::mat4 lightProjection, lightView;
-    glm::mat4 lightSpaceMatrix;
+    // The entire depth pass operates in a Z-up coordinate system consistent with the NIF data.
+    glm::mat4 lightProjection_ortho_zUp, lightView_zUp;
+    glm::mat4 lightSpace_transform_zUp;
     float near_plane = 1.0f, far_plane = 1500.0f; // Adjust these values to fit your scene
 
     // Find the primary directional light to use for shadows
-    glm::vec3 lightDir = glm::vec3(-0.5f, -0.5f, -1.0f); // Default fallback
+    glm::vec3 lightDir_nifRootSpace_zUp = glm::vec3(-0.5f, -0.5f, -1.0f); // Default fallback
     for (const auto& light : lights) {
         if (light.type == 2) { // type 2 is directional
-            lightDir = light.direction;
+            lightDir_nifRootSpace_zUp = light.direction;
             break;
         }
     }
 
-    lightProjection = glm::ortho(-500.0f, 500.0f, -500.0f, 500.0f, near_plane, far_plane);
-    lightView = glm::lookAt(-lightDir * 500.0f, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
-    lightSpaceMatrix = lightProjection * lightView;
+    // An orthographic projection matrix for the shadow map.
+    // Input Space: Light's View Space (Z-up)
+    // Output Space: Light's Clip Space (Z-up)
+    lightProjection_ortho_zUp = glm::ortho(-500.0f, 500.0f, -500.0f, 500.0f, near_plane, far_plane);
+
+    // The light's view matrix. It transforms from the NIF's world space into the light's view space.
+    // The up vector (0,1,0) orients the light's "camera" but the coordinates remain Z-up.
+    // Input Space: NIF Root Space (Z-up)
+    // Output Space: Light's View Space (Z-up)
+    lightView_zUp = glm::lookAt(-lightDir_nifRootSpace_zUp * 500.0f, glm::vec3(0.0f), glm::vec3(0.0, 1.0, 0.0));
+
+    // The final combined matrix to transform vertices for shadow mapping.
+    // Input Space: NIF Root Space (Z-up)
+    // Output Space: Light's Clip Space (Z-up)
+    lightSpace_transform_zUp = lightProjection_ortho_zUp * lightView_zUp;
 
     depthShader.use();
-    depthShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+    depthShader.setMat4("lightSpaceMatrix", lightSpace_transform_zUp);
 
     glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
     glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
@@ -692,52 +705,72 @@ void Renderer::renderFrame() {
 
     shader.use();
 
-    // --- SET LIGHT UNIFORMS ---
-    // This is the conversion matrix that correctly transforms the model for rendering.
-    // We will now use it for the light direction as well.
-    glm::mat4 conversionMatrix = glm::mat4(
+    // This matrix handles the crucial conversion from the NIF file's coordinate system
+    // to the renderer's coordinate system.
+    // NIF Standard: +X is right, +Y is forward, +Z is up.
+    // Renderer Standard: +X is right, +Y is up, +Z is backward.
+    //
+    // Input Space: NIF Root Space (Z-up)
+    // Transformation:
+    //   - Inverts the X-axis (-X)
+    //   - Maps the NIF's Z-axis to the renderer's Y-axis.
+    //   - Maps the NIF's Y-axis to the renderer's Z-axis.
+    // Output Space: Renderer's World Space (Y-up)
+    glm::mat4 nifRootToWorld_conversionMatrix_zUpToYUp = glm::mat4(
         -1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f
     );
 
-    int maxLights = 5; // Should match shader's MAX_LIGHTS
+    // 1. DEFINE PROJECTION AND VIEW MATRICES FIRST
+    // The camera's perspective projection matrix.
+    // Input Space: Camera View Space (Y-up)
+    // Output Space: Clip Space (Y-up)
+    glm::mat4 cameraProjection_yUp = glm::perspective(glm::radians(m_cameraFovY), (float)screenWidth / (float)screenHeight, 10.0f, 10000.0f);
+
+    // The camera's view matrix.
+    // Input Space: Renderer's World Space (Y-up)
+    // Output Space: Camera View Space (Y-up)
+    glm::mat4 cameraView_yUp = camera.GetViewMatrix();
+
+    // 2. NOW CALCULATE LIGHTING (this is the new block)
+    int maxLights = 5;
     for (int i = 0; i < maxLights; ++i) {
         std::string base = "lights[" + std::to_string(i) + "]";
         if (i < lights.size()) {
             shader.setInt(base + ".type", lights[i].type);
-            // ============================ FIX START ============================
-            // Send the ORIGINAL, UNMODIFIED light direction to the shader.
-            // The special 'view' uniform already contains the conversion matrix,
-            // so it will correctly transform both the model's normals AND the
-            // light's direction in the same way.
-            // We still negate the vector to get the direction *to* the light source.
-            shader.setVec3(base + ".direction", -lights[i].direction);
-            // ============================= FIX END =============================
+
+            // --- CORRECTED LIGHTING CALCULATION ---
+            // Create a matrix to transform light vectors from NIF space directly to the camera's view space.
+            // Input Space: NIF Root Space (Z-up)
+            // Output Space: Camera View Space (Y-up)
+            glm::mat4 nifRootToCameraView_transform_zUpToYUp = cameraView_yUp * nifRootToWorld_conversionMatrix_zUpToYUp;
+
+            // The normal matrix correctly transforms direction vectors without being affected by translation or non-uniform scale.
+            glm::mat3 nifRootToCameraView_normalMatrix_zUpToYUp = glm::transpose(glm::inverse(glm::mat3(nifRootToCameraView_transform_zUpToYUp)));
+
+            // The light's direction vector, defined in the NIF's Z-up coordinate system.
+            glm::vec3 lightDir_nifRootSpace_zUp = -lights[i].direction;
+
+            // The final light direction vector, transformed into the camera's Y-up view space for the shader.
+            glm::vec3 lightDir_cameraViewSpace_yUp = glm::normalize(nifRootToCameraView_normalMatrix_zUpToYUp * lightDir_nifRootSpace_zUp);
+            shader.setVec3(base + ".direction", lightDir_cameraViewSpace_yUp);
 
             shader.setVec3(base + ".color", lights[i].color);
             shader.setFloat(base + ".intensity", lights[i].intensity);
         }
         else {
-            shader.setInt(base + ".type", 0); // Disable unused lights
+            shader.setInt(base + ".type", 0);
         }
     }
 
-    glm::mat4 projection = glm::perspective(glm::radians(m_cameraFovY), (float)screenWidth / (float)screenHeight, 10.0f, 10000.0f);
-    // 1. Get the original, unmodified view matrix from the camera
-    glm::mat4 originalView = camera.GetViewMatrix();
+    // 3. SET THE REST OF THE UNIFORMS
+    shader.setMat4("projection", cameraProjection_yUp);
+    shader.setMat4("view", cameraView_yUp);
+    shader.setVec3("viewPos", camera.Position_worldSpace_yUp);
+    shader.setMat4("lightSpaceMatrix", lightSpace_transform_zUp);
 
-    // 2. Create a modified view matrix specifically for the NIF model
-    glm::mat4 modelView = originalView;
-    modelView = modelView * conversionMatrix;
-
-    // --- END OF CHANGES ---
-
-    shader.setMat4("projection", projection);
-    shader.setMat4("view", modelView); // <-- Use the MODIFIED view for the main model
-    shader.setVec3("viewPos", camera.Position);
-    shader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
 
     shader.setBool("u_useDiffuseMap", m_textureToggles.diffuse);
     shader.setBool("u_useNormalMap", m_textureToggles.normal);
@@ -753,7 +786,7 @@ void Renderer::renderFrame() {
     shader.setInt("shadowMap", 8);
 
     if (model) {
-        model->draw(shader, camera.Position);
+        model->draw(shader, camera.Position_worldSpace_yUp, nifRootToWorld_conversionMatrix_zUpToYUp);
     }
 
     if (m_visualizeLights && !m_visualizeLights_lastState) {
@@ -763,18 +796,18 @@ void Renderer::renderFrame() {
         for (const auto& light : lights) {
             if (light.type == 2) {
                 std::cout << "--- Processing Arrow for Light #" << lightIndex + 1 << " ---" << std::endl;
-                std::cout << "  [Input] Raw Direction: " << glm::to_string(light.direction) << std::endl;
-                std::cout << "  [Input] Raw Color:     " << glm::to_string(light.color) << std::endl;
-                std::cout << "  [Input] Raw Intensity: " << light.intensity << std::endl;
+                std::cout << "  [Input] Raw Direction (Z-up): " << glm::to_string(light.direction) << std::endl;
+                std::cout << "  [Input] Raw Color:            " << glm::to_string(light.color) << std::endl;
+                std::cout << "  [Input] Raw Intensity:        " << light.intensity << std::endl;
 
-                glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f));
-                std::cout << "  [Calc] Transformed Dir: " << glm::to_string(transformedDir) << std::endl;
+                glm::vec3 lightDir_worldSpace_yUp = glm::vec3(nifRootToWorld_conversionMatrix_zUpToYUp * glm::vec4(light.direction, 0.0f));
+                std::cout << "  [Calc] Transformed Dir (Y-up): " << glm::to_string(lightDir_worldSpace_yUp) << std::endl;
 
-                glm::vec3 arrowPos = camera.Target - (transformedDir * 50.0f);
-                std::cout << "  [Calc] Arrow Position:  " << glm::to_string(arrowPos) << std::endl;
+                glm::vec3 arrowPos_worldSpace_yUp = camera.Target_worldSpace_yUp - (lightDir_worldSpace_yUp * 50.0f);
+                std::cout << "  [Calc] Arrow Position (Y-up):  " << glm::to_string(arrowPos_worldSpace_yUp) << std::endl;
 
                 float arrowLength = 20.0f * light.intensity;
-                std::cout << "  [Calc] Arrow Length:    " << arrowLength << std::endl;
+                std::cout << "  [Calc] Arrow Length:           " << arrowLength << std::endl;
 
                 lightIndex++;
             }
@@ -795,8 +828,8 @@ void Renderer::renderFrame() {
 
         for (const auto& light : lights) {
             if (light.type == 2) {
-                // --- CRITICAL: Please ensure your matrix definition matches this exactly ---
-                glm::mat4 conversionMatrix = glm::mat4(
+                // This matrix converts from Z-up NIF space to Y-up world space.
+                glm::mat4 conversionMatrix_zUpToYUp = glm::mat4(
                     -1.0f, 0.0f, 0.0f, 0.0f,
                     0.0f, 0.0f, 1.0f, 0.0f,
                     0.0f, 1.0f, 0.0f, 0.0f,
@@ -804,11 +837,12 @@ void Renderer::renderFrame() {
                 );
 
                 // Calculate the arrow's full model matrix, just like the drawing logic
-                glm::vec3 transformedDir = glm::normalize(glm::vec3(conversionMatrix * glm::vec4(light.direction, 0.0f)));
-                glm::vec3 arrowPos = camera.Target - (transformedDir * 50.0f);
-                glm::mat4 modelMatrix =
-                    glm::translate(glm::mat4(1.0f), arrowPos) *
-                    glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), transformedDir)) *
+                glm::vec3 lightDir_worldSpace_yUp = glm::normalize(glm::vec3(conversionMatrix_zUpToYUp * glm::vec4(light.direction, 0.0f)));
+                glm::vec3 arrowPos_worldSpace_yUp = camera.Target_worldSpace_yUp - (lightDir_worldSpace_yUp * 50.0f);
+                // The final model matrix for the arrow, transforming it from its local space into the renderer's Y-up world space.
+                glm::mat4 arrowModel_transform_yUp =
+                    glm::translate(glm::mat4(1.0f), arrowPos_worldSpace_yUp) *
+                    glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), lightDir_worldSpace_yUp)) *
                     glm::scale(glm::mat4(1.0f), glm::vec3(20.0f * light.intensity));
 
                 // Helper lambda to get the required zoom for a single 3D point
@@ -825,7 +859,7 @@ void Renderer::renderFrame() {
 
                 // --- NEW: Iterate over every single vertex of the arrow model ---
                 for (const auto& localVertex : m_arrowVertices) {
-                    glm::vec3 worldPos = glm::vec3(modelMatrix * glm::vec4(localVertex, 1.0));
+                    glm::vec3 worldPos = glm::vec3(arrowModel_transform_yUp * glm::vec4(localVertex, 1.0));
                     maxZoomFactor = std::max(maxZoomFactor, getRequiredZoomForPoint(worldPos));
                 }
             }
@@ -838,7 +872,7 @@ void Renderer::renderFrame() {
             std::cout << "[Auto-Zoom] Arrows out of view. Zooming out by a factor of "
                 << finalZoomFactor << " (base: " << maxZoomFactor << " * 1.25 margin)." << std::endl;
 
-            camera.Radius *= finalZoomFactor;
+            camera.RadiusFromTarget *= finalZoomFactor;
             camera.updateCameraVectors();
         }
     }
@@ -859,8 +893,8 @@ void Renderer::renderFrame() {
         // --- Drawing Logic ---
         glDisable(GL_DEPTH_TEST);
         m_debugLineShader.use();
-        m_debugLineShader.setMat4("projection", projection);
-        m_debugLineShader.setMat4("view", originalView);
+        m_debugLineShader.setMat4("projection", cameraProjection_yUp); // <-- Use the correct projection matrix
+        m_debugLineShader.setMat4("view", cameraView_yUp);
         glBindVertexArray(m_arrowVAO);
 
         int directionalLightCounter = 0; // For UI display numbering
@@ -870,27 +904,32 @@ void Renderer::renderFrame() {
 
                 m_debugLineShader.setVec3("lineColor", lights[i].color);
 
-                glm::mat4 conversionMatrix = glm::mat4(
+                // This matrix converts from Z-up NIF space to Y-up world space.
+                glm::mat4 nifRootToWorld_conversionMatrix_zUpToYUp = glm::mat4(
                     -1.0f, 0.0f, 0.0f, 0.0f,
                     0.0f, 0.0f, 1.0f, 0.0f,
                     0.0f, 1.0f, 0.0f, 0.0f,
                     0.0f, 0.0f, 0.0f, 1.0f
                 );
-                glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(lights[i].direction, 0.0f));
-                glm::vec3 arrowPos = camera.Target - (transformedDir * 50.0f);
+                // The light's direction vector converted to the renderer's Y-up world space.
+                glm::vec3 lightDir_worldSpace_yUp = glm::vec3(nifRootToWorld_conversionMatrix_zUpToYUp * glm::vec4(lights[i].direction, 0.0f));
+                // The calculated position for the visualization arrow in Y-up world space.
+                glm::vec3 arrowPos_worldSpace_yUp = camera.Target_worldSpace_yUp - (lightDir_worldSpace_yUp * 50.0f);
 
-                glm::mat4 modelMatrix =
-                    glm::translate(glm::mat4(1.0f), arrowPos) *
-                    glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), glm::normalize(transformedDir))) *
+                // The arrow's final model matrix, transforming its local vertices into Y-up world space.
+                glm::mat4 arrowModel_transform_yUp =
+                    glm::translate(glm::mat4(1.0f), arrowPos_worldSpace_yUp) *
+                    glm::mat4_cast(glm::rotation(glm::vec3(0.0f, 0.0f, -1.0f), glm::normalize(lightDir_worldSpace_yUp))) *
                     glm::scale(glm::mat4(1.0f), glm::vec3(20.0f * lights[i].intensity));
 
-                m_debugLineShader.setMat4("model", modelMatrix);
+                m_debugLineShader.setMat4("model", arrowModel_transform_yUp);
                 glLineWidth(lights[i].intensity * 2.0f + 1.0f);
                 glDrawArrays(GL_LINES, 0, 10);
 
                 // --- Interaction Logic ---
                 glm::vec4 viewport = glm::vec4(0, 0, screenWidth, screenHeight);
-                glm::vec3 screenPos = glm::project(arrowPos, originalView, projection, viewport);
+                // CRITICAL FIX: Use cameraView_yUp and cameraProjection_yUp to match the main render pass.
+                glm::vec3 screenPos = glm::project(arrowPos_worldSpace_yUp, cameraView_yUp, cameraProjection_yUp, viewport);
 
                 if (screenPos.z < 1.0f) {
                     ImGui::SetCursorScreenPos(ImVec2(screenPos.x - 16, screenHeight - screenPos.y - 16));
@@ -898,6 +937,10 @@ void Renderer::renderFrame() {
 
                     // Create the button that the context menu will attach to
                     ImGui::InvisibleButton("##light_handle", ImVec2(32, 32));
+
+                    if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+                        clickWasOnHandle = true; // Mark that the click was on a handle
+                    }
 
                     // --- Context Menu ---
                     if (ImGui::BeginPopupContextItem("light_context_menu")) {
@@ -972,11 +1015,11 @@ void Renderer::renderFrame() {
                             lights[i].direction = glm::normalize(rotation * lights[i].direction);
                         }
                         else {
-                            glm::vec3 transformedDir = glm::vec3(conversionMatrix * glm::vec4(lights[i].direction, 0.0f));
-                            glm::quat rotY = glm::angleAxis(mouseDelta.x * dragSpeed, camera.Up);
-                            glm::quat rotX = glm::angleAxis(mouseDelta.y * dragSpeed, camera.Right);
+                            glm::vec3 transformedDir = glm::vec3(nifRootToWorld_conversionMatrix_zUpToYUp * glm::vec4(lights[i].direction, 0.0f));
+                            glm::quat rotY = glm::angleAxis(mouseDelta.x * dragSpeed, camera.Up_localSpace_yUp);
+                            glm::quat rotX = glm::angleAxis(mouseDelta.y * dragSpeed, camera.Right_localSpace_yUp);
                             glm::vec3 newTransformedDir = glm::normalize((rotY * rotX) * transformedDir);
-                            lights[i].direction = glm::normalize(glm::vec3(conversionMatrix * glm::vec4(newTransformedDir, 0.0f)));
+                            lights[i].direction = glm::normalize(glm::vec3(nifRootToWorld_conversionMatrix_zUpToYUp * glm::vec4(newTransformedDir, 0.0f)));
                         }
                     }
 
@@ -1155,11 +1198,11 @@ void Renderer::loadNifModel(const std::string& path) {
 
         if (useAbsoluteCamera) {
             std::cout << "\n--- Using Absolute Camera Position ---\n";
-            camera.Position = glm::vec3(camX, camY, camZ);
+            camera.Position_worldSpace_yUp = glm::vec3(camX, camY, camZ);
             camera.Pitch = camPitch;
             camera.Yaw = camYaw;
             camera.updateCameraVectors();
-            camera.SetInitialState(camera.Target, camera.Radius, camera.Yaw, camera.Pitch);
+            camera.SetInitialState(camera.Target_worldSpace_yUp, camera.RadiusFromTarget, camera.Yaw, camera.Pitch);
             std::cout << "  [Camera Debug] Position set to: (" << camX << ", " << camY << ", " << camZ << ")\n";
             std::cout << "  [Camera Debug] Rotation set to: Pitch=" << camPitch << ", Yaw=" << camYaw << "\n";
             std::cout << "-------------------------------------\n" << std::endl;
@@ -1172,32 +1215,33 @@ void Renderer::loadNifModel(const std::string& path) {
             std::cout << "  [Mugshot Config] headBottomOffset: " << headBottomOffset << " (" << headBottomOffset * 100.0f << "%)\n";
 
             // 1. Get bounds from the model, preferring the specific head shape
-            glm::vec3 headMinBounds_Zup;
-            glm::vec3 headMaxBounds_Zup;
+            glm::vec3 headMinBounds_nifRootSpace_zUp;
+            glm::vec3 headMaxBounds_nifRootSpace_zUp;
 
             // --- MODIFICATION START: Prioritize partition bounds, then fall back ---
             if (model->hasHeadShapeBounds()) {
-                headMinBounds_Zup = model->getHeadShapeMinBounds();
-                headMaxBounds_Zup = model->getHeadShapeMaxBounds();
+                headMinBounds_nifRootSpace_zUp = model->getHeadShapeMinBounds_nifRootSpace_zUp();
+                headMaxBounds_nifRootSpace_zUp = model->getHeadShapeMaxBounds_nifRootSpace_zUp();
                 std::cout << "  [Mugshot Info] Using specific head partition bounds for framing.\n";
             }
             else {
                 // Fallback for models with no head partition
-                headMinBounds_Zup = model->getHeadMinBounds();
-                headMaxBounds_Zup = model->getHeadMaxBounds();
+                headMinBounds_nifRootSpace_zUp = model->getHeadMinBounds_nifRootSpace_zUp();
+                headMaxBounds_nifRootSpace_zUp = model->getHeadMaxBounds_nifRootSpace_zUp();
                 std::cout << "  [Mugshot Warning] No head partition found. Falling back to aggregate head bounds.\n";
             }
             // --- MODIFICATION END ---
 
             // 2. Convert coordinates from Skyrim's Z-up to our renderer's Y-up
-            float headTop_Yup = headMaxBounds_Zup.z;
-            float headBottom_Yup = headMinBounds_Zup.z;
+            // The NIF's Z-axis (up) becomes the renderer's Y-axis (up).
+            float headTop_Yup = headMaxBounds_nifRootSpace_zUp.z;
+            float headBottom_Yup = headMinBounds_nifRootSpace_zUp.z;
 
             // Calculate horizontal center based on HEAD bounds to ensure a straight-on view
-            float headCenterX_Yup = -(headMinBounds_Zup.x + headMaxBounds_Zup.x) / 2.0f;
-            // --- MODIFICATION START: Invert the Y-axis to correctly map depth ---
-            float headCenterZ_Yup = -(headMinBounds_Zup.y + headMaxBounds_Zup.y) / 2.0f;
-            // --- MODIFICATION END ---
+            // The NIF's X-axis (right) becomes the renderer's -X axis.
+            float headCenterX_Yup = -(headMinBounds_nifRootSpace_zUp.x + headMaxBounds_nifRootSpace_zUp.x) / 2.0f;
+            // The NIF's Y-axis (forward) becomes the renderer's -Z axis (forward).
+            float headCenterZ_Yup = -(headMinBounds_nifRootSpace_zUp.y + headMaxBounds_nifRootSpace_zUp.y) / 2.0f;
 
             // 3. Define the vertical frame for the mugshot based on the HEAD MESH ONLY
             float headHeight = headTop_Yup - headBottom_Yup;
@@ -1215,19 +1259,19 @@ void Renderer::loadNifModel(const std::string& path) {
             const float fovYRadians = glm::radians(m_cameraFovY);
             float distanceForHeight = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
             // 5. Set camera properties
-            camera.Radius = distanceForHeight;
-            camera.Target = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
+            camera.RadiusFromTarget = distanceForHeight;
+            camera.Target_worldSpace_yUp = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
             camera.Yaw = 90.0f; // Use 90 for a direct front-on view
             camera.Pitch = 0.0f;
             camera.updateCameraVectors();
 
             // Save the calculated position as the new "zero"
-            camera.SetInitialState(camera.Target, camera.Radius, camera.Yaw, camera.Pitch);
+            camera.SetInitialState(camera.Target_worldSpace_yUp, camera.RadiusFromTarget, camera.Yaw, camera.Pitch);
 
-            std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target) << std::endl;
+            std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target_worldSpace_yUp) << std::endl;
             std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << frameHeight << std::endl;
-            std::cout << "  [Mugshot Debug] Final Camera Radius: " << camera.Radius << std::endl;
-            std::cout << "  [Mugshot Debug] Final Camera Position: " << glm::to_string(camera.Position) << std::endl;
+            std::cout << "  [Mugshot Debug] Final Camera Radius: " << camera.RadiusFromTarget << std::endl;
+            std::cout << "  [Mugshot Debug] Final Camera Position: " << glm::to_string(camera.Position_worldSpace_yUp) << std::endl;
             std::cout << "-------------------------------------\n" << std::endl;
         }
     }
@@ -1844,4 +1888,3 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     Renderer* renderer = static_cast<Renderer*>(glfwGetWindowUserPointer(window));
     if (renderer) renderer->HandleKey(key, scancode, action, mods);
 }
-

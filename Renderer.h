@@ -20,6 +20,8 @@ struct GLFWwindow;
 enum class SkeletonType { None, Female, Male, FemaleBeast, MaleBeast, Custom };
 struct Light {
     int type = 0; // 0=disabled, 1=ambient, 2=directional
+    // Light direction is stored in the NIF's coordinate system (Z-up).
+    // It must be transformed before being used by the Y-up renderer.
     glm::vec3 direction{ 0.0f };
     glm::vec3 color{ 1.0f };
     float intensity = 1.0f;
@@ -40,7 +42,7 @@ public:
     GLFWwindow* getWindow() const { return window; }
     void processDirectory();
 
-	// --- Configuration Management ---
+    // --- Configuration Management ---
     void loadConfig();
     void saveConfig();
 
@@ -120,7 +122,7 @@ private:
     Skeleton* activeSkeleton = nullptr;
     SkeletonType currentSkeletonType = SkeletonType::None;
 
-	// Lighting
+    // Lighting
     std::string lightingProfilePath;
     std::string lightingProfileJsonString;
     std::vector<Light> lights;
@@ -175,6 +177,8 @@ private:
     // Arrow resources
     unsigned int m_arrowVAO;      // <-- Add this
     unsigned int m_arrowVBO;      // <-- Add this
+    // These vertices define a simple arrow shape in its own local model space.
+    // It is oriented to point along the -Z axis.
     const std::vector<glm::vec3> m_arrowVertices;
 
     // UI State

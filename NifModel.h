@@ -22,8 +22,21 @@ struct MeshShape {
     bool visible = true;
     GLuint VAO = 0, VBO = 0, EBO = 0;
     GLsizei indexCount = 0;
-    glm::mat4 transform = glm::mat4(1.0f); // Initialize to identity matrix
-    glm::vec3 boundsCenter = glm::vec3(0.0f); // Store the world-space center of the mesh bounds
+
+    // This matrix transforms a vertex from this shape's local model space
+    // into the NIF file's overall root coordinate space.
+    //
+    // Input Space: Shape's Local Model Space (Z-up)
+    // Transformation: Applies the shape's translation, rotation, and scale relative to the NIF root.
+    // Output Space: NIF Root Space (Z-up)
+    glm::mat4 shapeLocalToNifRoot_transform_zUp = glm::mat4(1.0f);
+
+    // Stores the world-space center of the mesh's bounding box. This is calculated
+    // in the NIF's root coordinate space.
+    //
+    // Coordinate Space: NIF Root Space (Z-up)
+    glm::vec3 boundsCenter_nifRootSpace_zUp = glm::vec3(0.0f);
+
     GLuint diffuseTextureID = 0; // Slot 0: _d.dds or base color
     GLuint normalTextureID = 0; // Slot 1: _n.dds or _msn.dds
     GLuint skinTextureID = 0; // Slot 2: _sk.dds (Subsurface/Tint)
@@ -35,7 +48,13 @@ struct MeshShape {
 
     // --- Additions for GPU Skinning ---
     bool isSkinned = false;
-    std::vector<glm::mat4> boneMatrices;
+    // A collection of matrices for GPU skinning. Each matrix transforms a vertex from the
+    // mesh's initial bind-pose model space to a bone's final animated pose space.
+    //
+    // Input Space: Mesh's Bind-Pose Model Space (Z-up)
+    // Transformation: Applies the combined inverse-bind and final bone animation transform.
+    // Output Space: Bone's Posed Space (Z-up)
+    std::vector<glm::mat4> skinToBonePose_transforms_zUp;
 
     // --- Additions for Alpha Properties ---
     bool hasAlphaProperty = false;
@@ -79,7 +98,7 @@ public:
 
     bool load(const std::string& path, TextureManager& textureManager, const Skeleton* skeleton);
     bool load(const std::vector<char>& data, const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton);
-    void draw(Shader& shader, const glm::vec3& cameraPos);
+    void draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4& nifRootToWorld_conversionMatrix_zUpToYUp);
     void drawDepthOnly(Shader& depthShader);
     void cleanup();
 
@@ -89,21 +108,24 @@ public:
 
     std::vector<std::string> getTextures() const;
 
-    // --- Restored Accessors from Version 1 ---
-    glm::vec3 getMinBounds() const { return minBounds; }
-    glm::vec3 getMaxBounds() const { return maxBounds; }
+    // --- Accessors for Bounds ---
+    // Note: All bounds are stored in the NIF file's root coordinate space, which is Z-up.
+    // They must be transformed by a conversion matrix to be used in the Y-up world space of the renderer.
+
+    glm::vec3 getMinBounds_nifRootSpace_zUp() const { return minBounds_nifRootSpace_zUp; }
+    glm::vec3 getMaxBounds_nifRootSpace_zUp() const { return maxBounds_nifRootSpace_zUp; }
     // The aggregate bounds, calculated by excluding accessories by name
-    glm::vec3 getHeadMinBounds() const { return headMinBounds; }
-    glm::vec3 getHeadMaxBounds() const { return headMaxBounds; }
+    glm::vec3 getHeadMinBounds_nifRootSpace_zUp() const { return headMinBounds_nifRootSpace_zUp; }
+    glm::vec3 getHeadMaxBounds_nifRootSpace_zUp() const { return headMaxBounds_nifRootSpace_zUp; }
 
     // The specific bounds of the shape with the SBP_HEAD partition, if found
-    glm::vec3 getHeadShapeMinBounds() const { return headShapeMinBounds; }
-    glm::vec3 getHeadShapeMaxBounds() const { return headShapeMaxBounds; }
+    glm::vec3 getHeadShapeMinBounds_nifRootSpace_zUp() const { return headShapeMinBounds_nifRootSpace_zUp; }
+    glm::vec3 getHeadShapeMaxBounds_nifRootSpace_zUp() const { return headShapeMaxBounds_nifRootSpace_zUp; }
     bool hasHeadShapeBounds() const { return bHasHeadShapeBounds; }
-    glm::vec3 getEyeCenter() const { return eyeCenter; }
+    glm::vec3 getEyeCenter_nifRootSpace_zUp() const { return eyeCenter_nifRootSpace_zUp; }
     bool hasEyeCenter() const { return bHasEyeCenter; }
-    glm::vec3 getCenter() const { return (minBounds + maxBounds) * 0.5f; }
-    glm::vec3 getBoundsSize() const { return maxBounds - minBounds; }
+    glm::vec3 getCenter_nifRootSpace_zUp() const { return (minBounds_nifRootSpace_zUp + maxBounds_nifRootSpace_zUp) * 0.5f; }
+    glm::vec3 getBoundsSize_nifRootSpace_zUp() const { return maxBounds_nifRootSpace_zUp - minBounds_nifRootSpace_zUp; }
 
 private:
     nifly::NifFile nif;
@@ -112,16 +134,25 @@ private:
     std::vector<MeshShape> transparentShapes;
     std::vector<std::string> texturePaths;
 
-    // --- Restored Members from Version 1 ---
-    glm::vec3 minBounds;
-    glm::vec3 maxBounds;
-    glm::vec3 headMinBounds;
-    glm::vec3 headMaxBounds;
+    // --- Bounding Box Members ---
+    // These define the AABB for the entire model in the NIF's root coordinate space.
+    // Coordinate Space: NIF Root Space (Z-up)
+    glm::vec3 minBounds_nifRootSpace_zUp;
+    glm::vec3 maxBounds_nifRootSpace_zUp;
 
-    // --- MODIFICATION: New members for partition-identified head shape ---
-    glm::vec3 headShapeMinBounds;
-    glm::vec3 headShapeMaxBounds;
+    // AABB for the head parts of the model, excluding accessories.
+    // Coordinate Space: NIF Root Space (Z-up)
+    glm::vec3 headMinBounds_nifRootSpace_zUp;
+    glm::vec3 headMaxBounds_nifRootSpace_zUp;
+
+    // AABB for the specific shape identified as the primary head mesh via dismemberment partitions.
+    // Coordinate Space: NIF Root Space (Z-up)
+    glm::vec3 headShapeMinBounds_nifRootSpace_zUp;
+    glm::vec3 headShapeMaxBounds_nifRootSpace_zUp;
     bool bHasHeadShapeBounds = false;
-    glm::vec3 eyeCenter;
+
+    // Geometric center of the eye mesh(es).
+    // Coordinate Space: NIF Root Space (Z-up)
+    glm::vec3 eyeCenter_nifRootSpace_zUp;
     bool bHasEyeCenter = false;
 };
