@@ -685,7 +685,7 @@ void Renderer::renderFrame() {
     lightSpace_transform_zUp = lightProjection_ortho_zUp * lightView_zUp;
 
     depthShader.use();
-    depthShader.setMat4("lightSpaceMatrix", lightSpace_transform_zUp);
+    depthShader.setMat4("u_worldToLightClip_transform", lightSpace_transform_zUp);
 
     glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
     glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
@@ -769,7 +769,7 @@ void Renderer::renderFrame() {
     shader.setMat4("u_proj_viewToClip", cameraProjection_yUp);
     shader.setMat4("u_view_worldToView", cameraView_yUp);
     shader.setVec3("viewPos", camera.Position_worldSpace_yUp);
-    shader.setMat4("lightSpaceMatrix", lightSpace_transform_zUp);
+    shader.setMat4("u_worldToLightClip_transform", lightSpace_transform_zUp);
 
 
     shader.setBool("u_useDiffuseMap", m_textureToggles.diffuse);

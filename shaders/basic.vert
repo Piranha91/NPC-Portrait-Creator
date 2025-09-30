@@ -42,14 +42,13 @@ uniform mat4 uBoneMatrices[MAX_BONES];
 
 void main()
 {
-    vec4 pos_worldSpace_yUp;
-    mat3 normalMatrix_modelToWorld_yUp;
+    // A temporary variable for the model-space position, which may be modified by skinning.
+    vec4 current_pos_modelSpace = vec4(aPos_modelSpace, 1.0);
+    // This matrix will be used for transforming normals. It needs to include the skinning transform.
+    mat4 final_transform_for_normals = u_model_localToWorld;
 
     if (uIsSkinned)
     {
-        // For skinned meshes, the bone matrices transform the vertex directly
-        // from bind-pose model space into the final posed world space.
-        // This effectively replaces the 'u_model_localToWorld' matrix.
         float totalWeight = aWeights.x + aWeights.y + aWeights.z + aWeights.w;
         if (totalWeight > 0.0) {
            mat4 skinMatrix = (aWeights.x * uBoneMatrices[aBoneIDs.x] +
@@ -57,21 +56,18 @@ void main()
                               aWeights.z * uBoneMatrices[aBoneIDs.z] +
                               aWeights.w * uBoneMatrices[aBoneIDs.w]) / totalWeight;
             
-           pos_worldSpace_yUp = skinMatrix * vec4(aPos_modelSpace, 1.0);
-           normalMatrix_modelToWorld_yUp = mat3(transpose(inverse(skinMatrix)));
-        } else {
-            // Fallback for zero-weight vertices
-            pos_worldSpace_yUp = u_model_localToWorld * vec4(aPos_modelSpace, 1.0);
-            normalMatrix_modelToWorld_yUp = mat3(transpose(inverse(u_model_localToWorld)));
+            // Deform the vertex position. The result is still in the mesh's local model space.
+            current_pos_modelSpace = skinMatrix * current_pos_modelSpace;
+            
+            // For correct lighting on a deformed surface, the normal matrix must also account for the skinning.
+            final_transform_for_normals = u_model_localToWorld * skinMatrix;
         }
     }
-    else
-    {
-        // For non-skinned meshes, use the standard model matrix.
-        pos_worldSpace_yUp = u_model_localToWorld * vec4(aPos_modelSpace, 1.0);
-        normalMatrix_modelToWorld_yUp = mat3(transpose(inverse(u_model_localToWorld)));
-    }
     
+    // Now apply the standard model-to-world transformation to the (potentially skinned) vertex.
+    // This correctly positions the vertex and converts it from Z-up to Y-up space.
+    vec4 pos_worldSpace_yUp = u_model_localToWorld * current_pos_modelSpace;
+
     // --- Common Calculations for All Vertex Types ---
     
     // Final clip-space position.
@@ -81,7 +77,8 @@ void main()
     v_viewSpacePos = vec3(u_view_worldToView * pos_worldSpace_yUp);
     v_lightClipSpacePos = u_worldToLightClip_transform * pos_worldSpace_yUp;
 
-    // Create the normal and TBN matrices for view space.
+    // Create the normal and TBN matrices for view space, using the final combined transform.
+    mat3 normalMatrix_modelToWorld_yUp = mat3(transpose(inverse(final_transform_for_normals)));
     mat3 normalMatrix_modelToView_yUp = mat3(u_view_worldToView) * normalMatrix_modelToWorld_yUp;
     v_modelToViewNormalMatrix = normalMatrix_modelToView_yUp;
     
@@ -89,7 +86,7 @@ void main()
     vec3 B_viewSpace = normalize(normalMatrix_modelToView_yUp * aBitangent_modelSpace);
     vec3 N_viewSpace = normalize(normalMatrix_modelToView_yUp * aNormal_modelSpace);
     v_tangentToViewMatrix = mat3(T_viewSpace, B_viewSpace, N_viewSpace);
-    
+
     // Pass through other attributes.
     TexCoords = aTexCoords;
     vertexColor = aColor;
