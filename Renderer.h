@@ -184,6 +184,14 @@ private:
     // UI State
     bool m_visualizeLights = false; // <-- Add this
     bool m_visualizeLights_lastState = false;
+
+    // --- Axis Visualization ---
+    bool m_visualizeRendererAxes = false;
+    bool m_visualizeNifAxes = false;
+    unsigned int m_axesVAO;
+    unsigned int m_axesVBO;
+    unsigned int m_labelVAO;
+    unsigned int m_labelVBO;
 };
 
 #endif // RENDERER_H

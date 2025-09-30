@@ -109,6 +109,10 @@ Renderer::Renderer(int width, int height, const std::string& app_dir)
 Renderer::~Renderer() {
     glDeleteVertexArrays(1, &m_arrowVAO);
     glDeleteBuffers(1, &m_arrowVBO);
+    glDeleteVertexArrays(1, &m_axesVAO);
+    glDeleteBuffers(1, &m_axesVBO);
+    glDeleteVertexArrays(1, &m_labelVAO);
+    glDeleteBuffers(1, &m_labelVBO);
 
     if (uiInitialized) {
         shutdownUI();
@@ -213,6 +217,53 @@ void Renderer::init(bool headless) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
     // --- END ARROW SETUP ---
+
+    // --- START: AXES VISUALIZATION SETUP ---
+    glGenVertexArrays(1, &m_axesVAO);
+    glGenBuffers(1, &m_axesVBO);
+
+    glBindVertexArray(m_axesVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_axesVBO);
+
+    // X (Red), Y (Green), Z (Blue)
+    const std::array<glm::vec3, 6> axesVertices = {
+        glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)
+    };
+
+    glBufferData(GL_ARRAY_BUFFER, sizeof(axesVertices), axesVertices.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    // --- END AXES SETUP ---
+
+    // --- START: LABEL VISUALIZATION SETUP ---
+    glGenVertexArrays(1, &m_labelVAO);
+    glGenBuffers(1, &m_labelVBO);
+    glBindVertexArray(m_labelVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, m_labelVBO);
+
+    const float s = 0.1f; // Size of the letters
+    const std::array<glm::vec3, 16> labelVertices = {
+        // X (4 vertices, 2 lines)
+        glm::vec3(-s, -s, 0), glm::vec3(s, s, 0),
+        glm::vec3(-s, s, 0), glm::vec3(s, -s, 0),
+        // Y (6 vertices, 3 lines)
+        glm::vec3(-s, s, 0), glm::vec3(0, 0, 0),
+        glm::vec3(s, s, 0), glm::vec3(0, 0, 0),
+        glm::vec3(0, 0, 0), glm::vec3(0, -s, 0),
+        // Z (6 vertices, 3 lines)
+        glm::vec3(-s, s, 0), glm::vec3(s, s, 0),
+        glm::vec3(s, s, 0), glm::vec3(-s, -s, 0),
+        glm::vec3(-s, -s, 0), glm::vec3(s, -s, 0)
+    };
+    glBufferData(GL_ARRAY_BUFFER, sizeof(labelVertices), labelVertices.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glBindVertexArray(0);
+    // --- END LABEL SETUP ---
 
     // --- NEW: Create Framebuffer for Shadow Map ---
     glGenFramebuffers(1, &depthMapFBO);
@@ -635,6 +686,13 @@ void Renderer::renderUI() {
                 ImGui::EndMenu();
             }
 
+            ImGui::Separator();
+            ImGui::Separator();
+            if (ImGui::CollapsingHeader("Coordinate Systems")) {
+                ImGui::Checkbox("Renderer Axes (Y-up, Large)", &m_visualizeRendererAxes);
+                ImGui::Checkbox("NIF Axes (Z-up, Small)", &m_visualizeNifAxes);
+            }
+
             ImGui::EndMenu();
         }
 
@@ -788,6 +846,80 @@ void Renderer::renderFrame() {
     if (model) {
         model->draw(shader, camera.Position_worldSpace_yUp, nifRootToWorld_conversionMatrix_zUpToYUp);
     }
+
+    // --- START: AXES VISUALIZATION LOGIC ---
+    if (m_visualizeRendererAxes || m_visualizeNifAxes) {
+        glDisable(GL_DEPTH_TEST);
+        m_debugLineShader.use();
+        m_debugLineShader.setMat4("u_view_worldToView_yUp", cameraView_yUp);
+        m_debugLineShader.setMat4("u_proj_viewToClip_yUp", cameraProjection_yUp);
+        glLineWidth(2.0f);
+
+        // Helper to draw the three colored axis lines
+        auto draw_axes = [&](const glm::mat4& modelMatrix) {
+            glBindVertexArray(m_axesVAO);
+            m_debugLineShader.setMat4("u_model_localToWorld_yUp", modelMatrix);
+            // X-Axis (Red)
+            m_debugLineShader.setVec3("lineColor", glm::vec3(1.0f, 0.2f, 0.2f));
+            glDrawArrays(GL_LINES, 0, 2);
+            // Y-Axis (Green)
+            m_debugLineShader.setVec3("lineColor", glm::vec3(0.2f, 1.0f, 0.2f));
+            glDrawArrays(GL_LINES, 2, 2);
+            // Z-Axis (Blue)
+            m_debugLineShader.setVec3("lineColor", glm::vec3(0.2f, 0.2f, 1.0f));
+            glDrawArrays(GL_LINES, 4, 2);
+            };
+
+        // Helper to draw the X, Y, Z labels
+        auto draw_labels = [&](const glm::mat4& gizmoMatrix, float axisLength, float labelScale) {
+            glBindVertexArray(m_labelVAO);
+
+            // Create a billboard matrix to make labels always face the camera
+            glm::mat4 billboardRotation = cameraView_yUp;
+            billboardRotation[3] = glm::vec4(0, 0, 0, 1); // Remove translation
+            billboardRotation = glm::transpose(billboardRotation); // Inverse for rotation is transpose
+
+            // Draw "X"
+            glm::vec3 posX = glm::vec3(gizmoMatrix * glm::vec4(axisLength, 0, 0, 1));
+            glm::mat4 modelX = glm::translate(glm::mat4(1.0f), posX) * billboardRotation * glm::scale(glm::mat4(1.0f), glm::vec3(labelScale));
+            m_debugLineShader.setMat4("u_model_localToWorld_yUp", modelX);
+            m_debugLineShader.setVec3("lineColor", glm::vec3(1.0f, 0.2f, 0.2f));
+            glDrawArrays(GL_LINES, 0, 4); // 4 vertices for X
+
+            // Draw "Y"
+            glm::vec3 posY = glm::vec3(gizmoMatrix * glm::vec4(0, axisLength, 0, 1));
+            glm::mat4 modelY = glm::translate(glm::mat4(1.0f), posY) * billboardRotation * glm::scale(glm::mat4(1.0f), glm::vec3(labelScale));
+            m_debugLineShader.setMat4("u_model_localToWorld_yUp", modelY);
+            m_debugLineShader.setVec3("lineColor", glm::vec3(0.2f, 1.0f, 0.2f));
+            glDrawArrays(GL_LINES, 4, 6); // 6 vertices for Y
+
+            // Draw "Z"
+            glm::vec3 posZ = glm::vec3(gizmoMatrix * glm::vec4(0, 0, axisLength, 1));
+            glm::mat4 modelZ = glm::translate(glm::mat4(1.0f), posZ) * billboardRotation * glm::scale(glm::mat4(1.0f), glm::vec3(labelScale));
+            m_debugLineShader.setMat4("u_model_localToWorld_yUp", modelZ);
+            m_debugLineShader.setVec3("lineColor", glm::vec3(0.2f, 0.2f, 1.0f));
+            glDrawArrays(GL_LINES, 10, 6); // 6 vertices for Z
+            };
+
+        if (m_visualizeRendererAxes) {
+            float axisLength = 100.0f;
+            glm::mat4 model = glm::scale(glm::mat4(1.0f), glm::vec3(axisLength));
+            draw_axes(model);
+            draw_labels(model, 1.0f, 10.0f); // Length is 1 in local space, scale labels by 10
+        }
+
+        if (m_visualizeNifAxes) {
+            float axisLength = 50.0f;
+            glm::mat4 model = nifRootToWorld_conversionMatrix_zUpToYUp * glm::scale(glm::mat4(1.0f), glm::vec3(axisLength));
+            draw_axes(model);
+            draw_labels(model, 1.0f, 5.0f); // Length is 1 in local space, scale labels by 5
+        }
+
+        glBindVertexArray(0);
+        glLineWidth(1.0f);
+        glEnable(GL_DEPTH_TEST);
+    }
+    // --- END: AXES VISUALIZATION LOGIC ---
 
     if (m_visualizeLights && !m_visualizeLights_lastState) {
         // All console output now goes inside this block, so it only runs once.
