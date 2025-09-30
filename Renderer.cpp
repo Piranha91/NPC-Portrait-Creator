@@ -950,6 +950,11 @@ void Renderer::renderFrame() {
                         ImGui::Separator();
                         ImGui::DragFloat("Intensity", &lights[i].intensity, 0.01f, 0.0f, 10.0f);
                         ImGui::ColorEdit3("Color", &lights[i].color.r);
+                        if (ImGui::DragFloat3("Direction", &lights[i].direction.x, 0.01f)) {
+                            // Re-normalize the vector after editing to keep it a unit vector,
+                            // which is important for directional lights.
+                            lights[i].direction = glm::normalize(lights[i].direction);
+                        }
                         ImGui::Separator();
 
                         int directionalLightCount = 0;
