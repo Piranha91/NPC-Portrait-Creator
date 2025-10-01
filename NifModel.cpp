@@ -472,8 +472,12 @@ found_head:
         if (shader) {
             mesh.isModelSpace = shader->IsModelSpace();
             if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
+                // Get the material alpha.
                 mesh.materialAlpha = bslsp->alpha;
-				std::cout << "    [Material] Shape '" << mesh.name << "' has alpha: " << mesh.materialAlpha << "\n";
+                if (debugMode) {
+                    std::cout << "    [Material] Shape '" << mesh.name << "' has alpha: " << mesh.materialAlpha << "\n";
+                }
+
                 if (bslsp->shaderFlags1 & (1U << 1)) { // Check for the SLSF1_Skinned flag (bit 1)
                     mesh.isSkinned = true;
                     if (debugMode) {
@@ -702,15 +706,11 @@ found_head:
         if (auto* alphaProp = nif.GetAlphaProperty(niShape)) {
             mesh.hasAlphaProperty = true;
             uint16_t flags = alphaProp->flags;
-            mesh.alphaBlend = false;  // ← Force to false for character meshes
-            mesh.alphaTest = true;     // ← Force to true for character meshes
+            mesh.alphaBlend = (flags & 1);
+            mesh.alphaTest = (flags & (1 << 9));
             mesh.alphaThreshold = static_cast<float>(alphaProp->threshold) / 255.0f;
             mesh.srcBlend = NifBlendToGL((flags >> 1) & 0x0F);
             mesh.dstBlend = NifBlendToGL((flags >> 5) & 0x0F);
-
-            if (flags & (1 << 12)) {
-                mesh.doubleSided = true;
-            }
         }
         auto end_stage5 = std::chrono::high_resolution_clock::now();
 
@@ -763,16 +763,30 @@ found_head:
 
         // Sort into render passes
         if (mesh.hasAlphaProperty) {
-            // FIX: Treat ALL alpha properties on character meshes as alpha-tested.
-            // This correctly handles hair, brows, and decals that might have the
-            // blend flag enabled but should be rendered as cutouts.
-            alphaTestShapes.push_back(mesh);
-			std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to ALPHA-TESTED pass due to alpha property.\n";
+            if (mesh.alphaBlend) {
+                if (debugMode) {
+                    std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to TRANSPARENT pass due to alpha blending.\n";
+                }
+                transparentShapes.push_back(mesh);
+            }
+            else if (mesh.alphaTest) {
+                if (debugMode) {
+                    std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to ALPHA-TESTED pass due to alpha property.\n";
+                }
+                alphaTestShapes.push_back(mesh);
+            }
+            else {
+                if (debugMode) {
+                    std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to OPAQUE pass (alpha property present but blend/test disabled).\n";
+                }
+                opaqueShapes.push_back(mesh);
+            }
         }
         else {
-            // If no alpha property is present, it's fully opaque.
+            if (debugMode) {
+                std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to OPAQUE pass (no alpha property).\n";
+            }
             opaqueShapes.push_back(mesh);
-			std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to OPAQUE pass (no alpha property).\n";
         }
 
         auto end_preprocess = std::chrono::high_resolution_clock::now();
