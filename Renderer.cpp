@@ -200,6 +200,12 @@ void Renderer::init(bool headless) {
 
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
     glEnable(GL_MULTISAMPLE);
+    GLint samples = 0;
+    glGetIntegerv(GL_SAMPLES, &samples);
+    std::cout << "Active MSAA samples: " << samples << std::endl;
+    if (samples == 0) {
+        std::cerr << "WARNING: MSAA is not active! Alpha-to-coverage will look blocky." << std::endl;
+    }
     glEnable(GL_DEPTH_TEST);
     glViewport(0, 0, screenWidth, screenHeight);
     shader.load("shaders/basic.vert", "shaders/basic.frag");

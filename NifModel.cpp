@@ -822,210 +822,305 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
 }
 
 
+/**
+ * @brief Renders the entire NifModel, handling opaque, alpha-tested, and transparent objects in separate passes.
+ * @param shader The main shader program to use for rendering.
+ * @param cameraPos The position of the camera in world space, used for sorting transparent objects.
+ * @param nifRootToWorld_conversionMatrix_zUpToYUp A transformation matrix that converts from the NIF's root Z-up coordinate space to the renderer's world Y-up coordinate space.
+ */
 void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4& nifRootToWorld_conversionMatrix_zUpToYUp) {
-    /*
-    std::cout << "\n--- [Debug Render] ---" << std::endl;
-    std::cout << "  Opaque Shapes: " << opaqueShapes.size() << std::endl;
-    std::cout << "  Alpha Test Shapes: " << alphaTestShapes.size() << std::endl;
-    std::cout << "  Transparent Shapes: " << transparentShapes.size() << std::endl;
-    */
+    // Log the start of the draw call, but only for the first frame.
+    renderFirstFrameLog("--- START NifModel::draw() ---");
 
+    // Activate the main rendering shader.
     shader.use();
-    shader.setInt("texture_diffuse1", 0);
-    shader.setInt("texture_normal", 1);
-    shader.setInt("texture_skin", 2);
-    shader.setInt("texture_detail", 3);
-    shader.setInt("texture_specular", 4);
-    shader.setInt("texture_face_tint", 5);
-    shader.setInt("texture_envmap_2d", 6);   // <-- ADD
-    shader.setInt("texture_envmap_cube", 6); // <-- ADD (points to the same texture unit)
-    shader.setInt("texture_envmask", 7);
 
+    // --- Set Global Shader Uniforms (Samplers) ---
+    // These uniforms tell the shader which texture unit to use for each type of texture map.
+    // They are set once per draw call as they are the same for all shapes.
+    shader.setInt("texture_diffuse1", 0);    // Diffuse/Albedo map on TU 0
+    shader.setInt("texture_normal", 1);      // Normal map on TU 1
+    shader.setInt("texture_skin", 2);        // Subsurface/Skin map on TU 2
+    shader.setInt("texture_detail", 3);      // Detail map on TU 3
+    shader.setInt("texture_specular", 4);    // Specular map on TU 4
+    shader.setInt("texture_face_tint", 5);   // Face tint mask on TU 5
+    shader.setInt("texture_envmap_2d", 6);   // 2D Environment map on TU 6
+    shader.setInt("texture_envmap_cube", 6); // Cubemap Environment map on TU 6 (same unit)
+    shader.setInt("texture_envmask", 7);     // Environment mask on TU 7
+
+    // Set eye-specific shader properties, used for fresnel and specular effects on eye meshes.
     shader.setFloat("eye_fresnel_strength", 0.3f);
     shader.setFloat("eye_spec_power", 80.0f);
 
-    // Get location for bone matrix uniform array (cache it for performance)
+    // Get the uniform location for the bone matrices array once, before the render loop, for efficiency.
     GLint boneMatricesLocation = glGetUniformLocation(shader.ID, "uBoneMatrices");
-    checkGlErrors("After getting bone uniform location"); // <<-- ADD
+    checkGlErrors("After getting bone uniform location");
 
-    // Helper lambda to render a single shape, setting all its unique uniforms
+    // A helper lambda to render a single shape. This centralizes the logic for setting
+    // per-shape uniforms, binding textures, and issuing the draw command.
     auto render_shape = [&](const MeshShape& shape) {
-        if (!shape.visible) return;
+        // --- Visibility Check ---
+        if (!shape.visible) {
+            renderFirstFrameLog("Shape '" + shape.name + "' is not visible, skipping.");
+            return;
+        }
+        else {
+            renderFirstFrameLog("Processing visible shape '" + shape.name + "'.");
+        }
+        checkGlErrors(("Start of render_shape for '" + shape.name + "'").c_str());
 
-        checkGlErrors(("Start of render_shape for '" + shape.name + "'").c_str()); // <<-- ADD
+        // --- Set Per-Shape Uniforms ---
 
-        // The final model matrix transforms vertices from the shape's local Z-up space
-        // all the way to the renderer's world Y-up space. This is done by composing
-        // the shape's local-to-NIF-root transform with the NIF-root-to-world conversion matrix.
-        //
-        // Input: Vertex in shape's local model space (Z-up)
-        // Transformation: model_matrix = (NIF Root -> World Y-up) * (Shape Local -> NIF Root Z-up)
-        // Output: Vertex in renderer's world space (Y-up)
+        // Calculate and set the final model matrix. This transforms the shape's vertices from its local Z-up space
+        // all the way to the renderer's world Y-up space.
         shader.setMat4("u_model_localToWorld", nifRootToWorld_conversionMatrix_zUpToYUp * shape.shapeLocalToNifRoot_transform_zUp);
 
+        // Set boolean flags that control shader logic.
         shader.setBool("is_eye", shape.isEye);
-        shader.setBool("is_model_space", shape.isModelSpace); // Set model space uniform
+        shader.setBool("is_model_space", shape.isModelSpace); // For model-space normals
         shader.setBool("has_tint_color", shape.hasTintColor);
+
         if (shape.hasTintColor) {
+            renderFirstFrameLog("  -> Has tint color, setting uniform.");
             shader.setVec3("tint_color", shape.tintColor);
         }
+        else {
+            renderFirstFrameLog("  -> Does not have tint color.");
+        }
+
         shader.setBool("has_emissive", shape.hasOwnEmitFlag);
         if (shape.hasOwnEmitFlag) {
+            renderFirstFrameLog("  -> Has emissive properties, setting uniforms.");
             shader.setVec3("emissiveColor", shape.emissiveColor);
             shader.setFloat("emissiveMultiple", shape.emissiveMultiple);
         }
+        else {
+            renderFirstFrameLog("  -> Does not have emissive properties.");
+        }
 
-        // Set skinning uniforms for the vertex shader
+        // --- Skinning ---
+        // Tell the vertex shader whether this mesh is skinned.
         shader.setBool("uIsSkinned", shape.isSkinned);
         if (shape.isSkinned && !shape.skinToBonePose_transforms_zUp.empty()) {
+            renderFirstFrameLog("  -> Is skinned, uploading bone matrices.");
             GLsizei boneCount = shape.skinToBonePose_transforms_zUp.size();
+
+            // Sanity check: ensure the bone count does not exceed the shader's array size to prevent a crash.
             if (boneCount > MAX_BONES) {
-                std::cerr << "!!! WARNING: Shape '" << shape.name // <-- You'll need to add 'name' to MeshShape struct
+                renderFirstFrameLog("    -> WARNING: Bone count (" + std::to_string(boneCount) + ") exceeds MAX_BONES (" + std::to_string(MAX_BONES) + "). Clamping.");
+                std::cerr << "!!! WARNING: Shape '" << shape.name
                     << "' has " << boneCount
                     << " bones, which exceeds the shader limit of " << MAX_BONES
                     << ". Clamping bone count." << std::endl;
                 boneCount = MAX_BONES;
             }
+            else {
+                renderFirstFrameLog("    -> Bone count (" + std::to_string(boneCount) + ") is within shader limit.");
+            }
 
-            /*
-            std::cout << "  [Debug Skinning] Uploading uniforms for shape '" << shape.name
-                << "': Bone Count = " << boneCount
-                << ", Location = " << boneMatricesLocation << std::endl;
-                */
-
+            // Upload the array of final bone transformation matrices to the GPU.
             glUniformMatrix4fv(boneMatricesLocation, boneCount, GL_FALSE, glm::value_ptr(shape.skinToBonePose_transforms_zUp[0]));
         }
+        else {
+            renderFirstFrameLog("  -> Is not skinned.");
+        }
+        checkGlErrors(("After setting uniforms for '" + shape.name + "'").c_str());
 
-        checkGlErrors(("After setting uniforms for '" + shape.name + "'").c_str()); // <<-- ADD
 
+        // --- Texture Binding ---
+        // Bind the diffuse texture to texture unit 0.
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
 
-        // Bind all textures and set corresponding 'has_' flags for the fragment shader
-        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
-
+        // For each subsequent texture, set a boolean uniform to tell the fragment shader
+        // whether a valid texture exists. If it does, activate the corresponding texture
+        // unit and bind the texture.
         shader.setBool("has_normal_map", shape.normalTextureID != 0);
-        if (shape.normalTextureID != 0) { glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, shape.normalTextureID); }
+        if (shape.normalTextureID != 0) {
+            renderFirstFrameLog("  -> Has normal map, binding texture.");
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, shape.normalTextureID);
+        }
+        else {
+            renderFirstFrameLog("  -> Does not have normal map.");
+        }
 
         shader.setBool("has_skin_map", shape.skinTextureID != 0);
-        if (shape.skinTextureID != 0) { glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, shape.skinTextureID); }
+        if (shape.skinTextureID != 0) {
+            renderFirstFrameLog("  -> Has skin map, binding texture.");
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, shape.skinTextureID);
+        }
+        else {
+            renderFirstFrameLog("  -> Does not have skin map.");
+        }
 
         shader.setBool("has_detail_map", shape.detailTextureID != 0);
-        if (shape.detailTextureID != 0) { glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, shape.detailTextureID); }
+        if (shape.detailTextureID != 0) {
+            renderFirstFrameLog("  -> Has detail map, binding texture.");
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D, shape.detailTextureID);
+        }
+        else {
+            renderFirstFrameLog("  -> Does not have detail map.");
+        }
 
-        // Set a uniform to tell the shader if the specular flag is on.
         shader.setBool("has_specular", shape.hasSpecularFlag);
-
-        // Separately, set a uniform to tell the shader if a texture map exists.
         shader.setBool("has_specular_map", shape.specularTextureID != 0);
-        if (shape.specularTextureID != 0) { glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, shape.specularTextureID); }
+        if (shape.specularTextureID != 0) {
+            renderFirstFrameLog("  -> Has specular map, binding texture.");
+            glActiveTexture(GL_TEXTURE4);
+            glBindTexture(GL_TEXTURE_2D, shape.specularTextureID);
+        }
+        else {
+            renderFirstFrameLog("  -> Does not have specular map.");
+        }
 
         shader.setBool("has_face_tint_map", shape.faceTintColorMaskID != 0);
-        if (shape.faceTintColorMaskID != 0) { glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, shape.faceTintColorMaskID); }
+        if (shape.faceTintColorMaskID != 0) {
+            renderFirstFrameLog("  -> Has face tint map, binding texture.");
+            glActiveTexture(GL_TEXTURE5);
+            glBindTexture(GL_TEXTURE_2D, shape.faceTintColorMaskID);
+        }
+        else {
+            renderFirstFrameLog("  -> Does not have face tint map.");
+        }
 
+        // --- Environment Mapping ---
+        // An "effective" environment map exists only if the material flag is set AND a texture is assigned.
         bool useEffectiveEnvMap = shape.hasEnvMapFlag && shape.environmentMapID != 0;
         shader.setBool("has_environment_map", useEffectiveEnvMap);
         shader.setBool("has_eye_environment_map", shape.hasEyeEnvMapFlag);
+
         if (useEffectiveEnvMap || shape.hasEyeEnvMapFlag) {
+            renderFirstFrameLog("  -> Has effective env map or eye env map flag, setting env map uniforms.");
             shader.setBool("is_envmap_cube", shape.environmentMapTarget == GL_TEXTURE_CUBE_MAP);
             shader.setFloat("envMapScale", shape.envMapScale);
         }
+        else {
+            renderFirstFrameLog("  -> Does not have an active environment map.");
+        }
 
         if (shape.environmentMapID != 0) {
+            renderFirstFrameLog("  -> Has environment map texture, binding it.");
             glActiveTexture(GL_TEXTURE6);
             glBindTexture(shape.environmentMapTarget, shape.environmentMapID);
         }
+        else {
+            renderFirstFrameLog("  -> Does not have an environment map texture ID.");
+        }
+
         if (shape.environmentMaskID != 0) {
+            renderFirstFrameLog("  -> Has environment mask, binding it.");
             glActiveTexture(GL_TEXTURE7);
             glBindTexture(GL_TEXTURE_2D, shape.environmentMaskID);
         }
-        checkGlErrors(("After binding textures for '" + shape.name + "'").c_str()); // <<-- ADD
+        else {
+            renderFirstFrameLog("  -> Does not have an environment mask ID.");
+        }
+        checkGlErrors(("After binding textures for '" + shape.name + "'").c_str());
 
-
+        // --- Draw Call ---
+        // With all uniforms and textures set, issue the command to draw the shape's geometry.
         shape.draw();
-        checkGlErrors(("IMMEDIATELY AFTER shape.draw() for '" + shape.name + "'").c_str()); // <<-- CRITICAL: ADD THIS
-
+        checkGlErrors(("IMMEDIATELY AFTER shape.draw() for '" + shape.name + "'").c_str());
         };
 
+    // =========================================================================================
     // --- PASS 1: OPAQUE OBJECTS ---
-    // Render all fully opaque objects first. They will write to the depth buffer,
-    // establishing the scene's depth for later passes.
-    glEnable(GL_DEPTH_TEST);
-    glDepthMask(GL_TRUE);
-    glDisable(GL_BLEND);
-    glEnable(GL_CULL_FACE);
+    // Render all fully opaque objects first. This establishes the scene's depth, allowing
+    // subsequent passes to correctly depth-test against these objects.
+    // =========================================================================================
+    renderFirstFrameLog("--- Pass 1: Opaque Objects (" + std::to_string(opaqueShapes.size()) + " shapes) ---");
+    glEnable(GL_DEPTH_TEST); // Enable depth testing.
+    glDepthMask(GL_TRUE);    // Allow writing to the depth buffer.
+    glDisable(GL_BLEND);     // Disable color blending.
+    glEnable(GL_CULL_FACE);  // Enable back-face culling for performance.
     glCullFace(GL_BACK);
+    shader.setBool("use_alpha_test", false); // Alpha testing is not needed for this pass.
 
-    shader.setBool("use_alpha_test", false);
-    checkGlErrors("Before opaque loop"); // <<-- ADD
+    checkGlErrors("Before opaque loop");
     for (const auto& shape : opaqueShapes) {
         render_shape(shape);
     }
-    checkGlErrors("After opaque loop"); // <<-- ADD
+    checkGlErrors("After opaque loop");
 
+    // =========================================================================================
     // --- PASS 2: ALPHA-TEST (CUTOUT) OBJECTS ---
-    // Render objects with cutout transparency, such as hair, grates, or foliage.
-    // Instead of blending, this pass uses alpha testing. The fragment shader
-    // will completely 'discard' any pixel whose alpha value falls below a
-    // specific threshold. This creates a hard, binary cutout effect
-    // rather than a soft, translucent one.
-    // These objects read from and write to the depth buffer just like opaque
-    // objects. This ensures they correctly appear in front of or behind
-    // other objects in the scene. Multisample Anti-Aliasing (MSAA), if enabled
-    // on the framebuffer, helps to smooth the hard edges produced by this technique.
-    // For hair and beard meshes that are often modeled as thin planes, double-sided
-    // rendering is enabled by temporarily disabling face culling. This
-    // ensures the geometry is visible from all angles.
-    shader.setBool("use_alpha_test", true);
+    // Render objects with cutout transparency (e.g., hair, grates). The fragment shader
+    // will 'discard' pixels with an alpha value below a threshold, creating a hard edge.
+    // These objects still write to the depth buffer.
+    // =========================================================================================
+    renderFirstFrameLog("--- Pass 2: Alpha-Test (Cutout) Objects (" + std::to_string(alphaTestShapes.size()) + " shapes) ---");
+    shader.setBool("use_alpha_test", true); // Enable alpha testing in the shader.
     for (const auto& shape : alphaTestShapes) {
         shader.setFloat("alpha_threshold", shape.alphaThreshold);
 
+        // For thin meshes like hair, disable back-face culling to ensure they are visible from both sides.
         if (shape.doubleSided) {
+            renderFirstFrameLog("Shape '" + shape.name + "' is double-sided, disabling cull face.");
             glDisable(GL_CULL_FACE);
             render_shape(shape);
-            glEnable(GL_CULL_FACE);
+            glEnable(GL_CULL_FACE); // Re-enable culling immediately after.
         }
         else {
-            render_shape(shape);  // ← You were missing this!
+            renderFirstFrameLog("Shape '" + shape.name + "' is single-sided.");
+            render_shape(shape);
         }
     }
-    shader.setBool("use_alpha_test", false);
+    shader.setBool("use_alpha_test", false); // Disable alpha testing for the next pass.
 
+    // =========================================================================================
     // --- PASS 3: TRANSPARENT (ALPHA-BLEND) OBJECTS ---
-    // Render truly transparent objects last, sorted from back to front.
-    // They test against the depth buffer but do not write to it to prevent
-    // objects behind them from being culled incorrectly.
+    // Render truly transparent objects last. They must be sorted from back-to-front to
+    // ensure colors blend correctly. They test against the depth buffer but DO NOT write
+    // to it, preventing objects behind them from being incorrectly culled.
+    // =========================================================================================
+    renderFirstFrameLog("--- Pass 3: Transparent (Alpha-Blend) Objects (" + std::to_string(transparentShapes.size()) + " shapes) ---");
     if (!transparentShapes.empty()) {
+        renderFirstFrameLog("Transparent shapes list is not empty. Sorting and rendering.");
+        // Sort shapes based on their distance from the camera (farthest first).
         std::sort(transparentShapes.begin(), transparentShapes.end(),
             [&cameraPos](const MeshShape& a, const MeshShape& b) {
                 return glm::distance2(a.boundsCenter_nifRootSpace_zUp, cameraPos) > glm::distance2(b.boundsCenter_nifRootSpace_zUp, cameraPos);
             });
 
-        glEnable(GL_BLEND);
-        glDepthMask(GL_FALSE); // CRITICAL: Disable depth writes
+        glEnable(GL_BLEND);      // Enable color blending.
+        glDepthMask(GL_FALSE);   // CRITICAL: Disable depth writes to prevent transparency artifacts.
 
-        checkGlErrors("Before transparent loop"); // <<-- ADD
+        checkGlErrors("Before transparent loop");
         for (const auto& shape : transparentShapes) {
+            // Set the specific blend function (e.g., SRC_ALPHA, ONE_MINUS_SRC_ALPHA) for this shape.
             glBlendFunc(shape.srcBlend, shape.dstBlend);
             if (shape.doubleSided) {
+                renderFirstFrameLog("Shape '" + shape.name + "' is double-sided, disabling cull face.");
                 glDisable(GL_CULL_FACE);
             }
             else {
+                renderFirstFrameLog("Shape '" + shape.name + "' is single-sided, enabling cull face.");
                 glEnable(GL_CULL_FACE);
                 glCullFace(GL_BACK);
             }
             render_shape(shape);
         }
-        checkGlErrors("After transparent loop"); // <<-- ADD
+        checkGlErrors("After transparent loop");
+    }
+    else {
+        renderFirstFrameLog("Transparent shapes list is empty, skipping pass.");
     }
 
     // --- Reset to default OpenGL state ---
+    // Restore the default state to ensure this function doesn't interfere with other rendering code (e.g., UI).
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
-    // Reset the active texture unit to the default before returning.
-    // This prevents our function from affecting the state of other renderers (like ImGui).
-    glActiveTexture(GL_TEXTURE0);
-    checkGlErrors("End of NifModel::draw"); // <<-- ADD
+    glActiveTexture(GL_TEXTURE0); // Reset active texture unit to the default.
+    checkGlErrors("End of NifModel::draw");
+
+    // After the first frame has been fully drawn and logged, set the flag to false.
+    m_logRenderPassesOnce = false;
+    renderFirstFrameLog("--- END NifModel::draw() | Logging disabled for subsequent frames. ---");
 }
 
 void NifModel::drawDepthOnly(Shader& depthShader) {
@@ -1078,4 +1173,10 @@ void NifModel::cleanup() {
 
 std::vector<std::string> NifModel::getTextures() const {
     return texturePaths;
+}
+
+void NifModel::renderFirstFrameLog(const std::string& message) {
+    if (m_logRenderPassesOnce) {
+        std::cout << "[Render Logic] " << message << std::endl;
+    }
 }

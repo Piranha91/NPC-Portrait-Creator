@@ -156,4 +156,7 @@ private:
     // Coordinate Space: NIF Root Space (Z-up)
     glm::vec3 eyeCenter_nifRootSpace_zUp;
     bool bHasEyeCenter = false;
+
+	bool m_logRenderPassesOnce = true;
+    void renderFirstFrameLog(const std::string& message);
 };
