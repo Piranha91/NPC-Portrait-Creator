@@ -465,28 +465,104 @@ found_head:
         }
         auto end_stage3 = std::chrono::high_resolution_clock::now();
 
-        // --- MOVED FROM STAGE 5 ---
         // Get the shader properties early to determine if the mesh is skinned.
         // This is critical for the bounds calculation in Stage 4.
+        // --- Shader Property and Flag Parsing ---
+        // Get all shader-related properties at once to avoid redundant checks.
         const nifly::NiShader* shader = nif.GetShader(niShape);
         if (shader) {
             mesh.isModelSpace = shader->IsModelSpace();
             if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
-                // Get the material alpha.
-                mesh.materialAlpha = bslsp->alpha;
-                if (debugMode) {
-                    std::cout << "    [Material] Shape '" << mesh.name << "' has alpha: " << mesh.materialAlpha << "\n";
-                }
+                // Parse all flags from the shader property into a struct just once.
+                ShaderFlagSet flags = ParseShaderFlags(bslsp->shaderFlags1, bslsp->shaderFlags2);
 
-                if (bslsp->shaderFlags1 & (1U << 1)) { // Check for the SLSF1_Skinned flag (bit 1)
+                // Check for skinned flag *before* bounds calculation.
+                if (flags.SLSF1_Skinned) {
                     mesh.isSkinned = true;
                     if (debugMode) {
                         std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Skinned.\n";
                     }
                 }
+
+                // --- Shader Property and Flag Parsing ---
+                // Get all shader-related properties at once to avoid redundant checks.
+                // This is done before bounds calculation because the 'isSkinned' flag is needed.
+                mesh.materialAlpha = bslsp->alpha;
+                if (debugMode) {
+                    std::cout << "    [Material] Shape '" << mesh.name << "' has alpha: " << mesh.materialAlpha << "\n";
+                    std::cout << "    [Flag Parse] Parsed shader flags for shape '" << mesh.name << "':\n";
+                    std::cout << "    [Flag Parse] shaderFlags1 (raw: " << bslsp->shaderFlags1 << "): " << GetFlagsString(flags, 1) << "\n";
+                    std::cout << "    [Flag Parse] shaderFlags2 (raw: " << bslsp->shaderFlags2 << "): " << GetFlagsString(flags, 2) << "\n";
+                }
+
+                if (flags.SLSF1_Specular) {
+                    mesh.hasSpecularFlag = true;
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Specular.\n";
+                    }
+                }
+
+                if (flags.SLSF1_Environment_Mapping) {
+                    mesh.hasEnvMapFlag = true;
+                    mesh.envMapScale = bslsp->environmentMapScale;
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Environment_Mapping.\n";
+                    }
+                }
+
+                if (flags.SLSF1_Eye_Environment_Mapping) {
+                    mesh.hasEyeEnvMapFlag = true;
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Eye_Environment_Mapping.\n";
+                    }
+                }
+
+                mesh.doubleSided = flags.SLSF2_Double_Sided;
+                mesh.zBufferWrite = flags.SLSF2_ZBuffer_Write;
+
+                if (flags.SLSF1_Receive_Shadows) {
+                    mesh.receiveShadows = true;
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Receive_Shadows ENABLED.\n";
+                    }
+                }
+
+                if (flags.SLSF1_Cast_Shadows) {
+                    mesh.castShadows = true;
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Cast_Shadows ENABLED.\n";
+                    }
+                }
+
+                if (flags.SLSF1_Own_Emit) {
+                    mesh.hasOwnEmitFlag = true;
+                    const auto& color = bslsp->emissiveColor;
+                    mesh.emissiveColor = glm::vec3(color.x, color.y, color.z);
+                    mesh.emissiveMultiple = bslsp->emissiveMultiple;
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Own_Emit ENABLED.\n";
+                    }
+                }
+
+                const auto shaderType = bslsp->GetShaderType();
+                if (shaderType == nifly::BSLSP_HAIRTINT) {
+                    mesh.hasTintColor = true;
+                    const auto& color = bslsp->hairTintColor;
+                    mesh.tintColor = glm::vec3(color.x, color.y, color.z);
+                    if (debugMode) {
+                        std::cout << "    [Shader Type] Shape '" << mesh.name << "' has Hair Tint enabled.\n";
+                    }
+                }
+                else if (shaderType == nifly::BSLSP_SKINTINT || shaderType == nifly::BSLSP_FACE) {
+                    mesh.hasTintColor = true;
+                    const auto& color = bslsp->skinTintColor;
+                    mesh.tintColor = glm::vec3(color.x, color.y, color.z);
+                    if (debugMode) {
+                        std::cout << "    [Shader Type] Shape '" << mesh.name << "' has Skin/Face Tint enabled.\n";
+                    }
+                }
             }
         }
-        // --- END MOVED BLOCK ---
 
         // --- Stage 4: Pose-Aware Bounds Calculation (CORRECTED) ---
         auto start_stage4 = std::chrono::high_resolution_clock::now();
@@ -630,79 +706,6 @@ found_head:
             }
         }
 
-        if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
-            ShaderFlagSet flags = ParseShaderFlags(bslsp->shaderFlags1, bslsp->shaderFlags2);
-            std::cout << "    [Flag Parse] Parsed shader flags for shape '" << mesh.name << " (Debug Only; these are not all used for rendering)':\n";
-            std::cout << "    [Flag Parse] shaderFlags1 (raw: " << bslsp->shaderFlags1 << "): " << GetFlagsString(flags, 1) << "\n";
-            std::cout << "    [Flag Parse] shaderFlags2 (raw: " << bslsp->shaderFlags2 << "): " << GetFlagsString(flags, 2) << "\n";
-
-            if (bslsp->shaderFlags1 & (1U << 0)) { // (1U << 0) is the mask for SLSF1_Specular
-                mesh.hasSpecularFlag = true;
-                if (debugMode) {
-                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Specular.\n";
-                }
-            }
-
-            if (bslsp->shaderFlags1 & (1U << 2)) { // Check for SLSF1_Environment_Mapping (bit 2)
-                mesh.hasEnvMapFlag = true;
-                // Also grab the environment map scale from the shader property
-                mesh.envMapScale = bslsp->environmentMapScale;
-                if (debugMode) {
-                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Environment_Mapping.\n";
-                }
-            }
-
-            if (bslsp->shaderFlags1 & (1U << 10)) { // Check for SLSF1_Eye_Environment_Mapping (bit 10)
-                mesh.hasEyeEnvMapFlag = true;
-                if (debugMode) {
-                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Eye_Environment_Mapping.\n";
-                }
-            }
-
-            // --- NEW FLAG CHECKS for shaderFlags2 ---
-            mesh.doubleSided = (bslsp->shaderFlags2 & (1U << 4));
-            mesh.zBufferWrite = (bslsp->shaderFlags2 & (1U << 0));
-
-            // Check for SLSF2_Recieve_Shadows (bit 1). 
-            // The flag being set means it DOES receive shadows.
-            if (bslsp->shaderFlags2 & (1U << 1)) {
-                mesh.receiveShadows = true;
-                if (debugMode) {
-                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF2_Recieve_Shadows ENABLED.\n";
-                }
-            }
-
-            // Check for SLSF2_Cast_Shadows (bit 2).
-            if (bslsp->shaderFlags2 & (1U << 2)) {
-                mesh.castShadows = true;
-                if (debugMode) {
-                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF2_Cast_Shadows ENABLED.\n";
-                }
-            }
-
-            // Check for SLSF2_Own_Emit (bit 3)
-            if (bslsp->shaderFlags2 & (1U << 3)) {
-                mesh.hasOwnEmitFlag = true;
-                const auto& color = bslsp->emissiveColor;
-                mesh.emissiveColor = glm::vec3(color.x, color.y, color.z);
-                mesh.emissiveMultiple = bslsp->emissiveMultiple;
-                if (debugMode) {
-                    std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF2_Own_Emit ENABLED.\n";
-                }
-            }
-
-            const auto shaderType = bslsp->GetShaderType();
-            if (shaderType == nifly::BSLSP_HAIRTINT) {
-                mesh.hasTintColor = true;
-                const auto& color = bslsp->hairTintColor;
-                mesh.tintColor = glm::vec3(color.x, color.y, color.z);
-            }
-            else if (shaderType == nifly::BSLSP_SKINTINT || shaderType == nifly::BSLSP_FACE) {
-                mesh.hasTintColor = true;
-                const auto& color = bslsp->skinTintColor;
-                mesh.tintColor = glm::vec3(color.x, color.y, color.z);
-            }
-        }
         if (auto* alphaProp = nif.GetAlphaProperty(niShape)) {
             mesh.hasAlphaProperty = true;
             uint16_t flags = alphaProp->flags;
