@@ -66,6 +66,7 @@ struct MeshShape {
     // --- Additions for Material Properties ---
     bool doubleSided = false;
     bool zBufferWrite = true;
+    float materialAlpha = 1.0f;
     // --- Additions for Tint
     bool hasTintColor = false;
     glm::vec3 tintColor = glm::vec3(1.0f); // Default to white (no tint)

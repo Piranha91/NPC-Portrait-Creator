@@ -1,4 +1,4 @@
-#define GLM_ENABLE_EXPERIMENTAL
+﻿#define GLM_ENABLE_EXPERIMENTAL
 #define MAX_BONES 80 // <-- MAKE SURE THIS MATCHES YOUR SHADER'S ARRAY SIZE
 
 #include "NifModel.h"
@@ -472,6 +472,8 @@ found_head:
         if (shader) {
             mesh.isModelSpace = shader->IsModelSpace();
             if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
+                mesh.materialAlpha = bslsp->alpha;
+				std::cout << "    [Material] Shape '" << mesh.name << "' has alpha: " << mesh.materialAlpha << "\n";
                 if (bslsp->shaderFlags1 & (1U << 1)) { // Check for the SLSF1_Skinned flag (bit 1)
                     mesh.isSkinned = true;
                     if (debugMode) {
@@ -700,11 +702,15 @@ found_head:
         if (auto* alphaProp = nif.GetAlphaProperty(niShape)) {
             mesh.hasAlphaProperty = true;
             uint16_t flags = alphaProp->flags;
-            mesh.alphaBlend = (flags & 1);
-            mesh.alphaTest = (flags & (1 << 9));
+            mesh.alphaBlend = false;  // ← Force to false for character meshes
+            mesh.alphaTest = true;     // ← Force to true for character meshes
             mesh.alphaThreshold = static_cast<float>(alphaProp->threshold) / 255.0f;
             mesh.srcBlend = NifBlendToGL((flags >> 1) & 0x0F);
             mesh.dstBlend = NifBlendToGL((flags >> 5) & 0x0F);
+
+            if (flags & (1 << 12)) {
+                mesh.doubleSided = true;
+            }
         }
         auto end_stage5 = std::chrono::high_resolution_clock::now();
 
@@ -757,12 +763,16 @@ found_head:
 
         // Sort into render passes
         if (mesh.hasAlphaProperty) {
-            if (mesh.alphaBlend) transparentShapes.push_back(mesh);
-            else if (mesh.alphaTest) alphaTestShapes.push_back(mesh);
-            else opaqueShapes.push_back(mesh);
+            // FIX: Treat ALL alpha properties on character meshes as alpha-tested.
+            // This correctly handles hair, brows, and decals that might have the
+            // blend flag enabled but should be rendered as cutouts.
+            alphaTestShapes.push_back(mesh);
+			std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to ALPHA-TESTED pass due to alpha property.\n";
         }
         else {
+            // If no alpha property is present, it's fully opaque.
             opaqueShapes.push_back(mesh);
+			std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to OPAQUE pass (no alpha property).\n";
         }
 
         auto end_preprocess = std::chrono::high_resolution_clock::now();
@@ -952,29 +962,32 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
     checkGlErrors("After opaque loop"); // <<-- ADD
 
     // --- PASS 2: ALPHA-TEST (CUTOUT) OBJECTS ---
-    // Render objects with cutout transparency (like hair or grates).
-    // These objects test against the depth buffer and also write to it.
-    // MSAA is used to smooth the hard edges of the cutouts.
-    glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
+    // Render objects with cutout transparency, such as hair, grates, or foliage.
+    // Instead of blending, this pass uses alpha testing. The fragment shader
+    // will completely 'discard' any pixel whose alpha value falls below a
+    // specific threshold. This creates a hard, binary cutout effect
+    // rather than a soft, translucent one.
+    // These objects read from and write to the depth buffer just like opaque
+    // objects. This ensures they correctly appear in front of or behind
+    // other objects in the scene. Multisample Anti-Aliasing (MSAA), if enabled
+    // on the framebuffer, helps to smooth the hard edges produced by this technique.
+    // For hair and beard meshes that are often modeled as thin planes, double-sided
+    // rendering is enabled by temporarily disabling face culling. This
+    // ensures the geometry is visible from all angles.
     shader.setBool("use_alpha_test", true);
-    checkGlErrors("Before alpha-test loop"); // <<-- ADD
     for (const auto& shape : alphaTestShapes) {
         shader.setFloat("alpha_threshold", shape.alphaThreshold);
 
         if (shape.doubleSided) {
-            glCullFace(GL_FRONT); // Pass 1: Draw back faces
+            glDisable(GL_CULL_FACE);
             render_shape(shape);
-            glCullFace(GL_BACK);  // Pass 2: Draw front faces
-            render_shape(shape);
+            glEnable(GL_CULL_FACE);
         }
         else {
-            glCullFace(GL_BACK);
-            render_shape(shape);
+            render_shape(shape);  // ← You were missing this!
         }
     }
-    checkGlErrors("After alpha-test loop"); // <<-- ADD
     shader.setBool("use_alpha_test", false);
-    glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
 
     // --- PASS 3: TRANSPARENT (ALPHA-BLEND) OBJECTS ---
     // Render truly transparent objects last, sorted from back to front.
