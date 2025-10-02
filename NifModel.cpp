@@ -192,6 +192,13 @@ GLenum NifBlendToGL(unsigned int nifBlend) {
 
 // --- HELPER FUNCTIONS FOR SKELETON ROOT FINDING ---
 
+// Checks if a dismemberment partition ID corresponds to a known head slot.
+static bool isHeadDismemberPartition(int partID) {
+    // SBP_30_HEAD, SBP_130_HEAD (often for circlets/hair), SBP_230_HEAD (beast)
+    return partID == 30 || partID == 130 || partID == 230;
+}
+
+
 // Returns true if 'ancestor' is an ancestor of 'node' in the NIF scene graph.
 static bool IsAncestor(const nifly::NifFile& nif, const nifly::NiNode* ancestor, nifly::NiNode* node) {
     if (!ancestor || !node) return false;
@@ -244,6 +251,14 @@ void MeshShape::cleanup() {
     }
 }
 
+// Helper struct for camera "root" node selection
+struct HeadCandidate {
+    std::string name;
+    glm::vec3 minBounds;
+    glm::vec3 maxBounds;
+    float height;
+};
+
 // --- NifModel Methods ---
 
 NifModel::NifModel() {}
@@ -284,6 +299,8 @@ bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, T
     bHasHeadShapeBounds = false;
 
     bHasEyeCenter = false;
+
+    std::vector<HeadCandidate> headCandidates;
 
     // --- HEURISTIC TO DETECT NIF TYPE (Standard vs. Hybrid) ---
     // This logic is crucial for handling different ways NIF files are authored.
@@ -401,8 +418,7 @@ found_head:
                 bool isHeadPartition = false;
                 if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
                     for (const auto& partition : skinInst->partitions) {
-                        // SBP_30_HEAD or SBP_230_HEAD (beast)
-                        if (partition.partID == 30 || partition.partID == 230) {
+                        if (isHeadDismemberPartition(partition.partID)) {
                             isHeadPartition = true;
                             break;
                         }
@@ -681,20 +697,20 @@ found_head:
             }
         }
 
-        // --- MODIFICATION START: Check for the head partition and store its specific bounds ---
-        if (!bHasHeadShapeBounds) { // Only capture the first one found
-            if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
-                for (const auto& partition : skinInst->partitions) {
-                    // SBP_30_HEAD or SBP_230_HEAD (beast)
-                    if (partition.partID == 30 || partition.partID == 230) {
-                        headShapeMinBounds_nifRootSpace_zUp = shapeMinBounds_nifRootSpace_zUp;
-                        headShapeMaxBounds_nifRootSpace_zUp = shapeMaxBounds_nifRootSpace_zUp;
-                        bHasHeadShapeBounds = true;
-                        if (debugMode) {
-                            std::cout << "    [Head Bounds] Captured specific bounds from '" << shapeName << "' via partition ID " << partition.partID << ".\n";
-                        }
-                        break; // Found the head partition for this shape
+        if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
+            for (const auto& partition : skinInst->partitions) {
+                if (isHeadDismemberPartition(partition.partID)) {
+                    // This shape is a candidate. Add it to our list and move on.
+                    headCandidates.push_back({
+                        shapeName,
+                        shapeMinBounds_nifRootSpace_zUp,
+                        shapeMaxBounds_nifRootSpace_zUp,
+                        shapeMaxBounds_nifRootSpace_zUp.z - shapeMinBounds_nifRootSpace_zUp.z
+                        });
+                    if (debugMode) {
+                        std::cout << "    [Head Bounds] Found candidate '" << shapeName << "' (Height: " << (shapeMaxBounds_nifRootSpace_zUp.z - shapeMinBounds_nifRootSpace_zUp.z) << ").\n";
                     }
+                    break; // Found a head partition on this shape, no need to check its other partitions.
                 }
             }
         }
@@ -854,6 +870,25 @@ found_head:
             std::cout << "    [Profile] Texture/Material Loading: " << dur_s5.count() << " ms\n";
             std::cout << "    [Profile] GPU Buffer Upload: " << dur_s6.count() << " ms\n";
             std::cout << "    [Profile] Total Shape Processing Time: " << duration_preprocess.count() << " ms\n";
+        }
+    }
+
+    if (!headCandidates.empty()) {
+        auto tallestCandidate = std::max_element(headCandidates.begin(), headCandidates.end(),
+            [](const HeadCandidate& a, const HeadCandidate& b) {
+                return a.height < b.height;
+            });
+
+        if (tallestCandidate != headCandidates.end()) {
+            headShapeMinBounds_nifRootSpace_zUp = tallestCandidate->minBounds;
+            headShapeMaxBounds_nifRootSpace_zUp = tallestCandidate->maxBounds;
+            bHasHeadShapeBounds = true;
+
+            if (debugMode) {
+                std::cout << "\n[Head Bounds] Final selection from " << headCandidates.size()
+                    << " candidates: '" << tallestCandidate->name
+                    << "' (Height: " << tallestCandidate->height << ").\n";
+            }
         }
     }
 
