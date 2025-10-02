@@ -742,6 +742,21 @@ found_head:
                     std::string texPath = textureSet->textures[i].get();
                     if (texPath.empty()) continue;
 
+                    if (debugMode) {
+                        std::string slotName = "Unknown";
+                        switch (i) {
+                        case 0: slotName = "Diffuse"; break;
+                        case 1: slotName = "Normal"; break;
+                        case 2: slotName = "Skin/Subsurface"; break;
+                        case 3: slotName = "Detail"; break;
+                        case 4: slotName = "Environment Map"; break;
+                        case 5: slotName = "Environment Mask"; break;
+                        case 6: slotName = "Face Tint Mask"; break;
+                        case 7: slotName = "Specular"; break;
+                        }
+                        std::cout << "    [Texture Load] Shape '" << mesh.name << "' | Slot " << i << " | " << slotName << ": \"" << texPath << "\"\n";
+                    }
+
                     // --- CORRECTED LOGIC ---
                     // Call the function once and store the full TextureInfo result.
                     TextureInfo texInfo = textureManager.loadTexture(texPath);
