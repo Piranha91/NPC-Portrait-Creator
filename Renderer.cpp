@@ -976,16 +976,8 @@ void Renderer::renderFrame() {
 
         for (const auto& light : lights) {
             if (light.type == 2) {
-                // This matrix converts from Z-up NIF space to Y-up world space.
-                glm::mat4 conversionMatrix_zUpToYUp = glm::mat4(
-                    -1.0f, 0.0f, 0.0f, 0.0f,
-                    0.0f, 0.0f, 1.0f, 0.0f,
-                    0.0f, 1.0f, 0.0f, 0.0f,
-                    0.0f, 0.0f, 0.0f, 1.0f
-                );
-
                 // Calculate the arrow's full model matrix, just like the drawing logic
-                glm::vec3 lightDir_worldSpace_yUp = glm::normalize(glm::vec3(conversionMatrix_zUpToYUp * glm::vec4(light.direction, 0.0f)));
+                glm::vec3 lightDir_worldSpace_yUp = glm::normalize(glm::vec3(Matrices::NIF_ROOT_TO_WORLD_YUP * glm::vec4(light.direction, 0.0f)));
                 glm::vec3 arrowPos_worldSpace_yUp = camera.Target_worldSpace_yUp - (lightDir_worldSpace_yUp * 50.0f);
                 // The final model matrix for the arrow, transforming it from its local space into the renderer's Y-up world space.
                 glm::mat4 arrowModel_transform_yUp =
