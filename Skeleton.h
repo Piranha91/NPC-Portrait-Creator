@@ -9,14 +9,6 @@
 #include <NifFile.hpp>
 #include <Nodes.hpp>
 
-// Helper to convert nifly's matrix to GLM's, including the necessary transpose.
-inline glm::mat4 NiflyToGlm(const nifly::MatTransform& niflyMat) {
-    // CORRECTED: Copy the temporary matrix to a local non-const variable.
-    nifly::Matrix4 tempMat = niflyMat.ToMatrix();
-    // Now we can safely call the non-const operator[] on our local copy.
-    return glm::transpose(glm::make_mat4(&tempMat[0]));
-}
-
 class Skeleton {
 public:
     Skeleton() = default;

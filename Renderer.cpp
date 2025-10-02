@@ -3,6 +3,7 @@
 #include "Renderer.h"
 #include "BsaManager.h"
 #include "Skeleton.h"
+#include "CommonMatrices.h"
 #include <iostream>
 #include <stdexcept>
 #include <fstream>
@@ -776,25 +777,7 @@ void Renderer::renderFrame() {
 
     shader.use();
 
-    // This matrix handles the crucial conversion from the NIF file's coordinate system
-    // to the renderer's coordinate system.
-    // NIF Standard: +X is right, +Y is forward, +Z is up.
-    // Renderer Standard: +X is right, +Y is up, +Z is backward.
-    //
-    // Input Space: NIF Root Space (Z-up)
-    // Transformation:
-    //   - Inverts the X-axis (-X)
-    //   - Maps the NIF's Z-axis to the renderer's Y-axis.
-    //   - Maps the NIF's Y-axis to the renderer's Z-axis.
-    // Output Space: Renderer's World Space (Y-up)
-    glm::mat4 nifRootToWorld_conversionMatrix_zUpToYUp = glm::mat4(
-        -1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f
-    );
-
-    logFirstFrame("NIF Root -> World Conversion Matrix (Z-up -> Y-up):\n" + glm::to_string(nifRootToWorld_conversionMatrix_zUpToYUp));
+    logFirstFrame("NIF Root -> World Conversion Matrix (Z-up -> Y-up):\n" + glm::to_string(Matrices::NIF_ROOT_TO_WORLD_YUP)); // <-- USE CENTRALIZED MATRIX
     // --- END LOGGING ---
 
     // 1. DEFINE PROJECTION AND VIEW MATRICES FIRST
@@ -822,7 +805,7 @@ void Renderer::renderFrame() {
             // Create a matrix to transform light vectors from NIF space directly to the camera's view space.
             // Input Space: NIF Root Space (Z-up)
             // Output Space: Camera View Space (Y-up)
-            glm::mat4 nifRootToCameraView_transform_zUpToYUp = cameraView_yUp * nifRootToWorld_conversionMatrix_zUpToYUp;
+            glm::mat4 nifRootToCameraView_transform_zUpToYUp = cameraView_yUp * Matrices::NIF_ROOT_TO_WORLD_YUP;
 
             // The normal matrix correctly transforms direction vectors without being affected by translation or non-uniform scale.
             glm::mat3 nifRootToCameraView_normalMatrix_zUpToYUp = glm::transpose(glm::inverse(glm::mat3(nifRootToCameraView_transform_zUpToYUp)));
@@ -867,7 +850,7 @@ void Renderer::renderFrame() {
     shader.setInt("shadowMap", 8);
 
     if (model) {
-        model->draw(shader, camera.Position_worldSpace_yUp, nifRootToWorld_conversionMatrix_zUpToYUp);
+        model->draw(shader, camera.Position_worldSpace_yUp, Matrices::NIF_ROOT_TO_WORLD_YUP);
     }
 
     // --- START: AXES VISUALIZATION LOGIC ---
@@ -933,7 +916,7 @@ void Renderer::renderFrame() {
 
         if (m_visualizeNifAxes) {
             float axisLength = 50.0f;
-            glm::mat4 model = nifRootToWorld_conversionMatrix_zUpToYUp * glm::scale(glm::mat4(1.0f), glm::vec3(axisLength));
+            glm::mat4 model = Matrices::NIF_ROOT_TO_WORLD_YUP * glm::scale(glm::mat4(1.0f), glm::vec3(axisLength));
             draw_axes(model);
             draw_labels(model, 1.0f, 5.0f); // Length is 1 in local space, scale labels by 5
         }
@@ -964,7 +947,8 @@ void Renderer::renderFrame() {
                 std::cout << "  [Input] Raw Color:            " << glm::to_string(light.color) << std::endl;
                 std::cout << "  [Input] Raw Intensity:        " << light.intensity << std::endl;
 
-                glm::vec3 lightDir_worldSpace_yUp = glm::vec3(nifRootToWorld_conversionMatrix_zUpToYUp * glm::vec4(light.direction, 0.0f));
+                // The light's direction vector converted to the renderer's Y-up world space.
+                glm::vec3 lightDir_worldSpace_yUp = glm::vec3(Matrices::NIF_ROOT_TO_WORLD_YUP * glm::vec4(light.direction, 0.0f));
                 std::cout << "  [Calc] Transformed Dir (Y-up): " << glm::to_string(lightDir_worldSpace_yUp) << std::endl;
 
                 glm::vec3 arrowPos_worldSpace_yUp = camera.Target_worldSpace_yUp - (lightDir_worldSpace_yUp * 50.0f);
@@ -1068,15 +1052,8 @@ void Renderer::renderFrame() {
 
                 m_debugLineShader.setVec3("lineColor", lights[i].color);
 
-                // This matrix converts from Z-up NIF space to Y-up world space.
-                glm::mat4 nifRootToWorld_conversionMatrix_zUpToYUp = glm::mat4(
-                    -1.0f, 0.0f, 0.0f, 0.0f,
-                    0.0f, 0.0f, 1.0f, 0.0f,
-                    0.0f, 1.0f, 0.0f, 0.0f,
-                    0.0f, 0.0f, 0.0f, 1.0f
-                );
                 // The light's direction vector converted to the renderer's Y-up world space.
-                glm::vec3 lightDir_worldSpace_yUp = glm::vec3(nifRootToWorld_conversionMatrix_zUpToYUp * glm::vec4(lights[i].direction, 0.0f));
+                glm::vec3 lightDir_worldSpace_yUp = glm::vec3(Matrices::NIF_ROOT_TO_WORLD_YUP * glm::vec4(lights[i].direction, 0.0f));
                 // The calculated position for the visualization arrow in Y-up world space.
                 glm::vec3 arrowPos_worldSpace_yUp = camera.Target_worldSpace_yUp - (lightDir_worldSpace_yUp * 50.0f);
 
@@ -1185,11 +1162,11 @@ void Renderer::renderFrame() {
                             lights[i].direction = glm::normalize(rotation * lights[i].direction);
                         }
                         else {
-                            glm::vec3 transformedDir = glm::vec3(nifRootToWorld_conversionMatrix_zUpToYUp * glm::vec4(lights[i].direction, 0.0f));
+                            glm::vec3 transformedDir = glm::vec3(Matrices::NIF_ROOT_TO_WORLD_YUP * glm::vec4(lights[i].direction, 0.0f));
                             glm::quat rotY = glm::angleAxis(mouseDelta.x * dragSpeed, camera.Up_localSpace_yUp);
                             glm::quat rotX = glm::angleAxis(mouseDelta.y * dragSpeed, camera.Right_localSpace_yUp);
                             glm::vec3 newTransformedDir = glm::normalize((rotY * rotX) * transformedDir);
-                            lights[i].direction = glm::normalize(glm::vec3(nifRootToWorld_conversionMatrix_zUpToYUp * glm::vec4(newTransformedDir, 0.0f)));
+                            lights[i].direction = glm::normalize(glm::vec3(Matrices::NIF_ROOT_TO_WORLD_YUP * glm::vec4(newTransformedDir, 0.0f)));
                         }
                     }
 

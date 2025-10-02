@@ -4,6 +4,7 @@
 #include <iomanip> // For std::setw, std::setprecision
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/string_cast.hpp>
+#include "CommonMatrices.h"
 
 void Skeleton::clear() {
     boneWorldTransforms.clear();
@@ -53,7 +54,7 @@ void Skeleton::processNode(nifly::NiNode* node, const nifly::MatTransform& paren
 
     std::string nodeName = node->name.get();
     if (!nodeName.empty()) {
-        glm::mat4 glmWorldTransform = NiflyToGlm(worldTransform);
+        glm::mat4 glmWorldTransform = Matrices::NiflyToGlm(worldTransform);
         boneWorldTransforms[nodeName] = glmWorldTransform;
 
         std::cout << "    [Skel Parse] Stored transform for bone: " << nodeName << std::endl;
