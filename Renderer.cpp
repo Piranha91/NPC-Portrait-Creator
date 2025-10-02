@@ -13,6 +13,7 @@
 #include <iomanip> // For std::setw, std::setfill
 #include <sstream> // For std::stringstream
 #include <array>   // For std::array
+#include <cmath>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -943,6 +944,15 @@ void Renderer::renderFrame() {
     // --- END: AXES VISUALIZATION LOGIC ---
 
     if (m_visualizeLights && !m_visualizeLights_lastState) {
+        // --- MODIFICATION: Generate illumination report when visualization is enabled ---
+        int reportCounter = 0;
+        for (int i = 0; i < lights.size(); ++i) {
+            if (lights[i].type == 2) { // type 2 is directional
+                reportCounter++;
+                logLightAngles(i, reportCounter);
+            }
+        }
+        // --- END MODIFICATION ---
         // All console output now goes inside this block, so it only runs once.
         int lightIndex = 0;
         std::cout << "\n--- Light Visualization Enabled: Calculation Details ---" << std::endl;
@@ -1144,7 +1154,7 @@ void Renderer::renderFrame() {
                     // --- Dragging Logic ---
                     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
                         m_interactingLightIndex = i; // Use the correct index `i`
-
+                        m_lightWasDragged = true;
                         ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
                         float dragSpeed = 0.005f;
 
@@ -1189,6 +1199,23 @@ void Renderer::renderFrame() {
         glBindVertexArray(0);
         glLineWidth(1.0f);
         glEnable(GL_DEPTH_TEST);
+
+        // --- NEW: Logic to generate report on drag release ---
+        // If a drag was in progress and the mouse is now released, generate the report.
+        if (m_lightWasDragged && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            if (m_interactingLightIndex != -1) {
+                // We need to recalculate the 1-based counter for the specific light that was moved.
+                int directionalLightCounter = 0;
+                for (int j = 0; j <= m_interactingLightIndex; ++j) {
+                    if (lights[j].type == 2) {
+                        directionalLightCounter++;
+                    }
+                }
+                logLightAngles(m_interactingLightIndex, directionalLightCounter);
+            }
+            m_lightWasDragged = false;      // Reset for the next interaction
+            m_interactingLightIndex = -1; // Reset active light index
+        }
 
         // --- NEW: Logging Logic ---
         // If a right click happened but it wasn't on any of the handles, log it.
@@ -1933,6 +1960,98 @@ void Renderer::saveLightingProfile(const std::string& path) {
     catch (const std::exception& e) {
         std::cerr << "Error saving lighting profile: " << e.what() << std::endl;
     }
+}
+
+/**
+ * @brief Logs a detailed report about a directional light's orientation relative to the model.
+ * @param lightIndex The absolute index of the light in the 'lights' vector.
+ * @param directionalLightCounter The 1-based sequential number of this light (for display).
+ */
+void Renderer::logLightAngles(int lightIndex, int directionalLightCounter) const {
+    if (lightIndex < 0 || lightIndex >= lights.size() || lights[lightIndex].type != 2) {
+        return; // Ensure we're logging a valid directional light
+    }
+
+    const Light& light = lights[lightIndex];
+
+    // The 'light.direction' is where the light comes FROM.
+    // For reporting, we want the direction it's POINTING TO.
+    glm::vec3 lightPointingDir_nifRootSpace_zUp = -light.direction;
+
+    // --- Horizontal Angle (in the NIF's XY plane, relative to +Y "forward") ---
+    // atan2(x, y) gives the angle from the +Y axis, positive towards +X (character's right).
+    float horizontalAngleRad = atan2(lightPointingDir_nifRootSpace_zUp.x, lightPointingDir_nifRootSpace_zUp.y);
+    float horizontalAngleDeg = glm::degrees(horizontalAngleRad);
+
+    // --- Vertical Angle (the angle of elevation from the NIF's XY plane) ---
+    // A positive angle means the light is pointing UPWARD (illuminating the chin).
+    // A negative angle means the light is pointing DOWNWARD (illuminating the forehead).
+    float verticalAngleRad = asin(lightPointingDir_nifRootSpace_zUp.z);
+    float verticalAngleDeg = glm::degrees(verticalAngleRad);
+
+    // --- Determine Illuminated Side ---
+    std::string illuminatedSide;
+    const float VERTICAL_CENTER_THRESHOLD = 5.0f; // A small dead-zone for "face" / "from center"
+
+    // First, determine if the light is hitting the front of the head.
+    bool isFrontFacing = (horizontalAngleDeg >= -45.0f && horizontalAngleDeg < 45.0f);
+
+    if (isFrontFacing) {
+        // --- Frontal Illumination: Use specific landmarks ---
+        if (verticalAngleDeg > VERTICAL_CENTER_THRESHOLD && verticalAngleDeg <= 60.0f) {
+            illuminatedSide = "chin";
+        }
+        else if (verticalAngleDeg < -VERTICAL_CENTER_THRESHOLD && verticalAngleDeg >= -60.0f) {
+            illuminatedSide = "forehead";
+        }
+        else if (verticalAngleDeg > 60.0f) {
+            // For extreme angles, use the generic descriptor as requested.
+            illuminatedSide = "from below";
+        }
+        else if (verticalAngleDeg < -60.0f) {
+            illuminatedSide = "from above";
+        }
+        else {
+            // Light is coming from straight on.
+            illuminatedSide = "face";
+        }
+    }
+    else {
+        // --- Side or Back Illumination: Use generic descriptors ---
+        std::string horizontalPart;
+        if (horizontalAngleDeg >= 45.0f && horizontalAngleDeg < 135.0f) {
+            horizontalPart = "right side";
+        }
+        else if (horizontalAngleDeg <= -45.0f && horizontalAngleDeg > -135.0f) {
+            horizontalPart = "left side";
+        }
+        else {
+            horizontalPart = "back";
+        }
+
+        std::string verticalPart;
+        if (verticalAngleDeg > VERTICAL_CENTER_THRESHOLD) {
+            verticalPart = " from below";
+        }
+        else if (verticalAngleDeg < -VERTICAL_CENTER_THRESHOLD) {
+            verticalPart = " from above";
+        }
+        else {
+            verticalPart = " from center";
+        }
+        illuminatedSide = horizontalPart + verticalPart;
+    }
+
+    // --- Print the final, formatted report to the console ---
+    std::cout << "\n--- Directional light #" << directionalLightCounter << " Illumination Report ---" << std::endl;
+    std::cout << "  Directional light #" << directionalLightCounter << " is pointing along ("
+        << std::fixed << std::setprecision(2) << lightPointingDir_nifRootSpace_zUp.x << ", "
+        << lightPointingDir_nifRootSpace_zUp.y << ", "
+        << lightPointingDir_nifRootSpace_zUp.z << ")" << std::endl;
+    std::cout << "  Vertical angle to head:   " << std::fixed << std::setprecision(1) << verticalAngleDeg << " degrees from center" << std::endl;
+    std::cout << "  Horizontal angle to head: " << horizontalAngleDeg << " degrees from center" << std::endl;
+    std::cout << "  The primary side of the head getting illuminated should be the " << illuminatedSide << "." << std::endl;
+    std::cout << "--------------------------------------------------------" << std::endl;
 }
 
 // --- NEW PUBLIC HANDLER IMPLEMENTATIONS ---

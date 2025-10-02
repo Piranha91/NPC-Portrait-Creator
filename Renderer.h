@@ -89,6 +89,7 @@ private:
     void renderUI();
     void shutdownUI();
     void updateAssetManagerPaths();
+    void logLightAngles(int lightIndex, int directionalLightCounter) const;
 
     // --- Core Members ---
     GLFWwindow* window = nullptr;
@@ -184,6 +185,7 @@ private:
     // UI State
     bool m_visualizeLights = false; // <-- Add this
     bool m_visualizeLights_lastState = false;
+    bool m_lightWasDragged = false; // <-- Add this to track drag state for logging
 
     // --- Axis Visualization ---
     bool m_visualizeRendererAxes = false;
