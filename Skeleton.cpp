@@ -1,6 +1,9 @@
 #include "Skeleton.h"
 #include <iostream>
 #include <sstream>
+#include <iomanip> // For std::setw, std::setprecision
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/string_cast.hpp>
 
 void Skeleton::clear() {
     boneWorldTransforms.clear();
@@ -50,8 +53,25 @@ void Skeleton::processNode(nifly::NiNode* node, const nifly::MatTransform& paren
 
     std::string nodeName = node->name.get();
     if (!nodeName.empty()) {
-        boneWorldTransforms[nodeName] = NiflyToGlm(worldTransform);
+        glm::mat4 glmWorldTransform = NiflyToGlm(worldTransform);
+        boneWorldTransforms[nodeName] = glmWorldTransform;
+
         std::cout << "    [Skel Parse] Stored transform for bone: " << nodeName << std::endl;
+
+        std::stringstream niflyMatrixStream;
+        nifly::Matrix4 tempMat = worldTransform.ToMatrix();
+        const float* matrixData = &tempMat[0];
+        niflyMatrixStream << "\n";
+        for (int row = 0; row < 4; ++row) {
+            niflyMatrixStream << "            [";
+            for (int col = 0; col < 4; ++col) {
+                niflyMatrixStream << std::setw(9) << std::fixed << std::setprecision(4) << matrixData[row * 4 + col];
+                if (col < 3) niflyMatrixStream << ", ";
+            }
+            niflyMatrixStream << "]\n";
+        }
+        std::cout << "        [Skel Parse] Nifly Matrix (Z-up, Row-major):" << niflyMatrixStream.str();
+        std::cout << "        [Skel Parse] GLM Matrix (Z-up, Col-major):\n" << glm::to_string(glmWorldTransform) << std::endl;
     }
 
     for (const auto& childRef : node->childRefs) { // Corrected to 'childRefs'

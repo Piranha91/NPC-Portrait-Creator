@@ -152,6 +152,26 @@ nifly::MatTransform GetAVObjectTransformToGlobal(const nifly::NifFile& nifFile, 
         // ComposeTransforms pre-multiplies, so the operation is: parent * current.
         // This correctly concatenates the transforms up the scene graph hierarchy.
         objectToNifRoot_transform_zUp = parent->GetTransformToParent().ComposeTransforms(objectToNifRoot_transform_zUp);
+
+        // --- CORRECTED LOGGING ---
+        if (debugMode) {
+            std::stringstream niflyMatrixStream;
+            // --- MODIFIED LINE ---
+            const float* matrixData = &objectToNifRoot_transform_zUp.ToMatrix()[0]; // Get a pointer to the data
+            niflyMatrixStream << "\n";
+            for (int row = 0; row < 4; ++row) {
+                niflyMatrixStream << "        [";
+                for (int col = 0; col < 4; ++col) {
+                    // Access data in row-major order and format it
+                    niflyMatrixStream << std::setw(9) << std::fixed << std::setprecision(4) << matrixData[row * 4 + col];
+                    if (col < 3) niflyMatrixStream << ", ";
+                }
+                niflyMatrixStream << "]\n";
+            }
+            std::cout << "  [GetAVObjectTransformToGlobal] Composed with parent '" << parent->name.get() << "'. Cumulative Matrix (Nifly Z-up, Row-major):" << niflyMatrixStream.str();
+        }
+        // --- END CORRECTION ---
+
         parent = nifFile.GetParentNode(parent);
     }
     return objectToNifRoot_transform_zUp;
@@ -400,6 +420,10 @@ found_head:
         // Convert the row-major nifly matrix to a column-major GLM matrix using transpose.
         mesh.shapeLocalToNifRoot_transform_zUp = glm::transpose(glm::make_mat4(&finalShapeToNifRoot_transform_zUp_nifly.ToMatrix()[0]));
 
+        if (debugMode) {
+            std::cout << "    [Matrix Calc] Shape Local -> NIF Root Transform for '" << mesh.name << "' (GLM Z-up, Col-major):\n" << glm::to_string(mesh.shapeLocalToNifRoot_transform_zUp) << std::endl;
+        }
+
         // --- Stage 3: GPU Skinning Data Extraction ---
         auto start_stage3 = std::chrono::high_resolution_clock::now();
         if (niShape->IsSkinned()) {
@@ -433,14 +457,26 @@ found_head:
                         boneToWorld_transform = glm::transpose(glm::make_mat4(&boneToNifRoot_transform_zUp_nifly.ToMatrix()[0]));
                     }
 
+                    if (debugMode) {
+                        std::cout << "        [Skinning Matrix] Bone '" << boneName << "' To World Transform (GLM Z-up, Col-major):\n" << glm::to_string(boneToWorld_transform) << std::endl;
+                    }
+
                     // This is the inverse bind pose matrix from the nifly data (Z-up, row-major).
                     // It transforms a vertex from the bone's space back to the mesh's original model space.
                     const auto& skinToBone_transform_zUp_nifly = skinData->bones[i].boneTransform;
                     // Convert to GLM matrix (Z-up, column-major).
                     glm::mat4 skinToBone_transform_zUp_glm = glm::transpose(glm::make_mat4(&skinToBone_transform_zUp_nifly.ToMatrix()[0]));
 
+                    if (debugMode) {
+                        std::cout << "        [Skinning Matrix] Inverse Bind Pose for Bone #" << i << " (GLM Z-up, Col-major):\n" << glm::to_string(skinToBone_transform_zUp_glm) << std::endl;
+                    }
+
                     // The final matrix for the shader is: Bone's World Transform * Inverse Bind Pose Transform.
                     mesh.skinToBonePose_transforms_zUp[i] = boneToWorld_transform * skinToBone_transform_zUp_glm;
+
+                    if (debugMode) {
+                        std::cout << "        [Skinning Matrix] Final Shader Matrix for Bone #" << i << " (GLM Z-up, Col-major):\n" << glm::to_string(mesh.skinToBonePose_transforms_zUp[i]) << std::endl;
+                    }
                 }
 
                 for (const auto& partition : skinPartition->partitions) {
@@ -890,7 +926,10 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
 
         // Calculate and set the final model matrix. This transforms the shape's vertices from its local Z-up space
         // all the way to the renderer's world Y-up space.
-        shader.setMat4("u_model_localToWorld", nifRootToWorld_conversionMatrix_zUpToYUp * shape.shapeLocalToNifRoot_transform_zUp);
+        glm::mat4 modelMatrix = nifRootToWorld_conversionMatrix_zUpToYUp * shape.shapeLocalToNifRoot_transform_zUp;
+        shader.setMat4("u_model_localToWorld", modelMatrix);
+
+        renderFirstFrameLog("  -> Final Model Matrix (Local Z-up -> World Y-up):\n" + glm::to_string(modelMatrix));
 
         // Set boolean flags that control shader logic.
         shader.setBool("is_eye", shape.isEye);

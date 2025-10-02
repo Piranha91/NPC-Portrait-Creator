@@ -192,6 +192,10 @@ private:
     unsigned int m_axesVBO;
     unsigned int m_labelVAO;
     unsigned int m_labelVBO;
+
+    // Logging
+    bool m_logFirstFrameOnce = true;
+    void logFirstFrame(const std::string& message) const;
 };
 
 #endif // RENDERER_H

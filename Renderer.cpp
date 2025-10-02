@@ -717,6 +717,8 @@ void Renderer::renderFrame() {
         return;
     }
 
+    logFirstFrame("--- START Renderer::renderFrame() ---");
+
     // --- 1. DEPTH PASS (Render scene from light's perspective) ---
     // The entire depth pass operates in a Z-up coordinate system consistent with the NIF data.
     glm::mat4 lightProjection_ortho_zUp, lightView_zUp;
@@ -747,6 +749,10 @@ void Renderer::renderFrame() {
     // Input Space: NIF Root Space (Z-up)
     // Output Space: Light's Clip Space (Z-up)
     lightSpace_transform_zUp = lightProjection_ortho_zUp * lightView_zUp;
+
+    logFirstFrame("Light Projection Matrix (Light View -> Clip, Z-up):\n" + glm::to_string(lightProjection_ortho_zUp));
+    logFirstFrame("Light View Matrix (NIF Root -> Light View, Z-up):\n" + glm::to_string(lightView_zUp));
+    logFirstFrame("Final Light-Space Matrix (NIF Root -> Light Clip, Z-up):\n" + glm::to_string(lightSpace_transform_zUp));
 
     depthShader.use();
     depthShader.setMat4("u_nifRootToLightClip_transform_zUp", lightSpace_transform_zUp);
@@ -787,6 +793,9 @@ void Renderer::renderFrame() {
         0.0f, 0.0f, 0.0f, 1.0f
     );
 
+    logFirstFrame("NIF Root -> World Conversion Matrix (Z-up -> Y-up):\n" + glm::to_string(nifRootToWorld_conversionMatrix_zUpToYUp));
+    // --- END LOGGING ---
+
     // 1. DEFINE PROJECTION AND VIEW MATRICES FIRST
     // The camera's perspective projection matrix.
     // Input Space: Camera View Space (Y-up)
@@ -797,6 +806,9 @@ void Renderer::renderFrame() {
     // Input Space: Renderer's World Space (Y-up)
     // Output Space: Camera View Space (Y-up)
     glm::mat4 cameraView_yUp = camera.GetViewMatrix();
+
+    logFirstFrame("Camera Projection Matrix (View -> Clip, Y-up):\n" + glm::to_string(cameraProjection_yUp));
+    logFirstFrame("Camera View Matrix (World -> View, Y-up):\n" + glm::to_string(cameraView_yUp));
 
     // 2. NOW CALCULATE LIGHTING (this is the new block)
     int maxLights = 5;
@@ -813,6 +825,9 @@ void Renderer::renderFrame() {
 
             // The normal matrix correctly transforms direction vectors without being affected by translation or non-uniform scale.
             glm::mat3 nifRootToCameraView_normalMatrix_zUpToYUp = glm::transpose(glm::inverse(glm::mat3(nifRootToCameraView_transform_zUpToYUp)));
+
+            logFirstFrame("Light Calc: NIF Root -> Camera View Matrix:\n" + glm::to_string(nifRootToCameraView_transform_zUpToYUp));
+            logFirstFrame("Light Calc: Normal Matrix (mat3):\n" + glm::to_string(nifRootToCameraView_normalMatrix_zUpToYUp));
 
             // The light's direction vector, defined in the NIF's Z-up coordinate system.
             glm::vec3 lightDir_nifRootSpace_zUp = -lights[i].direction;
@@ -1188,7 +1203,8 @@ void Renderer::renderFrame() {
     m_visualizeLights_lastState = m_visualizeLights;
 
     // --- END OF MODIFIED VISUALIZATION LOGIC ---
-
+    logFirstFrame("--- END Renderer::renderFrame() | Logging disabled for subsequent frames. ---");
+    m_logFirstFrameOnce = false;
     checkGlErrors("end of renderFrame");
 }
 
@@ -2006,6 +2022,13 @@ void Renderer::HandleKey(int key, int scancode, int action, int mods) {
         if (key == GLFW_KEY_DOWN) camera.ProcessKeyRotation(KeyRotation::DOWN);
     }
 }
+
+void Renderer::logFirstFrame(const std::string& message) const {
+    if (m_logFirstFrameOnce) {
+        std::cout << "[Renderer Matrix] " << message << std::endl;
+    }
+}
+
 
 // --- GLOBAL CALLBACKS (now simple wrappers) ---
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
