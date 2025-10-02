@@ -1118,6 +1118,7 @@ void Renderer::renderFrame() {
                             // Re-normalize the vector after editing to keep it a unit vector,
                             // which is important for directional lights.
                             lights[i].direction = glm::normalize(lights[i].direction);
+                            logLightAngles(i, directionalLightCounter);
                         }
                         ImGui::Separator();
 
