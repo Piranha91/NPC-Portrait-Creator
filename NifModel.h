@@ -46,6 +46,8 @@ struct MeshShape {
     bool isModelSpace = false;
     bool isEye = false; // NEW: Flag for eye-specific shader logic
 
+    bool flipUvs = false;
+
     // --- Additions for GPU Skinning ---
     bool isSkinned = false;
     // A collection of matrices for GPU skinning. Each matrix transforms a vertex from the

@@ -34,6 +34,7 @@ uniform mat4 u_view_worldToView;
 uniform mat4 u_proj_viewToClip;
 // Transforms a vertex from World Space (Y-up) to the light's Clip Space (for shadow mapping).
 uniform mat4 u_worldToLightClip_transform;
+uniform bool u_flipUvs;
 
 uniform bool uIsSkinned;
 const int MAX_BONES = 80;
@@ -88,8 +89,10 @@ void main()
     v_tangentToViewMatrix = mat3(T_viewSpace, B_viewSpace, N_viewSpace);
 
     // Pass through other attributes.
+    // The C++ application now determines if a flip is needed.
     TexCoords = aTexCoords;
-    // Flip the horizontal texture coordinate to compensate for the model's mirrored X-axis.
-    //TexCoords = vec2(1.0 - aTexCoords.x, aTexCoords.y);
+    if (u_flipUvs) {
+        TexCoords.x = 1.0 - aTexCoords.x;
+    }
     vertexColor = aColor;
 }

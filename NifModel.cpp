@@ -1019,6 +1019,16 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         glm::mat4 modelMatrix = nifRootToWorld_conversionMatrix_zUpToYUp * shape.shapeLocalToNifRoot_transform_zUp;
         shader.setMat4("u_model_localToWorld", modelMatrix);
 
+        // Determine if the final transform matrix for geometry has a negative scale (is mirrored).
+       // The determinant of the rotation/scale part will be negative if it's a reflection.
+        bool isMirrored = glm::determinant(glm::mat3(modelMatrix)) < 0;
+
+        // We only flip UVs if the geometry is mirrored.
+        shader.setBool("u_flipUvs", isMirrored);
+        if (m_logRenderPassesOnce) {
+            renderFirstFrameLog("  -> Is Mirrored: " + std::string(isMirrored ? "true" : "false") + ", setting u_flipUvs uniform.");
+        }
+
         renderFirstFrameLog("  -> Final Model Matrix (Local Z-up -> World Y-up):\n" + glm::to_string(modelMatrix));
 
         // Set boolean flags that control shader logic.
