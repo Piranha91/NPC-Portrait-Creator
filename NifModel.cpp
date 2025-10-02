@@ -251,14 +251,6 @@ void MeshShape::cleanup() {
     }
 }
 
-// Helper struct for camera "root" node selection
-struct HeadCandidate {
-    std::string name;
-    glm::vec3 minBounds;
-    glm::vec3 maxBounds;
-    float height;
-};
-
 // --- NifModel Methods ---
 
 NifModel::NifModel() {}
@@ -300,7 +292,66 @@ bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, T
 
     bHasEyeCenter = false;
 
-    std::vector<HeadCandidate> headCandidates;
+    // --- Stage 0: Pre-computation of Head and Accessory Transforms ---
+    // Before processing shapes individually, we perform a pre-pass to identify the
+    // "primary head" mesh. A NIF can have multiple shapes using a head partition
+    // (e.g., face, hair, circlets). We use a heuristic (tallest mesh in local Z) to
+    // find the main face mesh. The transform of this primary head is then used as a
+    // reliable anchor for positioning accessories (like hair or eyes) that might have
+    // an identity transform in the file.
+
+    struct HeadCandidateInfo {
+        const nifly::NiShape* shape = nullptr;
+        float localHeight = 0.0f;
+    };
+
+    std::vector<HeadCandidateInfo> headCandidateInfos;
+    if (debugMode) std::cout << "[NIF Analysis] Searching for primary head shape candidates...\n";
+    for (auto* shape : shapeList) {
+        if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(shape->SkinInstanceRef())) {
+            bool isCandidate = false;
+            for (const auto& partition : skinInst->partitions) {
+                if (isHeadDismemberPartition(partition.partID)) {
+                    isCandidate = true;
+                    break;
+                }
+            }
+
+            if (isCandidate) {
+                const auto* vertices = nif.GetVertsForShape(shape);
+                if (vertices && !vertices->empty()) {
+                    float minZ = std::numeric_limits<float>::max();
+                    float maxZ = std::numeric_limits<float>::lowest();
+                    for (const auto& v : *vertices) {
+                        minZ = std::min(minZ, v.z);
+                        maxZ = std::max(maxZ, v.z);
+                    }
+                    headCandidateInfos.push_back({ shape, maxZ - minZ });
+                    if (debugMode) std::cout << "    -> Found candidate: '" << shape->name.get() << "' with local height " << (maxZ - minZ) << ".\n";
+                }
+            }
+        }
+    }
+
+    std::string primaryHeadShapeName;
+    const nifly::NiShape* primaryHeadShape = nullptr;
+    if (!headCandidateInfos.empty()) {
+        auto tallestIt = std::max_element(headCandidateInfos.begin(), headCandidateInfos.end(),
+            [](const HeadCandidateInfo& a, const HeadCandidateInfo& b) {
+                return a.localHeight < b.localHeight;
+            });
+
+        if (tallestIt != headCandidateInfos.end()) {
+            primaryHeadShape = tallestIt->shape;
+            primaryHeadShapeName = primaryHeadShape->name.get();
+            if (debugMode) {
+                std::cout << "[NIF Analysis] Selected primary head shape: '" << primaryHeadShapeName << "'.\n";
+            }
+        }
+    }
+    if (primaryHeadShapeName.empty() && debugMode) {
+        std::cout << "[NIF Analysis] Warning: Could not identify a primary head shape from candidates.\n";
+    }
 
     // --- HEURISTIC TO DETECT NIF TYPE (Standard vs. Hybrid) ---
     // This logic is crucial for handling different ways NIF files are authored.
@@ -325,20 +376,33 @@ bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, T
         }
     }
 
+found_head:
+
     // This transform is used to correctly position local-space accessories like hair or eyes
     // relative to the main head mesh. It is in the NIF's Z-up root space.
     nifly::MatTransform accessoryToNifRoot_offset_zUp_nifly;
-    for (auto* shape : shapeList) {
-        if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(shape->SkinInstanceRef())) {
-            for (const auto& partition : skinInst->partitions) {
-                if (isHeadDismemberPartition(partition.partID)) { 
-                    accessoryToNifRoot_offset_zUp_nifly = GetAVObjectTransformToGlobal(nif, shape, false);
-                    goto found_head;
+    if (primaryHeadShape) {
+        accessoryToNifRoot_offset_zUp_nifly = GetAVObjectTransformToGlobal(nif, const_cast<nifly::NiShape*>(primaryHeadShape), false);
+        if (debugMode) std::cout << "[NIF Analysis] Using transform from primary head '" << primaryHeadShapeName << "' as the accessory offset.\n";
+    }
+    else {
+        // Fallback to original logic if no primary head was found via heuristic.
+        if (debugMode) std::cout << "[NIF Analysis] Warning: No primary head identified. Falling back to first-found head partition for accessory offset.\n";
+        for (auto* shape : shapeList) {
+            if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(shape->SkinInstanceRef())) {
+                bool found = false;
+                for (const auto& partition : skinInst->partitions) {
+                    if (isHeadDismemberPartition(partition.partID)) {
+                        accessoryToNifRoot_offset_zUp_nifly = GetAVObjectTransformToGlobal(nif, shape, false);
+                        if (debugMode) std::cout << "[NIF Analysis] Using fallback accessory offset from shape '" << shape->name.get() << "'.\n";
+                        found = true;
+                        break;
+                    }
                 }
+                if (found) break;
             }
         }
     }
-found_head:
 
     // Find the skeleton root's transform, which is needed for some hybrid NIFs.
     // This represents the skeleton's root node's position and orientation within the NIF's Z-up root space.
@@ -415,27 +479,19 @@ found_head:
         else {
             finalShapeToNifRoot_transform_zUp_nifly = GetAVObjectTransformToGlobal(nif, niShape, false);
             if (finalShapeToNifRoot_transform_zUp_nifly.IsNearlyEqualTo(nifly::MatTransform())) {
-                bool isHeadPartition = false;
-                if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
-                    for (const auto& partition : skinInst->partitions) {
-                        if (isHeadDismemberPartition(partition.partID)) {
-                            isHeadPartition = true;
-                            break;
-                        }
-                    }
-                }
+                // Check if the current shape is the one we identified as the primary head mesh.
+                bool isPrimaryHead = (shapeName == primaryHeadShapeName);
 
-                // If the shape's transform is identity AND it's NOT the primary head partition,
-                // it must be an accessory part (hair, eyes, brows, beard, etc.)
-                // that needs to inherit the head's transform.
-                if (!isHeadPartition) {
-                    if (debugMode) std::cout << "    [Debug] Applying accessory offset for non-head part '" << shapeName << "'.\n";
+                // If the shape's transform is identity AND it's NOT the primary head,
+                // it's likely an accessory (hair, eyes, brows) that needs to inherit the head's transform.
+                if (!isPrimaryHead) {
+                    if (debugMode) std::cout << "    [Debug] Shape '" << shapeName << "' has an identity transform and is not the primary head. Applying accessory offset.\n";
                     finalShapeToNifRoot_transform_zUp_nifly = accessoryToNifRoot_offset_zUp_nifly;
                 }
                 else {
-                    // This is a rare edge case where the head mesh itself has an identity transform.
-                    // The original fallback logic can be kept here.
-                    if (debugMode) std::cout << "    [Debug] Head part '" << shapeName << "' has an identity transform. Applying skeleton root as fallback.\n";
+                    // This is a rare edge case where the primary head mesh itself has an identity transform.
+                    // In this case, we fall back to using the skeleton root's transform.
+                    if (debugMode) std::cout << "    [Debug] Primary head part '" << shapeName << "' has an identity transform. Applying skeleton root as fallback.\n";
                     finalShapeToNifRoot_transform_zUp_nifly = skeletonRootToNifRoot_transform_zUp_nifly;
                 }
             }
@@ -697,21 +753,13 @@ found_head:
             }
         }
 
-        if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
-            for (const auto& partition : skinInst->partitions) {
-                if (isHeadDismemberPartition(partition.partID)) {
-                    // This shape is a candidate. Add it to our list and move on.
-                    headCandidates.push_back({
-                        shapeName,
-                        shapeMinBounds_nifRootSpace_zUp,
-                        shapeMaxBounds_nifRootSpace_zUp,
-                        shapeMaxBounds_nifRootSpace_zUp.z - shapeMinBounds_nifRootSpace_zUp.z
-                        });
-                    if (debugMode) {
-                        std::cout << "    [Head Bounds] Found candidate '" << shapeName << "' (Height: " << (shapeMaxBounds_nifRootSpace_zUp.z - shapeMinBounds_nifRootSpace_zUp.z) << ").\n";
-                    }
-                    break; // Found a head partition on this shape, no need to check its other partitions.
-                }
+        // If this shape was identified as the primary head, store its final posed bounds.
+        if (shapeName == primaryHeadShapeName) {
+            headShapeMinBounds_nifRootSpace_zUp = shapeMinBounds_nifRootSpace_zUp;
+            headShapeMaxBounds_nifRootSpace_zUp = shapeMaxBounds_nifRootSpace_zUp;
+            bHasHeadShapeBounds = true;
+            if (debugMode) {
+                std::cout << "    [Head Bounds] Stored final posed bounds for primary head shape '" << shapeName << "'.\n";
             }
         }
 
@@ -852,11 +900,15 @@ found_head:
                 }
                 alphaTestShapes.push_back(mesh);
             }
+            // If an alpha property exists but blend/test flags aren't explicitly set,
+            // default to alpha-testing. This is crucial for hair and beards.
             else {
                 if (debugMode) {
-                    std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to OPAQUE pass (alpha property present but blend/test disabled).\n";
+                    std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to ALPHA-TESTED pass as a default for having an alpha property.\n";
                 }
-                opaqueShapes.push_back(mesh);
+                // Force alphaTest to true so the renderer handles its threshold and double-sided properties correctly.
+                mesh.alphaTest = true;
+                alphaTestShapes.push_back(mesh);
             }
         }
         else {
@@ -885,25 +937,6 @@ found_head:
             std::cout << "    [Profile] Texture/Material Loading: " << dur_s5.count() << " ms\n";
             std::cout << "    [Profile] GPU Buffer Upload: " << dur_s6.count() << " ms\n";
             std::cout << "    [Profile] Total Shape Processing Time: " << duration_preprocess.count() << " ms\n";
-        }
-    }
-
-    if (!headCandidates.empty()) {
-        auto tallestCandidate = std::max_element(headCandidates.begin(), headCandidates.end(),
-            [](const HeadCandidate& a, const HeadCandidate& b) {
-                return a.height < b.height;
-            });
-
-        if (tallestCandidate != headCandidates.end()) {
-            headShapeMinBounds_nifRootSpace_zUp = tallestCandidate->minBounds;
-            headShapeMaxBounds_nifRootSpace_zUp = tallestCandidate->maxBounds;
-            bHasHeadShapeBounds = true;
-
-            if (debugMode) {
-                std::cout << "\n[Head Bounds] Final selection from " << headCandidates.size()
-                    << " candidates: '" << tallestCandidate->name
-                    << "' (Height: " << tallestCandidate->height << ").\n";
-            }
         }
     }
 
@@ -1241,23 +1274,26 @@ void NifModel::drawDepthOnly(Shader& depthShader) {
 
     GLint boneMatricesLocation = glGetUniformLocation(depthShader.ID, "uBoneMatrices");
 
-    auto render_shape_depth = [&](const MeshShape& shape) {
+    auto render_shape_depth = [&](const MeshShape& shape, bool isAlphaTested) {
         if (!shape.visible) return;
 
-        // Don't render shapes that don't receive shadows in the depth pass,
-        // as they can't cast them either in this engine.
+        // In this engine, we assume objects that cast shadows also receive them.
+        // This is a common simplification.
         if (!shape.receiveShadows) return;
 
         // Only render shapes that are flagged to cast shadows into the depth map.
         if (!shape.castShadows) return;
 
-        // Set the model matrix for the depth shader. Note that this does NOT include the
-        // Z-up to Y-up conversion. This implies the shadow mapping pass operates
-        // entirely within the NIF's native Z-up coordinate space.
-        //
-        // Input: Vertex in shape's local model space (Z-up)
-        // Transformation: model_matrix = (Shape Local -> NIF Root Z-up)
-        // Output: Vertex in NIF's root space (Z-up), ready for the Z-up light-space projection.
+        // --- NEW: Handle alpha testing for the depth pass ---
+        depthShader.setBool("use_alpha_test", isAlphaTested);
+        if (isAlphaTested) {
+            // Bind the diffuse texture to unit 0 for the alpha test
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, shape.diffuseTextureID);
+            depthShader.setInt("texture_diffuse1", 0);
+            depthShader.setFloat("alpha_threshold", shape.alphaThreshold);
+        }
+
         depthShader.setMat4("u_modelToNifRoot_transform_zUp", shape.shapeLocalToNifRoot_transform_zUp);
         depthShader.setBool("uIsSkinned", shape.isSkinned);
 
@@ -1269,9 +1305,16 @@ void NifModel::drawDepthOnly(Shader& depthShader) {
         shape.draw();
         };
 
-    for (const auto& shape : opaqueShapes) render_shape_depth(shape);
-    for (const auto& shape : alphaTestShapes) render_shape_depth(shape);
-    // Transparent shapes typically do not cast shadows, so they are skipped.
+    // Opaque shapes do not need alpha testing in the depth pass.
+    for (const auto& shape : opaqueShapes) {
+        render_shape_depth(shape, false);
+    }
+
+    // Alpha-tested shapes DO need alpha testing in the depth pass.
+    for (const auto& shape : alphaTestShapes) {
+        render_shape_depth(shape, true);
+    }
+    // Transparent (alpha-blended) shapes typically do not cast shadows, so they are skipped.
 }
 
 void NifModel::cleanup() {

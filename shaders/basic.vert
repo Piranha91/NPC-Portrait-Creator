@@ -89,5 +89,7 @@ void main()
 
     // Pass through other attributes.
     TexCoords = aTexCoords;
+    // Flip the horizontal texture coordinate to compensate for the model's mirrored X-axis.
+    //TexCoords = vec2(1.0 - aTexCoords.x, aTexCoords.y);
     vertexColor = aColor;
 }
