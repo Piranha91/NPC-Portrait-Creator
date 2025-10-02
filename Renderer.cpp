@@ -830,9 +830,10 @@ void Renderer::renderFrame() {
             logFirstFrame("Light Calc: NIF Root -> Camera View Matrix:\n" + glm::to_string(nifRootToCameraView_transform_zUpToYUp));
             logFirstFrame("Light Calc: Normal Matrix (mat3):\n" + glm::to_string(nifRootToCameraView_normalMatrix_zUpToYUp));
 
+            // --- FIX: The Y and Z axes of the light vector are being misinterpreted by the coordinate conversion.
+            // Manually swizzle the Y and Z components of the direction vector to counteract the incorrect transformation.
             // The light's direction vector, defined in the NIF's Z-up coordinate system.
-            glm::vec3 lightDir_nifRootSpace_zUp = -lights[i].direction;
-
+            glm::vec3 lightDir_nifRootSpace_zUp = -glm::vec3(lights[i].direction.x, lights[i].direction.z, lights[i].direction.y);
             // The final light direction vector, transformed into the camera's Y-up view space for the shader.
             glm::vec3 lightDir_cameraViewSpace_yUp = glm::normalize(nifRootToCameraView_normalMatrix_zUpToYUp * lightDir_nifRootSpace_zUp);
             shader.setVec3(base + ".direction", lightDir_cameraViewSpace_yUp);
