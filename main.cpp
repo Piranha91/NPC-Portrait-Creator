@@ -9,24 +9,19 @@
 #include <vector>
 #include <cxxopts.hpp>
 #include <filesystem>
-
-// main.cpp
-
-#include <glad/glad.h> 
-#include "Renderer.h"
-#include <iostream>
-#include <stdexcept>
-#include <string>
-#include <vector>
-#include <cxxopts.hpp>
-#include <filesystem>
+#include <combaseapi.h> // For CoInitializeEx
 
 void PrintVersion() {
     std::cout << PROGRAM_VERSION << std::endl;
 }
 
 int main(int argc, char** argv) {
-    cxxopts::Options options("Mugshotter", "NIF file renderer and thumbnail generator");
+    // Set the main thread to be a Single-Threaded Apartment.
+    // This is REQUIRED for WinRT UI components like the File Picker.
+    // It must be the first thing you do.
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+
+    cxxopts::Options options("NPC Portrait Creator", "NIF file renderer and thumbnail generator");
     options.add_options()
         ("f,file", "Input .nif file", cxxopts::value<std::string>())
         ("o,output", "Output .png file", cxxopts::value<std::string>())
