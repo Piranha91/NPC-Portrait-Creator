@@ -976,8 +976,10 @@ void Renderer::renderFrame() {
 
         for (const auto& light : lights) {
             if (light.type == 2) {
-                // Calculate the arrow's full model matrix, just like the drawing logic
+                // Calculate the light's direction vector in the renderer's Y-up world space.
                 glm::vec3 lightDir_worldSpace_yUp = glm::normalize(glm::vec3(Matrices::NIF_ROOT_TO_WORLD_YUP * glm::vec4(light.direction, 0.0f)));
+                // --- FIX: Invert the Y-axis for visualization to match the lighting shader's interpretation. ---
+                lightDir_worldSpace_yUp.y *= -1.0f;
                 glm::vec3 arrowPos_worldSpace_yUp = camera.Target_worldSpace_yUp - (lightDir_worldSpace_yUp * 50.0f);
                 // The final model matrix for the arrow, transforming it from its local space into the renderer's Y-up world space.
                 glm::mat4 arrowModel_transform_yUp =
@@ -1046,6 +1048,8 @@ void Renderer::renderFrame() {
 
                 // The light's direction vector converted to the renderer's Y-up world space.
                 glm::vec3 lightDir_worldSpace_yUp = glm::vec3(Matrices::NIF_ROOT_TO_WORLD_YUP * glm::vec4(lights[i].direction, 0.0f));
+                // --- FIX: Invert the Y-axis for visualization to match the lighting shader's interpretation. ---
+                lightDir_worldSpace_yUp.y *= -1.0f;
                 // The calculated position for the visualization arrow in Y-up world space.
                 glm::vec3 arrowPos_worldSpace_yUp = camera.Target_worldSpace_yUp - (lightDir_worldSpace_yUp * 50.0f);
 
