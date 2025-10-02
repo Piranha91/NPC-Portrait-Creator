@@ -1,4 +1,4 @@
-﻿#define GLM_ENABLE_EXPERIMENTAL
+#define GLM_ENABLE_EXPERIMENTAL
 #define MAX_BONES 80 // <-- MAKE SURE THIS MATCHES YOUR SHADER'S ARRAY SIZE
 
 #include "NifModel.h"
@@ -331,7 +331,7 @@ bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, T
     for (auto* shape : shapeList) {
         if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(shape->SkinInstanceRef())) {
             for (const auto& partition : skinInst->partitions) {
-                if (partition.partID == 30 || partition.partID == 230) { // Head partitions
+                if (isHeadDismemberPartition(partition.partID)) { 
                     accessoryToNifRoot_offset_zUp_nifly = GetAVObjectTransformToGlobal(nif, shape, false);
                     goto found_head;
                 }
