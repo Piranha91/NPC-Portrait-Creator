@@ -914,7 +914,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
 
     // Get the uniform location for the bone matrices array once, before the render loop, for efficiency.
     GLint boneMatricesLocation = glGetUniformLocation(shader.ID, "uBoneMatrices");
-    checkGlErrors("After getting bone uniform location");
+    if (m_logRenderPassesOnce) checkGlErrors("After getting bone uniform location");
 
     // A helper lambda to render a single shape. This centralizes the logic for setting
     // per-shape uniforms, binding textures, and issuing the draw command.
@@ -927,7 +927,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         else {
             renderFirstFrameLog("Processing visible shape '" + shape.name + "'.");
         }
-        checkGlErrors(("Start of render_shape for '" + shape.name + "'").c_str());
+        if (m_logRenderPassesOnce) checkGlErrors(("Start of render_shape for '" + shape.name + "'").c_str());
 
         // --- Set Per-Shape Uniforms ---
 
@@ -987,7 +987,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         else {
             renderFirstFrameLog("  -> Is not skinned.");
         }
-        checkGlErrors(("After setting uniforms for '" + shape.name + "'").c_str());
+        if (m_logRenderPassesOnce) checkGlErrors(("After setting uniforms for '" + shape.name + "'").c_str());
 
 
         // --- Texture Binding ---
@@ -1081,12 +1081,12 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         else {
             renderFirstFrameLog("  -> Does not have an environment mask ID.");
         }
-        checkGlErrors(("After binding textures for '" + shape.name + "'").c_str());
+        if (m_logRenderPassesOnce) checkGlErrors(("After binding textures for '" + shape.name + "'").c_str());
 
         // --- Draw Call ---
         // With all uniforms and textures set, issue the command to draw the shape's geometry.
         shape.draw();
-        checkGlErrors(("IMMEDIATELY AFTER shape.draw() for '" + shape.name + "'").c_str());
+        if (m_logRenderPassesOnce) checkGlErrors(("IMMEDIATELY AFTER shape.draw() for '" + shape.name + "'").c_str());
         };
 
     // =========================================================================================
@@ -1102,11 +1102,11 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
     glCullFace(GL_BACK);
     shader.setBool("use_alpha_test", false); // Alpha testing is not needed for this pass.
 
-    checkGlErrors("Before opaque loop");
+    if (m_logRenderPassesOnce) checkGlErrors("Before opaque loop");
     for (const auto& shape : opaqueShapes) {
         render_shape(shape);
     }
-    checkGlErrors("After opaque loop");
+    if (m_logRenderPassesOnce) checkGlErrors("After opaque loop");
 
     // =========================================================================================
     // --- PASS 2: ALPHA-TEST (CUTOUT) OBJECTS ---
@@ -1151,7 +1151,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         glEnable(GL_BLEND);      // Enable color blending.
         glDepthMask(GL_FALSE);   // CRITICAL: Disable depth writes to prevent transparency artifacts.
 
-        checkGlErrors("Before transparent loop");
+        if (m_logRenderPassesOnce) checkGlErrors("Before transparent loop");
         for (const auto& shape : transparentShapes) {
             // Set the specific blend function (e.g., SRC_ALPHA, ONE_MINUS_SRC_ALPHA) for this shape.
             glBlendFunc(shape.srcBlend, shape.dstBlend);
@@ -1166,7 +1166,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
             }
             render_shape(shape);
         }
-        checkGlErrors("After transparent loop");
+        if (m_logRenderPassesOnce) checkGlErrors("After transparent loop");
     }
     else {
         renderFirstFrameLog("Transparent shapes list is empty, skipping pass.");
@@ -1179,7 +1179,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
     glActiveTexture(GL_TEXTURE0); // Reset active texture unit to the default.
-    checkGlErrors("End of NifModel::draw");
+    if (m_logRenderPassesOnce) checkGlErrors("End of NifModel::draw");
 
     // After the first frame has been fully drawn and logged, set the flag to false.
     m_logRenderPassesOnce = false;

@@ -1204,8 +1204,8 @@ void Renderer::renderFrame() {
 
     // --- END OF MODIFIED VISUALIZATION LOGIC ---
     logFirstFrame("--- END Renderer::renderFrame() | Logging disabled for subsequent frames. ---");
+    if(m_logFirstFrameOnce) checkGlErrors("end of renderFrame");
     m_logFirstFrameOnce = false;
-    checkGlErrors("end of renderFrame");
 }
 
 void Renderer::HandleFramebufferSize(int width, int height) {
