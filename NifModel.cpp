@@ -398,21 +398,28 @@ found_head:
         else {
             finalShapeToNifRoot_transform_zUp_nifly = GetAVObjectTransformToGlobal(nif, niShape, false);
             if (finalShapeToNifRoot_transform_zUp_nifly.IsNearlyEqualTo(nifly::MatTransform())) {
-                bool isLocalSpacePart = (
-                    shapeName.find("Eyes") != std::string::npos ||
-                    shapeName.find("Mouth") != std::string::npos ||
-                    shapeName.find("Teeth") != std::string::npos ||
-                    shapeName.find("Brows") != std::string::npos
-                    );
+                bool isHeadPartition = false;
+                if (auto* skinInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
+                    for (const auto& partition : skinInst->partitions) {
+                        // SBP_30_HEAD or SBP_230_HEAD (beast)
+                        if (partition.partID == 30 || partition.partID == 230) {
+                            isHeadPartition = true;
+                            break;
+                        }
+                    }
+                }
 
-                if (isLocalSpacePart) {
-                    if (debugMode) std::cout << "    [Debug] Applying accessory offset for local-space part '" << shapeName << "'.\n";
+                // If the shape's transform is identity AND it's NOT the primary head partition,
+                // it must be an accessory part (hair, eyes, brows, beard, etc.)
+                // that needs to inherit the head's transform.
+                if (!isHeadPartition) {
+                    if (debugMode) std::cout << "    [Debug] Applying accessory offset for non-head part '" << shapeName << "'.\n";
                     finalShapeToNifRoot_transform_zUp_nifly = accessoryToNifRoot_offset_zUp_nifly;
                 }
                 else {
-                    // This is the restored logic for pre-translated parts in non-hybrid models.
-                    // Their vertices are relative to the skeleton root, so we apply its transform.
-                    if (debugMode) std::cout << "    [Debug] Applying skeleton root transform for pre-translated part '" << shapeName << "'.\n";
+                    // This is a rare edge case where the head mesh itself has an identity transform.
+                    // The original fallback logic can be kept here.
+                    if (debugMode) std::cout << "    [Debug] Head part '" << shapeName << "' has an identity transform. Applying skeleton root as fallback.\n";
                     finalShapeToNifRoot_transform_zUp_nifly = skeletonRootToNifRoot_transform_zUp_nifly;
                 }
             }
