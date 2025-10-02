@@ -473,27 +473,31 @@ found_head:
         // This is the final calculated transform for this shape before converting to a GLM matrix.
         // It represents the transformation from the shape's local space to the NIF root space (Z-up).
         nifly::MatTransform finalShapeToNifRoot_transform_zUp_nifly; // Default to identity
+
         if (isHybridModel && niShape->IsSkinned()) {
             if (debugMode) std::cout << "    [Debug] Using identity transform for hybrid skinned part.\n";
         }
         else {
             finalShapeToNifRoot_transform_zUp_nifly = GetAVObjectTransformToGlobal(nif, niShape, false);
-            if (finalShapeToNifRoot_transform_zUp_nifly.IsNearlyEqualTo(nifly::MatTransform())) {
-                // Check if the current shape is the one we identified as the primary head mesh.
-                bool isPrimaryHead = (shapeName == primaryHeadShapeName);
+            bool isPrimaryHead = (shapeName == primaryHeadShapeName);
 
-                // If the shape's transform is identity AND it's NOT the primary head,
-                // it's likely an accessory (hair, eyes, brows) that needs to inherit the head's transform.
-                if (!isPrimaryHead) {
-                    if (debugMode) std::cout << "    [Debug] Shape '" << shapeName << "' has an identity transform and is not the primary head. Applying accessory offset.\n";
-                    finalShapeToNifRoot_transform_zUp_nifly = accessoryToNifRoot_offset_zUp_nifly;
-                }
-                else {
-                    // This is a rare edge case where the primary head mesh itself has an identity transform.
-                    // In this case, we fall back to using the skeleton root's transform.
-                    if (debugMode) std::cout << "    [Debug] Primary head part '" << shapeName << "' has an identity transform. Applying skeleton root as fallback.\n";
-                    finalShapeToNifRoot_transform_zUp_nifly = skeletonRootToNifRoot_transform_zUp_nifly;
-                }
+            // --- HEURISTIC FOR MISPLACED ACCESSORIES ---
+            // Some FaceGen NIFs contain accessory parts (hair, brows) that have a local rotation but no
+            // translation, causing them to render at the origin. This logic detects any non-primary-head part
+            // whose final transform has a near-zero translation component.
+            //
+            // For these misplaced accessories, their transform is replaced entirely with the transform of the
+            // primary head mesh. This ensures correct positioning and is a robust fix for parts authored
+            // with either a pure-identity or a rotation-only transform.
+            const float ZERO_TRANSLATION_THRESHOLD = 0.1f;
+            if (!isPrimaryHead && finalShapeToNifRoot_transform_zUp_nifly.translation.length() < ZERO_TRANSLATION_THRESHOLD) {
+                if (debugMode) std::cout << "    [Debug] Shape '" << shapeName << "' has a near-zero translation and is not the primary head. Applying accessory offset.\n";
+                finalShapeToNifRoot_transform_zUp_nifly = accessoryToNifRoot_offset_zUp_nifly;
+            }
+            // This handles a rare case where the primary head itself might be at the origin, falling back to the skeleton's transform.
+            else if (isPrimaryHead && finalShapeToNifRoot_transform_zUp_nifly.translation.length() < ZERO_TRANSLATION_THRESHOLD) {
+                if (debugMode) std::cout << "    [Debug] Primary head part '" << shapeName << "' has a near-zero translation. Applying skeleton root as fallback.\n";
+                finalShapeToNifRoot_transform_zUp_nifly = skeletonRootToNifRoot_transform_zUp_nifly;
             }
         }
         // Convert the row-major nifly matrix to a column-major GLM matrix using transpose.
