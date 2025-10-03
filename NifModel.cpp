@@ -1288,12 +1288,12 @@ void NifModel::drawDepthOnly(Shader& depthShader) {
 
     GLint boneMatricesLocation = glGetUniformLocation(depthShader.ID, "uBoneMatrices");
 
+    // Disable face culling to ensure all geometry (even with weird winding) is written to the depth map.
+    // This is a robust way to prevent culling issues from ruining shadows.
+    glDisable(GL_CULL_FACE);
+
     auto render_shape_depth = [&](const MeshShape& shape, bool isAlphaTested) {
         if (!shape.visible) return;
-
-        // In this engine, we assume objects that cast shadows also receive them.
-        // This is a common simplification.
-        if (!shape.receiveShadows) return;
 
         // Only render shapes that are flagged to cast shadows into the depth map.
         if (!shape.castShadows) return;
@@ -1329,6 +1329,9 @@ void NifModel::drawDepthOnly(Shader& depthShader) {
         render_shape_depth(shape, true);
     }
     // Transparent (alpha-blended) shapes typically do not cast shadows, so they are skipped.
+
+    // Re-enable face culling so the main render pass behaves as expected.
+    glEnable(GL_CULL_FACE);
 }
 
 void NifModel::cleanup() {
