@@ -165,7 +165,7 @@ normal_viewSpace = normalize(v_tangentToViewMatrix[2]); }
     // For eye meshes, normals are often inverted in the NIF to make environment maps work.
 // We flip them back for correct lighting.
 if (is_eye) {
-        //normal_viewSpace = -normal_viewSpace;
+        normal_viewSpace = -normal_viewSpace;
 }
     
     // --- 3. DYNAMIC LIGHTING ---
