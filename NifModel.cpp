@@ -691,6 +691,14 @@ found_head:
                     std::cout << "    [Material] Shape '" << mesh.name << "' has Specular Strength: " << mesh.specularStrength << "\n";
                 }
 
+                if (shaderType == nifly::BSLSP_EYE) {
+                    mesh.eyeCubemapScale = bslsp->eyeCubemapScale;
+                    if (debugMode) {
+                        std::cout << "    [Shader Type] Shape '" << mesh.name << "' has Eye shader type.\n";
+                        std::cout << "    [Material] Eye Cubemap Scale: " << mesh.eyeCubemapScale << "\n";
+                    }
+                }
+
                 if (flags.SLSF1_Greyscale_To_Palette_Color) {
                     mesh.hasGreyscaleToPaletteFlag = true;
                     mesh.greyscaleToPaletteScale = bslsp->grayscaleToPaletteScale;
@@ -1189,10 +1197,25 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         shader.setBool("has_environment_map", useEffectiveEnvMap);
         shader.setBool("has_eye_environment_map", shape.hasEyeEnvMapFlag);
 
+        // --- MODIFIED: Pass all environment map properties to the shader ---
         if (useEffectiveEnvMap || shape.hasEyeEnvMapFlag) {
             renderFirstFrameLog("  -> Has effective env map or eye env map flag, setting env map uniforms.");
             shader.setBool("is_envmap_cube", shape.environmentMapTarget == GL_TEXTURE_CUBE_MAP);
             shader.setFloat("envMapScale", shape.envMapScale);
+
+            // NEW: Pass the separate eye cubemap scale
+            shader.setFloat("eyeCubemapScale", shape.eyeCubemapScale);
+
+            // NEW: Pass a boolean indicating if a dedicated environment mask texture exists.
+            bool hasEnvMask = shape.environmentMaskID != 0;
+            shader.setBool("has_env_mask", hasEnvMask);
+
+            if (m_logRenderPassesOnce) {
+                renderFirstFrameLog("    -> Is Cubemap: " + std::string(shape.environmentMapTarget == GL_TEXTURE_CUBE_MAP ? "true" : "false"));
+                renderFirstFrameLog("    -> Env Map Scale: " + std::to_string(shape.envMapScale));
+                renderFirstFrameLog("    -> Eye Cubemap Scale: " + std::to_string(shape.eyeCubemapScale));
+                renderFirstFrameLog("    -> Has Env Mask Texture: " + std::string(hasEnvMask ? "true" : "false"));
+            }
         }
         else {
             renderFirstFrameLog("  -> Does not have an active environment map.");

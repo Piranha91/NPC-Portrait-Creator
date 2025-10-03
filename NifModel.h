@@ -91,6 +91,7 @@ struct MeshShape {
     GLenum environmentMapTarget = GL_TEXTURE_2D;
     GLuint environmentMaskID = 0;  // Slot 5: _m.dds
     float envMapScale = 1.0f;
+    float eyeCubemapScale = 1.0f; // NEW: Separate scale for eye reflections
     float greyscaleToPaletteScale = 1.0f; // NEW: Scale for greyscale colorization
     glm::vec3 emissiveColor = glm::vec3(0.0f);
     float emissiveMultiple = 1.0f;

@@ -64,6 +64,7 @@ uniform bool u_useEmissive;
 // --- MATERIAL PROPERTIES ---
 uniform float alpha_threshold;
 uniform float envMapScale;
+uniform float eyeCubemapScale; // NEW: Separate scale for eyes
 uniform float greyscaleToPaletteScale;
 uniform vec3 tint_color;
 uniform vec3 emissiveColor;
@@ -217,36 +218,49 @@ finalColor += subsurfaceColor * baseColor.rgb;
 finalColor = mix(finalColor, detailColor, 0.3);
     }
 
-    // --- 5. ENVIRONMENT MAPPING / REFLECTIONS ---
-    if (has_eye_environment_map && is_envmap_cube && u_useEnvironmentMap) {
-        // Eye-Specific Cubemap Reflection: uses a simpler, brighter reflection model.
-        vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
-vec3 reflectDir_viewSpace = reflect(-viewDir_viewSpace, normal_viewSpace);
-        // Transform reflection vector from View Space back to World Space for cubemap sampling.
-        vec3 reflectDir_worldSpace = inverse(mat3(u_view_worldToView)) * reflectDir_viewSpace;
-        vec3 envColor = texture(texture_envmap_cube, reflectDir_worldSpace).rgb;
-finalColor += envColor * envMapScale;
-} else if (has_environment_map && u_useEnvironmentMap) {
-        // Regular Environment Mapping (2D or Cube)
-        vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
-vec3 reflectDir_viewSpace = reflect(-viewDir_viewSpace, normal_viewSpace);
-        vec3 envColor;
-
-        if (is_envmap_cube) {
+     // --- 5. ENVIRONMENT MAPPING / REFLECTIONS (OVERHAULED) ---
+    if (u_useEnvironmentMap) {
+        if (has_eye_environment_map && is_envmap_cube) {
+            // --- Eye-Specific Cubemap Reflection ---
+            // This path uses a simpler, additive reflection model with its own unique scale factor.
+            vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
+            vec3 reflectDir_viewSpace = reflect(-viewDir_viewSpace, normal_viewSpace);
+            
+            // Transform reflection vector from View Space back to World Space for cubemap sampling.
             vec3 reflectDir_worldSpace = inverse(mat3(u_view_worldToView)) * reflectDir_viewSpace;
-envColor = texture(texture_envmap_cube, reflectDir_worldSpace).rgb;
-        } else { // 2D spherical map
-            vec2 envCoords = normalize(reflectDir_viewSpace.xy) * 0.5 + 0.5;
-envColor = texture(texture_envmap_2d, envCoords).rgb;
-        }
+            vec3 envColor = texture(texture_envmap_cube, reflectDir_worldSpace).rgb;
+            
+            // Add the reflection using the dedicated eye cubemap scale.
+            finalColor += envColor * eyeCubemapScale;
 
-        // The reflection's strength is controlled by a mask or the specular map.
-        float reflectionStrength = 0.5;
-if (has_env_mask) {
-            reflectionStrength = texture(texture_envmask, TexCoords).r;
-} else if (has_specular_map) {
-            reflectionStrength = texture(texture_specular, TexCoords).r; }
-        finalColor += envColor * reflectionStrength * envMapScale; }
+        } else if (has_environment_map) {
+            // --- Regular Environment Mapping (2D or Cube) ---
+            vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
+            vec3 reflectDir_viewSpace = reflect(-viewDir_viewSpace, normal_viewSpace);
+            vec3 envColor;
+
+            if (is_envmap_cube) {
+                // For cubemaps, sample using the 3D reflection vector in world space.
+                vec3 reflectDir_worldSpace = inverse(mat3(u_view_worldToView)) * reflectDir_viewSpace;
+                envColor = texture(texture_envmap_cube, reflectDir_worldSpace).rgb;
+            } else { 
+                // For 2D spherical maps, calculate 2D texture coordinates from the reflection vector.
+                vec2 envCoords = normalize(reflectDir_viewSpace.xy) * 0.5 + 0.5;
+                envColor = texture(texture_envmap_2d, envCoords).rgb;
+            }
+
+            // The reflection's strength is controlled ONLY by the environment mask texture from slot 5.
+            // There is no longer a fallback to the specular map.
+            float reflectionStrength = 1.0; // Default to full strength if no mask.
+            if (has_env_mask) {
+                // If a mask texture is present, its red channel determines the reflection intensity.
+                reflectionStrength = texture(texture_envmask, TexCoords).r;
+            }
+            
+            // Add the reflection using the general environment map scale.
+            finalColor += envColor * reflectionStrength * envMapScale;
+        }
+    }
 
     // --- 6. EMISSIVE COLOR ---
     // This is added last as it's independent of lighting and shadows.
