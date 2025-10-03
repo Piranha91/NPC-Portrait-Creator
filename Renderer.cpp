@@ -615,6 +615,16 @@ void Renderer::renderUI() {
 
             ImGui::SeparatorText("Directional Lights");
             ImGui::Checkbox("Edit Directional Lights", &m_visualizeLights);
+            ImGui::Separator();
+            if (ImGui::Button("Add New Directional Light")) {
+                Light newLight;
+                newLight.type = 2; // Type 2 is directional
+                newLight.direction = glm::vec3(0.0f, 0.0f, -1.0f); // Default: pointing straight down in NIF-space
+                newLight.color = glm::vec3(1.0f);
+                newLight.intensity = 0.8f;
+                lights.push_back(newLight);
+                std::cout << "--- Added new default directional light ---" << std::endl;
+            }
 
             ImGui::EndMenu();
         }
@@ -699,6 +709,7 @@ void Renderer::renderUI() {
                 ImGui::Checkbox("Renderer Axes (Y-up, Large)", &m_visualizeRendererAxes);
                 ImGui::Checkbox("NIF Axes (Z-up, Small)", &m_visualizeNifAxes);
             }
+            ImGui::Separator();
 
             if (ImGui::CollapsingHeader("Compatibility")) {
                 ImGui::Checkbox("Suppress Specular on Vertex Colors", &m_suppressSpecularOnVertexColor);
@@ -706,6 +717,70 @@ void Renderer::renderUI() {
                     ImGui::SetTooltip("Emulates legacy renderers by disabling specular highlights on meshes with vertex colors.");
                 }
             }
+            ImGui::Separator();
+            // --- NEW: Light Browser ---
+            // This section provides a list of all lights for easy management,
+            // especially for deleting lights that have moved off-screen.
+            if (ImGui::CollapsingHeader("Light Browser")) {
+                // Pre-calculate the number of directional lights to safely manage the delete button.
+                int directionalLightCount = 0;
+                for (const auto& light : lights) {
+                    if (light.type == 2) {
+                        directionalLightCount++;
+                    }
+                }
+
+                int directionalLightCounter = 0;
+                for (int i = 0; i < lights.size(); ++i) {
+                    // Use a unique ID for each row of widgets to prevent ImGui conflicts.
+                    ImGui::PushID(i);
+
+                    // Display info about the light.
+                    if (lights[i].type == 1) {
+                        ImGui::Text("Ambient Light");
+                    }
+                    else if (lights[i].type == 2) {
+                        directionalLightCounter++;
+                        ImGui::Text("Directional Light #%d", directionalLightCounter);
+                    }
+
+                    ImGui::SameLine(ImGui::GetWindowWidth() - 80); // Align the delete button to the right.
+
+                    // Determine if the delete button should be enabled.
+                    // The last directional light cannot be deleted.
+                    bool canDelete = true;
+                    if (lights[i].type == 2 && directionalLightCount <= 1) {
+                        canDelete = false;
+                    }
+
+                    // Disable the button if it's not allowed to be used.
+                    if (!canDelete) {
+                        ImGui::BeginDisabled();
+                    }
+
+                    // The delete button.
+                    if (ImGui::Button("Delete")) {
+                        std::cout << "--- Deleting light #" << i << " from browser ---" << std::endl;
+                        lights.erase(lights.begin() + i);
+
+                        // IMPORTANT: After modifying the vector, we must stop iterating
+                        // to prevent accessing invalid memory.
+                        ImGui::PopID();
+                        break;
+                    }
+
+                    // Re-enable widgets and show a tooltip if the button was disabled.
+                    if (!canDelete) {
+                        ImGui::EndDisabled();
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                            ImGui::SetTooltip("Cannot delete the last directional light.");
+                        }
+                    }
+
+                    ImGui::PopID();
+                }
+            }
+            // --- END NEW ---
 
             ImGui::EndMenu();
         }
@@ -1118,13 +1193,20 @@ void Renderer::renderFrame() {
                             if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Cannot delete the last directional light."); }
                         }
 
-                        if (ImGui::MenuItem("Add New Light")) {
-                            Light newLight;
-                            newLight.type = 2;
-                            newLight.direction = glm::vec3(0.0f, 0.0f, -1.0f);
-                            newLight.color = glm::vec3(1.0f, 1.0f, 1.0f);
-                            newLight.intensity = 0.8f;
+                        if (ImGui::MenuItem("Duplicate Light")) {
+                            // When this option is clicked, create an exact copy of the current light.
+                            Light newLight = lights[i];
+
+                            // Slightly offset the direction of the new light to prevent the visualization
+                            // arrows from overlapping perfectly (Z-fighting).
+                            newLight.direction.x += 0.1f;
+                            newLight.direction = glm::normalize(newLight.direction);
+
+                            // Add the duplicated light to the scene.
                             lights.push_back(newLight);
+
+                            // Log the duplication event for clarity.
+                            std::cout << "--- Duplicated directional light #" << directionalLightCounter << " ---" << std::endl;
                         }
 
                         ImGui::EndPopup();
