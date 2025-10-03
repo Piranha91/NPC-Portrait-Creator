@@ -149,32 +149,42 @@ baseColor.rgb = mix(baseColor.rgb, tintSample.rgb, tintSample.a);
     }
 
     // --- 2. NORMAL CALCULATION ---
-    // This will be the final normal vector in View Space, used for all lighting.
-    vec3 normal_viewSpace;
+vec3 normal_viewSpace;
+
+// The tangent vector is the first column of the TBN matrix from the vertex shader.
+// If its length is zero, it means the tangent/bitangent data was missing and the matrix is invalid.
+bool tbnIsValid = length(v_tangentToViewMatrix[0]) > 0.0;
+
 if (has_normal_map && u_useNormalMap) {
-        // Sample the normal from the texture. It's stored in Tangent Space.
-vec3 normal_tangentSpace = texture(texture_normal, TexCoords).rgb;
-        
-        // For Skyrim's DirectX-style normal maps, the green channel must be inverted for OpenGL.
-normal_tangentSpace.g = 1.0 - normal_tangentSpace.g;
-
-        // Unpack from [0,1] color range to [-1,1] vector range.
-        normal_tangentSpace = normal_tangentSpace * 2.0 - 1.0;
-if (is_model_space) {
-             // Model-Space Normal Path (_msn.dds): Transform from Model Space to View Space.
-            normal_viewSpace = normalize(v_modelToViewNormalMatrix * normal_tangentSpace);
+    if (is_model_space) {
+        // --- MODEL-SPACE PATH (for Skin) ---
+        // This path does not depend on the TBN matrix and works correctly.
+        vec3 normal_modelSpace = texture(texture_normal, TexCoords).rgb * 2.0 - 1.0;
+        normal_modelSpace.g = 1.0 - normal_modelSpace.g;
+        normal_viewSpace = normalize(v_modelToViewNormalMatrix * normal_modelSpace);
+    }
+    else if (tbnIsValid) {
+        // --- TANGENT-SPACE PATH (for Hair, with valid data) ---
+        // The TBN matrix is valid, so we can use the normal map.
+        vec3 normal_tangentSpace = texture(texture_normal, TexCoords).rgb * 2.0 - 1.0;
+        normal_tangentSpace.g = 1.0 - normal_tangentSpace.g;
+        normal_viewSpace = normalize(v_tangentToViewMatrix * normal_tangentSpace);
+    }
+    else {
+        // --- FALLBACK PATH (for Eyes/Beard with invalid data) ---
+        // The TBN matrix is invalid, so we cannot use the normal map.
+        // We fall back to the basic vertex normal (the 3rd column of the matrix).
+        normal_viewSpace = normalize(v_tangentToViewMatrix[2]);
+    }
 } else {
-            // Tangent-Space Normal Path (_n.dds): Transform from Tangent Space to View Space.
-normal_viewSpace = normalize(v_tangentToViewMatrix * normal_tangentSpace);
-        }
-    } else {
-        // If no normal map, just use the vertex normal, which is the 3rd column (index 2) of the TBN matrix.
-normal_viewSpace = normalize(v_tangentToViewMatrix[2]); }
+    // --- NO NORMAL MAP PATH ---
+    // No normal map is present, so just use the basic vertex normal.
+    normal_viewSpace = normalize(v_tangentToViewMatrix[2]);
+}
 
-    // For eye meshes, normals are often inverted in the NIF to make environment maps work.
-// We flip them back for correct lighting.
+// For eye meshes, normals are often inverted in the NIF. Flip them back.
 if (is_eye) {
-        normal_viewSpace = -normal_viewSpace;
+    normal_viewSpace = -normal_viewSpace;
 }
     
     // --- 3. DYNAMIC LIGHTING ---
