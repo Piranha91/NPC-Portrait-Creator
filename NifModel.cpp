@@ -1298,7 +1298,7 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
                 if (hasEnvMask) {
                     renderFirstFrameLog("    -> [Shader Logic] Reflection strength will be determined by the dedicated environment mask texture (slot 5).");
                 }
-                else if (shape.has_specular_map) {
+                else if (shape.specularTextureID != 0) { 
                     renderFirstFrameLog("    -> [Shader Logic] No dedicated mask found. Shader will FALL BACK to using the specular map texture (slot 7) for reflection strength.");
                 }
                 else {
