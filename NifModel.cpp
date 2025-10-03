@@ -594,6 +594,12 @@ found_head:
         const nifly::NiShader* shader = nif.GetShader(niShape);
         if (shader) {
             mesh.isModelSpace = shader->IsModelSpace();
+            // --- MODIFIED: Get alpha from the material property itself using the virtual function. ---
+            mesh.materialAlpha = shader->GetAlpha();
+            if (debugMode) {
+                std::cout << "    [Material] Shape '" << mesh.name << "' has material alpha: " << mesh.materialAlpha << "\n";
+            }
+            // --- END MODIFICATION ---
             if (const auto* bslsp = dynamic_cast<const nifly::BSLightingShaderProperty*>(shader)) {
                 // Parse all flags from the shader property into a struct just once.
                 ShaderFlagSet flags = ParseShaderFlags(bslsp->shaderFlags1, bslsp->shaderFlags2);
@@ -609,9 +615,7 @@ found_head:
                 // --- Shader Property and Flag Parsing ---
                 // Get all shader-related properties at once to avoid redundant checks.
                 // This is done before bounds calculation because the 'isSkinned' flag is needed.
-                mesh.materialAlpha = bslsp->alpha;
                 if (debugMode) {
-                    std::cout << "    [Material] Shape '" << mesh.name << "' has alpha: " << mesh.materialAlpha << "\n";
                     std::cout << "    [Flag Parse] Parsed shader flags for shape '" << mesh.name << "':\n";
                     std::cout << "    [Flag Parse] shaderFlags1 (raw: " << bslsp->shaderFlags1 << "): " << GetFlagsString(flags, 1) << "\n";
                     std::cout << "    [Flag Parse] shaderFlags2 (raw: " << bslsp->shaderFlags2 << "): " << GetFlagsString(flags, 2) << "\n";
@@ -924,35 +928,57 @@ found_head:
 
         // Sort into render passes
         if (mesh.hasAlphaProperty) {
+            if (debugMode) {
+                std::cout << "    [Render Pass] Shape '" << mesh.name << "' has NiAlphaProperty, using its settings.\n";
+            }
             if (mesh.alphaBlend) {
                 if (debugMode) {
-                    std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to TRANSPARENT pass due to alpha blending.\n";
+                    std::cout << "    [Render Pass] -> Assigned to TRANSPARENT pass due to alpha blending.\n";
                 }
                 transparentShapes.push_back(mesh);
             }
             else if (mesh.alphaTest) {
                 if (debugMode) {
-                    std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to ALPHA-TESTED pass due to alpha property.\n";
+                    std::cout << "    [Render Pass] -> Assigned to ALPHA-TEST pass due to alpha property.\n";
                 }
                 alphaTestShapes.push_back(mesh);
             }
-            // If an alpha property exists but blend/test flags aren't explicitly set,
-            // default to alpha-testing. This is crucial for hair and beards.
             else {
                 if (debugMode) {
-                    std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to ALPHA-TESTED pass as a default for having an alpha property.\n";
+                    std::cout << "    [Render Pass] -> NiAlphaProperty found but no flags set. Defaulting to ALPHA-TEST pass.\n";
                 }
-                // Force alphaTest to true so the renderer handles its threshold and double-sided properties correctly.
                 mesh.alphaTest = true;
                 alphaTestShapes.push_back(mesh);
             }
         }
-        else {
+        else { // --- MODIFIED BLOCK: Logic for shapes WITHOUT an NiAlphaProperty ---
             if (debugMode) {
-                std::cout << "    [Render Pass] Shape '" << mesh.name << "' assigned to OPAQUE pass (no alpha property).\n";
+                std::cout << "    [Render Pass] Shape '" << mesh.name << "' has no NiAlphaProperty. Checking material alpha...\n";
             }
-            opaqueShapes.push_back(mesh);
-        }
+            // Check if the material itself implies translucency.
+            if (mesh.materialAlpha < 1.0f) {
+                // This is the fallback case. Treat it as a transparent object with standard blending and a default test threshold.
+                mesh.hasAlphaProperty = true; // Set to true to signify it needs alpha handling
+                mesh.alphaBlend = true;
+                mesh.srcBlend = GL_SRC_ALPHA;
+                mesh.dstBlend = GL_ONE_MINUS_SRC_ALPHA;
+
+                // Also enable alpha testing with NifSkope's default override threshold.
+                mesh.alphaTest = true;
+                mesh.alphaThreshold = 0.1f;
+
+                if (debugMode) {
+                    std::cout << "    [Render Pass] -> Material alpha is < 1.0. Forcing blend mode and assigning to TRANSPARENT pass.\n";
+                }
+                transparentShapes.push_back(mesh);
+            }
+            else { // Material alpha is 1.0, so it's truly opaque.
+                if (debugMode) {
+                    std::cout << "    [Render Pass] -> Material alpha is 1.0. Assigning to OPAQUE pass.\n";
+                }
+                opaqueShapes.push_back(mesh);
+            }
+        } // --- END MODIFIED BLOCK ---
 
         auto end_preprocess = std::chrono::high_resolution_clock::now();
 
@@ -1312,6 +1338,19 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         for (const auto& shape : transparentShapes) {
             // Set the specific blend function (e.g., SRC_ALPHA, ONE_MINUS_SRC_ALPHA) for this shape.
             glBlendFunc(shape.srcBlend, shape.dstBlend);
+
+            // --- NEW: Allow transparent objects to also be alpha-tested ---
+            if (shape.alphaTest) {
+                renderFirstFrameLog("  -> Shape '" + shape.name + "' in transparent pass also has alpha test enabled.");
+                shader.setBool("use_alpha_test", true);
+                shader.setFloat("alpha_threshold", shape.alphaThreshold);
+            }
+            else {
+                renderFirstFrameLog("  -> Shape '" + shape.name + "' in transparent pass is blend-only.");
+                shader.setBool("use_alpha_test", false);
+            }
+            // --- END NEW ---
+
             if (shape.doubleSided) {
                 renderFirstFrameLog("Shape '" + shape.name + "' is double-sided, disabling cull face.");
                 glDisable(GL_CULL_FACE);
