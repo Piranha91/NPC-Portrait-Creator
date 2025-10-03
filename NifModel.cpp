@@ -680,6 +680,13 @@ found_head:
                         std::cout << "    [Shader Type] Shape '" << mesh.name << "' has Skin/Face Tint enabled.\n";
                     }
                 }
+
+                mesh.glossiness = bslsp->glossiness;
+                mesh.specularStrength = bslsp->specularStrength;
+                if (debugMode) {
+                    std::cout << "    [Material] Shape '" << mesh.name << "' has Glossiness: " << mesh.glossiness << "\n";
+                    std::cout << "    [Material] Shape '" << mesh.name << "' has Specular Strength: " << mesh.specularStrength << "\n";
+                }
             }
         }
 
@@ -1038,6 +1045,9 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         // Set boolean flags that control shader logic.
         shader.setBool("is_eye", shape.isEye);
         shader.setBool("is_model_space", shape.isModelSpace); // For model-space normals
+        shader.setFloat("materialGlossiness", shape.glossiness);
+        shader.setFloat("materialSpecularStrength", shape.specularStrength);
+        renderFirstFrameLog("  -> Setting material uniforms: Glossiness=" + std::to_string(shape.glossiness) + ", SpecularStrength=" + std::to_string(shape.specularStrength));
         shader.setBool("has_tint_color", shape.hasTintColor);
 
         if (shape.hasTintColor) {

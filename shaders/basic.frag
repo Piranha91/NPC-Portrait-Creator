@@ -66,6 +66,8 @@ uniform float envMapScale;
 uniform vec3 tint_color;
 uniform vec3 emissiveColor;
 uniform float emissiveMultiple;
+uniform float materialGlossiness;
+uniform float materialSpecularStrength;
 
 // --- EYE SHADER PROPERTIES ---
 uniform bool is_eye;
@@ -153,34 +155,43 @@ if (is_eye) {
     // --- 3. DYNAMIC LIGHTING ---
     vec3 finalColor = vec3(0.0);
     // Calculate shadow factor once for all lights.
-float shadow = calculateShadow(v_lightClipSpacePos);
-
+    float shadow = calculateShadow(v_lightClipSpacePos);
     for (int i = 0; i < MAX_LIGHTS; i++) {
         if (lights[i].type == 0) continue; // Skip disabled lights
-vec3 lightColor = lights[i].color * lights[i].intensity;
+        vec3 lightColor = lights[i].color * lights[i].intensity;
 
         if (lights[i].type == 1) { // Ambient Light
-            finalColor += lightColor * baseColor.rgb; }
+            finalColor += lightColor * baseColor.rgb;
+        }
         else if (lights[i].type == 2) { // Directional Light
             // The direction uniform is pre-transformed to View Space on the CPU.
-vec3 lightDir_viewSpace = normalize(lights[i].direction);
+            vec3 lightDir_viewSpace = normalize(lights[i].direction);
             float diffuseStrength = max(dot(normal_viewSpace, lightDir_viewSpace), 0.0);
             vec3 diffuse = diffuseStrength * lightColor;
 
             vec3 specular = vec3(0.0);
-if (has_specular && u_useSpecularMap) {
+            if (has_specular && u_useSpecularMap) {
                 float specularStrength = 1.0;
-if (has_specular_map) {
-                    specularStrength = texture(texture_specular, TexCoords).r; }
+                if (has_specular_map) {
+                    // The specular map's red channel acts as a per-pixel mask or intensity scalar.
+                    specularStrength = texture(texture_specular, TexCoords).r;
+                }
             
                 // In View Space, the view direction is simply the vector from the fragment position to the origin.
                 vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
-vec3 halfwayDir_viewSpace = normalize(lightDir_viewSpace + viewDir_viewSpace);
-                float specAmount = pow(max(dot(normal_viewSpace, halfwayDir_viewSpace), 0.0), 32.0);
-                specular = specAmount * specularStrength * lightColor; }
+                vec3 halfwayDir_viewSpace = normalize(lightDir_viewSpace + viewDir_viewSpace);
+
+                // MODIFIED: Use the 'materialGlossiness' uniform from the NIF instead of a hard-coded exponent.
+                // This value controls the shininess or tightness of the highlight.
+                float specAmount = pow(max(dot(normal_viewSpace, halfwayDir_viewSpace), 0.0), materialGlossiness);
+                
+                // MODIFIED: Modulate the final specular color by the material's overall specular strength.
+                specular = specAmount * specularStrength * lightColor * materialSpecularStrength;
+            }
             
             // Apply diffuse and specular, both modulated by the shadow factor and base color.
-finalColor += (diffuse * shadow + specular * shadow) * baseColor.rgb; }
+            finalColor += (diffuse * shadow + specular * shadow) * baseColor.rgb;
+        }
     }
     
     // --- 4. POST-LIGHTING EFFECTS ---

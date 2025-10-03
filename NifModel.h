@@ -69,6 +69,9 @@ struct MeshShape {
     bool doubleSided = false;
     bool zBufferWrite = true;
     float materialAlpha = 1.0f;
+    float glossiness = 80.0f; // NEW: Default glossiness (shininess exponent)
+    float specularStrength = 1.0f; // NEW: Default specular multiplier
+
     // --- Additions for Tint
     bool hasTintColor = false;
     glm::vec3 tintColor = glm::vec3(1.0f); // Default to white (no tint)
