@@ -41,6 +41,7 @@ uniform bool has_detail_map;
 uniform bool has_specular;
 uniform bool has_specular_map;
 uniform bool has_face_tint_map;
+uniform bool has_greyscale_to_palette;
 uniform bool has_environment_map;
 uniform bool has_eye_environment_map;
 uniform bool is_envmap_cube;
@@ -63,6 +64,7 @@ uniform bool u_useEmissive;
 // --- MATERIAL PROPERTIES ---
 uniform float alpha_threshold;
 uniform float envMapScale;
+uniform float greyscaleToPaletteScale;
 uniform vec3 tint_color;
 uniform vec3 emissiveColor;
 uniform float emissiveMultiple;
@@ -114,8 +116,16 @@ if (u_useDiffuseMap) {
 if (use_alpha_test && baseColor.a < alpha_threshold) {
         discard; }
 
-    if (has_tint_color) {
-        baseColor.rgb *= tint_color; }
+    // Implement Greyscale-to-Palette logic
+    if (has_greyscale_to_palette) {
+        // This path is for assets like hair that use a greyscale texture for masking a tint color.
+        // We use the red channel of the texture as an intensity mask, multiply it by the tint color,
+        // and then scale it by the material's 'greyscaleToPaletteScale' property.
+        baseColor.rgb = baseColor.rrr * tint_color * greyscaleToPaletteScale;
+    } else if (has_tint_color) {
+        // This is the fallback for simpler tinting (like for skin), which just multiplies the existing color.
+        baseColor.rgb *= tint_color; 
+    }
 
     if (has_face_tint_map && u_useFaceTintMap) {
         vec4 tintSample = texture(texture_face_tint, TexCoords);

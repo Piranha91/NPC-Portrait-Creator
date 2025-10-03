@@ -78,6 +78,7 @@ struct MeshShape {
 
     // --- Shader Flags
     bool hasSpecularFlag = false; // To store the state of the SLSF1_Specular flag
+    bool hasGreyscaleToPaletteFlag = false; // NEW: Flag for greyscale colorization
     bool hasEnvMapFlag = false;
     bool hasEyeEnvMapFlag = false;
     bool receiveShadows = false;
@@ -90,6 +91,7 @@ struct MeshShape {
     GLenum environmentMapTarget = GL_TEXTURE_2D;
     GLuint environmentMaskID = 0;  // Slot 5: _m.dds
     float envMapScale = 1.0f;
+    float greyscaleToPaletteScale = 1.0f; // NEW: Scale for greyscale colorization
     glm::vec3 emissiveColor = glm::vec3(0.0f);
     float emissiveMultiple = 1.0f;
 

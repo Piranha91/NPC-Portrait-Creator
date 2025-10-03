@@ -56,6 +56,7 @@ struct ShaderFlagSet {
     bool SLSF1_Vertex_Alpha = false;
     bool SLSF1_Model_Space_Normals = false;
     bool SLSF1_FaceGen_Detail_Map = false;
+    bool SLSF1_Greyscale_To_Palette_Color = false;
 
     // Flags from shaderFlags2 (SLSF2)
     bool SLSF2_ZBuffer_Write = false;
@@ -84,6 +85,7 @@ ShaderFlagSet ParseShaderFlags(uint32_t shaderFlags1, uint32_t shaderFlags2) {
     flags.SLSF1_Own_Emit = (shaderFlags1 >> 14) & 1;
     flags.SLSF1_Vertex_Alpha = (shaderFlags1 >> 24) & 1;
     flags.SLSF1_Model_Space_Normals = (shaderFlags1 >> 28) & 1;
+    flags.SLSF1_Greyscale_To_Palette_Color = (shaderFlags1 >> 29) & 1;
     flags.SLSF1_FaceGen_Detail_Map = (shaderFlags1 >> 30) & 1;
 
     // --- Parse shaderFlags2 ---
@@ -121,6 +123,7 @@ std::string GetFlagsString(const ShaderFlagSet& flags, int set_number) {
         if (flags.SLSF1_Own_Emit)              add_flag("SLSF1_Own_Emit");
         if (flags.SLSF1_Vertex_Alpha)          add_flag("SLSF1_Vertex_Alpha");
         if (flags.SLSF1_Model_Space_Normals)   add_flag("SLSF1_Model_Space_Normals");
+        if (flags.SLSF1_Greyscale_To_Palette_Color) add_flag("SLSF1_Greyscale_To_Palette_Color");
         if (flags.SLSF1_FaceGen_Detail_Map)    add_flag("SLSF1_FaceGen_Detail_Map");
     }
     else { // Stringify SLSF2 flags
@@ -687,6 +690,20 @@ found_head:
                     std::cout << "    [Material] Shape '" << mesh.name << "' has Glossiness: " << mesh.glossiness << "\n";
                     std::cout << "    [Material] Shape '" << mesh.name << "' has Specular Strength: " << mesh.specularStrength << "\n";
                 }
+
+                if (flags.SLSF1_Greyscale_To_Palette_Color) {
+                    mesh.hasGreyscaleToPaletteFlag = true;
+                    mesh.greyscaleToPaletteScale = bslsp->grayscaleToPaletteScale;
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Greyscale_To_Palette_Color ENABLED.\n";
+                        std::cout << "    [Material] Greyscale to Palette Scale: " << mesh.greyscaleToPaletteScale << "\n";
+                    }
+                }
+                else {
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' does not have greyscale-to-palette flag.\n";
+                    }
+                }
             }
         }
 
@@ -1045,6 +1062,16 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         // Set boolean flags that control shader logic.
         shader.setBool("is_eye", shape.isEye);
         shader.setBool("is_model_space", shape.isModelSpace); // For model-space normals
+        shader.setBool("has_greyscale_to_palette", shape.hasGreyscaleToPaletteFlag);
+        shader.setFloat("greyscaleToPaletteScale", shape.greyscaleToPaletteScale);
+        if (m_logRenderPassesOnce) {
+            if (shape.hasGreyscaleToPaletteFlag) {
+                renderFirstFrameLog("  -> Greyscale-to-Palette enabled with scale: " + std::to_string(shape.greyscaleToPaletteScale));
+            }
+            else {
+                renderFirstFrameLog("  -> Greyscale-to-Palette disabled.");
+            }
+        }
         shader.setFloat("materialGlossiness", shape.glossiness);
         shader.setFloat("materialSpecularStrength", shape.specularStrength);
         renderFirstFrameLog("  -> Setting material uniforms: Glossiness=" + std::to_string(shape.glossiness) + ", SpecularStrength=" + std::to_string(shape.specularStrength));
