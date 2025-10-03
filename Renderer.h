@@ -195,6 +195,9 @@ private:
     unsigned int m_labelVAO;
     unsigned int m_labelVBO;
 
+    // --- NEW: Compatibility Toggles ---
+    bool m_suppressSpecularOnVertexColor = false;
+
     // Logging
     bool m_logFirstFrameOnce = true;
     void logFirstFrame(const std::string& message) const;

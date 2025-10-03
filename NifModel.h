@@ -75,6 +75,7 @@ struct MeshShape {
     // --- Additions for Tint
     bool hasTintColor = false;
     glm::vec3 tintColor = glm::vec3(1.0f); // Default to white (no tint)
+    bool hasVertexColors = false;
 
     // --- Shader Flags
     bool hasSpecularFlag = false; // To store the state of the SLSF1_Specular flag
@@ -107,7 +108,7 @@ public:
 
     bool load(const std::string& path, TextureManager& textureManager, const Skeleton* skeleton);
     bool load(const std::vector<char>& data, const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton);
-    void draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4& nifRootToWorld_conversionMatrix_zUpToYUp);
+    void draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4& nifRootToWorld_conversionMatrix_zUpToYUp, bool suppressSpecularOnVColor);
     void drawDepthOnly(Shader& depthShader);
     void cleanup();
 

@@ -643,6 +643,18 @@ found_head:
                     }
                 }
 
+                if (flags.SLSF2_Vertex_Colors) {
+                    mesh.hasVertexColors = true;
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF2_Vertex_Colors ENABLED.\n";
+                    }
+                }
+                else {
+                    if (debugMode) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' does not use vertex colors.\n";
+                    }
+                }
+
                 mesh.doubleSided = flags.SLSF2_Double_Sided;
                 mesh.zBufferWrite = flags.SLSF2_ZBuffer_Write;
 
@@ -1026,14 +1038,14 @@ bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, 
     return load(data, nifPath, textureManager, skeleton);
 }
 
-
 /**
  * @brief Renders the entire NifModel, handling opaque, alpha-tested, and transparent objects in separate passes.
  * @param shader The main shader program to use for rendering.
  * @param cameraPos The position of the camera in world space, used for sorting transparent objects.
  * @param nifRootToWorld_conversionMatrix_zUpToYUp A transformation matrix that converts from the NIF's root Z-up coordinate space to the renderer's world Y-up coordinate space.
+ * @param suppressSpecularOnVColor // NEW: A flag from the renderer to enable the specular suppression compatibility feature.
  */
-void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4& nifRootToWorld_conversionMatrix_zUpToYUp) {
+void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4& nifRootToWorld_conversionMatrix_zUpToYUp, bool suppressSpecularOnVColor) {
     // Log the start of the draw call, but only for the first frame.
     renderFirstFrameLog("--- START NifModel::draw() ---");
 
@@ -1155,6 +1167,14 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         else {
             renderFirstFrameLog("  -> Is not skinned.");
         }
+
+        // --- NEW: Pass compatibility flags ---
+        shader.setBool("u_suppressSpecularOnVertexColor", suppressSpecularOnVColor);
+        shader.setBool("has_vertex_colors", shape.hasVertexColors);
+        if (m_logRenderPassesOnce) {
+            renderFirstFrameLog("  -> Setting compatibility uniforms: SuppressSpecular=" + std::string(suppressSpecularOnVColor ? "true" : "false") + ", HasVertexColors=" + std::string(shape.hasVertexColors ? "true" : "false"));
+        }
+
         if (m_logRenderPassesOnce) checkGlErrors(("After setting uniforms for '" + shape.name + "'").c_str());
 
 

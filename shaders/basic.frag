@@ -50,6 +50,11 @@ uniform bool has_tint_color;
 uniform bool has_emissive;
 uniform bool is_model_space; // For _msn.dds normal maps
 
+// --- NEW: Compatibility Uniforms ---
+uniform bool u_suppressSpecularOnVertexColor;
+uniform bool has_vertex_colors;
+
+
 // --- RENDERER TOGGLES (from UI) ---
 uniform bool use_alpha_test;
 uniform bool u_useDiffuseMap;
@@ -198,6 +203,14 @@ if (is_eye) {
                 
                 // MODIFIED: Modulate the final specular color by the material's overall specular strength.
                 specular = specAmount * specularStrength * lightColor * materialSpecularStrength;
+
+                // --- NEW: Apply Specular Suppression ---
+                // If the compatibility toggle is enabled and this mesh uses vertex colors,
+                // zero out the calculated specular highlight. This emulates fixed-function
+                // behavior where specular was disabled to prevent washing out vertex colors.
+                if (u_suppressSpecularOnVertexColor && has_vertex_colors) {
+                    specular = vec3(0.0);
+                }
             }
             
             // Apply diffuse and specular, both modulated by the shadow factor and base color.

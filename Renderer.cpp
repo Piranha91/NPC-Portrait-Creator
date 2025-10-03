@@ -695,10 +695,16 @@ void Renderer::renderUI() {
             }
 
             ImGui::Separator();
-            ImGui::Separator();
             if (ImGui::CollapsingHeader("Coordinate Systems")) {
                 ImGui::Checkbox("Renderer Axes (Y-up, Large)", &m_visualizeRendererAxes);
                 ImGui::Checkbox("NIF Axes (Z-up, Small)", &m_visualizeNifAxes);
+            }
+
+            if (ImGui::CollapsingHeader("Compatibility")) {
+                ImGui::Checkbox("Suppress Specular on Vertex Colors", &m_suppressSpecularOnVertexColor);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Emulates legacy renderers by disabling specular highlights on meshes with vertex colors.");
+                }
             }
 
             ImGui::EndMenu();
@@ -850,7 +856,7 @@ void Renderer::renderFrame() {
     shader.setInt("shadowMap", 8);
 
     if (model) {
-        model->draw(shader, camera.Position_worldSpace_yUp, Matrices::NIF_ROOT_TO_WORLD_YUP);
+        model->draw(shader, camera.Position_worldSpace_yUp, Matrices::NIF_ROOT_TO_WORLD_YUP, m_suppressSpecularOnVertexColor);
     }
 
     // --- START: AXES VISUALIZATION LOGIC ---
