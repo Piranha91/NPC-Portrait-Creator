@@ -81,6 +81,10 @@ uniform float emissiveMultiple;
 uniform float materialGlossiness;
 uniform float materialSpecularStrength;
 
+// --- NEW: Advanced Lighting Uniforms ---
+uniform float rimlightPower;
+uniform float subsurfaceRolloff;
+
 // --- EYE SHADER PROPERTIES ---
 uniform bool is_eye;
 uniform float eye_fresnel_strength;
@@ -175,18 +179,18 @@ if (is_eye) {
     
     // --- 3. DYNAMIC LIGHTING ---
     vec3 finalColor = vec3(0.0);
-    // Calculate shadow factor once for all lights.
     float shadow = calculateShadow(v_lightClipSpacePos);
+    
+    // The lighting calculations are done per-light.
     for (int i = 0; i < MAX_LIGHTS; i++) {
-        if (lights[i].type == 0) continue; // Skip disabled lights
+        if (lights[i].type == 0) continue;
         vec3 lightColor = lights[i].color * lights[i].intensity;
-
         if (lights[i].type == 1) { // Ambient Light
             finalColor += lightColor * baseColor.rgb;
         }
         else if (lights[i].type == 2) { // Directional Light
-            // The direction uniform is pre-transformed to View Space on the CPU.
             vec3 lightDir_viewSpace = normalize(lights[i].direction);
+            vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
             
             // --- MODIFIED: Diffuse Calculation (with Soft Lighting) ---
             float NdotL = dot(normal_viewSpace, lightDir_viewSpace);
@@ -233,24 +237,31 @@ if (is_eye) {
             // --- NEW: Backlight / Rimlight Calculation (for Hair) ---
             vec3 backlight = vec3(0.0);
             if (has_hair_soft_lighting) {
-                // This effect simulates light scattering through translucent materials like hair from behind,
-                // creating a soft glow at the edges facing the camera. It's a view-dependent effect.
-                vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
-
-                // A Fresnel-like term is calculated based on the angle between the view direction and the surface normal.
-                // The power term (e.g., 2.0) controls the tightness and intensity of the rim effect.
-                float rim = pow(1.0 - max(dot(viewDir_viewSpace, normal_viewSpace), 0.0), 2.0);
-                
-                // The final backlight color is a combination of the rim effect, a configurable tint color,
-                // the main light's color, and the standard diffuse strength. This prevents the backlight
-                // from appearing in areas that are fully shadowed.
+                // MODIFIED: The tightness of the rim effect is now controlled by the material's `rimLightPower`
+                // property, rather than a hardcoded exponent. This allows for fine artistic control.
+                float rim = pow(1.0 - max(dot(viewDir_viewSpace, normal_viewSpace), 0.0), rimlightPower);
                 backlight = rim * u_backlightColor * lightColor * diffuseStrength;
             }
 
+            // --- NEW: Subsurface Scattering (for Skin) ---
+            vec3 subsurface = vec3(0.0);
+            if (has_skin_map && u_useSkinMap) {
+                // This is a more advanced subsurface scattering (SSS) approximation. It simulates light
+                // penetrating a surface (like skin), scattering internally, and exiting, which creates
+                // a characteristic soft, "glowing" look.
+                
+                float sss_mask = texture(texture_skin, TexCoords).r;
+                vec3 sss_color = vec3(1.0, 0.3, 0.2); 
+                float wrap = (dot(normal_viewSpace, lightDir_viewSpace) * 0.5 + 0.5);
+
+                // CORRECTED: The final SSS contribution is scaled by the light color, the wrap factor,
+                // the SSS tint, the texture mask, and the material's `subsurfaceRolloff` property from the NIF.
+                subsurface = lights[i].color * wrap * sss_color * sss_mask * subsurfaceRolloff;
+            }
+            
             // --- Final Composition ---
-            // Combine all lighting components. The backlight is added on top of the base diffuse/specular.
-            // All components are modulated by the shadow factor and the object's base texture/vertex color.
-            finalColor += (diffuse * shadow + specular * shadow) * baseColor.rgb + (backlight * shadow);
+            // Combine all lighting components. Each is modulated by the shadow factor and the base color.
+            finalColor += (diffuse * shadow + specular * shadow + subsurface * shadow) * baseColor.rgb + (backlight * shadow);
         }
     }
     

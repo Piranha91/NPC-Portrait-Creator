@@ -71,6 +71,9 @@ struct MeshShape {
     float materialAlpha = 1.0f;
     float glossiness = 80.0f; // NEW: Default glossiness (shininess exponent)
     float specularStrength = 1.0f; // NEW: Default specular multiplier
+    // --- NEW: Advanced Lighting Lobe Properties ---
+    float rimlightPower = 3.0f;           // Controls the tightness of the rim/hair light effect.
+    float subsurfaceRolloff = 1.0f;     // Controls the intensity of the subsurface scattering effect.
 
     // --- Additions for Tint
     bool hasTintColor = false;

@@ -718,6 +718,15 @@ found_head:
                     std::cout << "    [Material] Shape '" << mesh.name << "' has Specular Strength: " << mesh.specularStrength << "\n";
                 }
 
+                // --- NEW: Read advanced lighting properties from the NIF material ---
+                mesh.rimlightPower = bslsp->rimlightPower;
+                mesh.subsurfaceRolloff = bslsp->subsurfaceRolloff;
+                if (debugMode) {
+                    std::cout << "    [Material] Rim Light Power read: " << mesh.rimlightPower << "\n";
+                    std::cout << "    [Material] Subsurface Rolloff read: " << mesh.subsurfaceRolloff << "\n";
+                }
+                // --- END NEW BLOCK ---
+
                 if (shaderType == nifly::BSLSP_EYE) {
                     mesh.eyeCubemapScale = bslsp->eyeCubemapScale;
                     if (debugMode) {
@@ -1132,8 +1141,11 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         shader.setFloat("materialGlossiness", shape.glossiness);
         shader.setFloat("materialSpecularStrength", shape.specularStrength);
         renderFirstFrameLog("  -> Setting material uniforms: Glossiness=" + std::to_string(shape.glossiness) + ", SpecularStrength=" + std::to_string(shape.specularStrength));
-        shader.setBool("has_tint_color", shape.hasTintColor);
+        
+        shader.setFloat("rimlightPower", shape.rimlightPower);
+        shader.setFloat("subsurfaceRolloff", shape.subsurfaceRolloff);
 
+        shader.setBool("has_tint_color", shape.hasTintColor);
         if (shape.hasTintColor) {
             renderFirstFrameLog("  -> Has tint color, setting uniform.");
             shader.setVec3("tint_color", shape.tintColor);
