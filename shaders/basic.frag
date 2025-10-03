@@ -50,6 +50,10 @@ uniform bool has_tint_color;
 uniform bool has_emissive;
 uniform bool is_model_space; // For _msn.dds normal maps
 
+// --- NEW: Special lighting flags ---
+uniform bool has_hair_soft_lighting;
+uniform bool has_soft_lighting;
+
 // --- NEW: Compatibility Uniforms ---
 uniform bool u_suppressSpecularOnVertexColor;
 uniform bool has_vertex_colors;
@@ -88,6 +92,7 @@ uniform mat4 u_view_worldToView;
 // The camera's position in World Space. NOTE: Not used in current view-space lighting model.
 uniform vec3 u_cameraPos_worldSpace_yUp;
 uniform Light lights[MAX_LIGHTS];
+uniform vec3 u_backlightColor;
 
 // Calculates the shadow contribution (1.0 = lit, 0.0 = in shadow).
 float calculateShadow(vec4 pos_lightClipSpace)
@@ -182,7 +187,19 @@ if (is_eye) {
         else if (lights[i].type == 2) { // Directional Light
             // The direction uniform is pre-transformed to View Space on the CPU.
             vec3 lightDir_viewSpace = normalize(lights[i].direction);
-            float diffuseStrength = max(dot(normal_viewSpace, lightDir_viewSpace), 0.0);
+            
+            // --- MODIFIED: Diffuse Calculation (with Soft Lighting) ---
+            float NdotL = dot(normal_viewSpace, lightDir_viewSpace);
+            float diffuseStrength;
+            if (has_soft_lighting) {
+                // If the Soft Lighting flag is set, wrap the light around the surface more.
+                // This is done by remapping the dot product from its standard [-1,1] range to a [0,1] range,
+                // which creates a much softer light-to-shadow transition.
+                diffuseStrength = NdotL * 0.5 + 0.5;
+            } else {
+                // Standard Blinn-Phong diffuse, clamped at 0 so surfaces facing away from the light are not lit.
+                diffuseStrength = max(NdotL, 0.0);
+            }
             vec3 diffuse = diffuseStrength * lightColor;
 
             vec3 specular = vec3(0.0);
@@ -212,9 +229,28 @@ if (is_eye) {
                     specular = vec3(0.0);
                 }
             }
-            
-            // Apply diffuse and specular, both modulated by the shadow factor and base color.
-            finalColor += (diffuse * shadow + specular * shadow) * baseColor.rgb;
+
+            // --- NEW: Backlight / Rimlight Calculation (for Hair) ---
+            vec3 backlight = vec3(0.0);
+            if (has_hair_soft_lighting) {
+                // This effect simulates light scattering through translucent materials like hair from behind,
+                // creating a soft glow at the edges facing the camera. It's a view-dependent effect.
+                vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
+
+                // A Fresnel-like term is calculated based on the angle between the view direction and the surface normal.
+                // The power term (e.g., 2.0) controls the tightness and intensity of the rim effect.
+                float rim = pow(1.0 - max(dot(viewDir_viewSpace, normal_viewSpace), 0.0), 2.0);
+                
+                // The final backlight color is a combination of the rim effect, a configurable tint color,
+                // the main light's color, and the standard diffuse strength. This prevents the backlight
+                // from appearing in areas that are fully shadowed.
+                backlight = rim * u_backlightColor * lightColor * diffuseStrength;
+            }
+
+            // --- Final Composition ---
+            // Combine all lighting components. The backlight is added on top of the base diffuse/specular.
+            // All components are modulated by the shadow factor and the object's base texture/vertex color.
+            finalColor += (diffuse * shadow + specular * shadow) * baseColor.rgb + (backlight * shadow);
         }
     }
     

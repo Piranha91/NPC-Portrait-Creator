@@ -840,7 +840,7 @@ void Renderer::renderFrame() {
     shader.setMat4("u_view_worldToView", cameraView_yUp);
     shader.setVec3("viewPos", camera.Position_worldSpace_yUp);
     shader.setMat4("u_worldToLightClip_transform", lightSpace_transform_zUp);
-
+    shader.setVec3("u_backlightColor", m_hairBacklightColor);
 
     shader.setBool("u_useDiffuseMap", m_textureToggles.diffuse);
     shader.setBool("u_useNormalMap", m_textureToggles.normal);

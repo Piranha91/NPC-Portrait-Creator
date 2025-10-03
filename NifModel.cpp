@@ -621,6 +621,17 @@ found_head:
                     std::cout << "    [Flag Parse] shaderFlags2 (raw: " << bslsp->shaderFlags2 << "): " << GetFlagsString(flags, 2) << "\n";
                 }
 
+                mesh.hasHairSoftLightingFlag = flags.SLSF1_Hair_Soft_Lighting;
+                mesh.hasSoftLightingFlag = flags.SLSF2_Soft_Lighting;
+                if (debugMode) {
+                    if (mesh.hasHairSoftLightingFlag) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF1_Hair_Soft_Lighting ENABLED.\n";
+                    }
+                    if (mesh.hasSoftLightingFlag) {
+                        std::cout << "    [Flag Detect] Shape '" << mesh.name << "' has flag SLSF2_Soft_Lighting ENABLED.\n";
+                    }
+                }
+
                 if (flags.SLSF1_Specular) {
                     mesh.hasSpecularFlag = true;
                     if (debugMode) {
@@ -1167,6 +1178,16 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         else {
             renderFirstFrameLog("  -> Is not skinned.");
         }
+
+        // --- Pass special lighting flags to the shader ---
+        shader.setBool("has_hair_soft_lighting", shape.hasHairSoftLightingFlag);
+        shader.setBool("has_soft_lighting", shape.hasSoftLightingFlag);
+        if (m_logRenderPassesOnce) {
+            if (shape.hasHairSoftLightingFlag || shape.hasSoftLightingFlag) {
+                renderFirstFrameLog("  -> Special lighting uniforms set: HairSoft=" + std::string(shape.hasHairSoftLightingFlag ? "true" : "false") + ", Soft=" + std::string(shape.hasSoftLightingFlag ? "true" : "false"));
+            }
+        }
+        // --- END NEW BLOCK ---
 
         // --- NEW: Pass compatibility flags ---
         shader.setBool("u_suppressSpecularOnVertexColor", suppressSpecularOnVColor);

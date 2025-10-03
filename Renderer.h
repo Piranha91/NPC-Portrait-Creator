@@ -134,6 +134,9 @@ private:
     int m_interactingLightIndex = -1; // -1 means no light is being interacted with
     glm::vec3 m_originalDragDirection;    // Stores the light's direction when a drag begins
 
+    // --- Configurable lighting parameters ---
+    glm::vec3 m_hairBacklightColor = glm::vec3(0.4f, 0.4f, 0.4f);
+
     // --- Texture Slot Toggles ---
     struct TextureToggleState {
         bool diffuse = true;

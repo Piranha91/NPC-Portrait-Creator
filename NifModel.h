@@ -80,6 +80,8 @@ struct MeshShape {
     // --- Shader Flags
     bool hasSpecularFlag = false; // To store the state of the SLSF1_Specular flag
     bool hasGreyscaleToPaletteFlag = false; // NEW: Flag for greyscale colorization
+    bool hasHairSoftLightingFlag = false; // For SLSF1_Hair_Soft_Lighting
+    bool hasSoftLightingFlag = false;     // For SLSF2_Soft_Lighting
     bool hasEnvMapFlag = false;
     bool hasEyeEnvMapFlag = false;
     bool receiveShadows = false;
