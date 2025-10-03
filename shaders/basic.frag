@@ -240,37 +240,47 @@ finalColor = mix(finalColor, detailColor, 0.3);
             vec3 reflectDir_viewSpace = reflect(-viewDir_viewSpace, normal_viewSpace);
             
             // Transform reflection vector from View Space back to World Space for cubemap sampling.
-            vec3 reflectDir_worldSpace = inverse(mat3(u_view_worldToView)) * reflectDir_viewSpace;
+            vec3 reflectDir_worldSpace = inverse(mat3(u_view_worldToView)) * reflectDir_viewSpace; 
             vec3 envColor = texture(texture_envmap_cube, reflectDir_worldSpace).rgb;
-            
             // Add the reflection using the dedicated eye cubemap scale.
-            finalColor += envColor * eyeCubemapScale;
-
+            finalColor += envColor * eyeCubemapScale; 
         } else if (has_environment_map) {
             // --- Regular Environment Mapping (2D or Cube) ---
-            vec3 viewDir_viewSpace = normalize(-v_viewSpacePos);
+            vec3 viewDir_viewSpace = normalize(-v_viewSpacePos); 
             vec3 reflectDir_viewSpace = reflect(-viewDir_viewSpace, normal_viewSpace);
             vec3 envColor;
 
             if (is_envmap_cube) {
                 // For cubemaps, sample using the 3D reflection vector in world space.
-                vec3 reflectDir_worldSpace = inverse(mat3(u_view_worldToView)) * reflectDir_viewSpace;
-                envColor = texture(texture_envmap_cube, reflectDir_worldSpace).rgb;
+                vec3 reflectDir_worldSpace = inverse(mat3(u_view_worldToView)) * reflectDir_viewSpace; 
+                envColor = texture(texture_envmap_cube, reflectDir_worldSpace).rgb; 
             } else { 
                 // For 2D spherical maps, calculate 2D texture coordinates from the reflection vector.
-                vec2 envCoords = normalize(reflectDir_viewSpace.xy) * 0.5 + 0.5;
-                envColor = texture(texture_envmap_2d, envCoords).rgb;
+                vec2 envCoords = normalize(reflectDir_viewSpace.xy) * 0.5 + 0.5; 
+                envColor = texture(texture_envmap_2d, envCoords).rgb; 
             }
 
-            // The reflection's strength is controlled ONLY by the environment mask texture from slot 5.
-            // There is no longer a fallback to the specular map.
-            float reflectionStrength = 1.0; // Default to full strength if no mask.
+            // --- NEW/CORRECTED LOGIC: Environment Reflection Strength ---
+            // To better match NifSkope and the original game engine, we use a specific fallback order
+            // for determining the strength of the environment reflection.
+            float reflectionStrength = 1.0; // Default to full strength if no mask is found.
+            
+            // 1. Primary Check: A dedicated environment mask texture from slot 5.
             if (has_env_mask) {
                 // If a mask texture is present, its red channel determines the reflection intensity.
+                // This gives artists the most direct control over reflections.
                 reflectionStrength = texture(texture_envmask, TexCoords).r;
+            } 
+            // 2. Fallback Check: The specular map from slot 7.
+            else if (has_specular_map) {
+                // If no dedicated mask exists, fall back to using the specular map's red channel.
+                // This is a very common pattern in Skyrim/Fallout materials where one texture
+                // controls both specular highlights and environmental reflections.
+                reflectionStrength = texture(texture_specular, TexCoords).r;
             }
             
-            // Add the reflection using the general environment map scale.
+            // Add the final reflection to the color, scaling it by the determined mask value 
+            // and the material's overall envMapScale property from the NIF.
             finalColor += envColor * reflectionStrength * envMapScale;
         }
     }

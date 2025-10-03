@@ -1242,7 +1242,6 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         bool useEffectiveEnvMap = shape.hasEnvMapFlag && shape.environmentMapID != 0;
         shader.setBool("has_environment_map", useEffectiveEnvMap);
         shader.setBool("has_eye_environment_map", shape.hasEyeEnvMapFlag);
-
         // --- MODIFIED: Pass all environment map properties to the shader ---
         if (useEffectiveEnvMap || shape.hasEyeEnvMapFlag) {
             renderFirstFrameLog("  -> Has effective env map or eye env map flag, setting env map uniforms.");
@@ -1251,7 +1250,6 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
 
             // NEW: Pass the separate eye cubemap scale
             shader.setFloat("eyeCubemapScale", shape.eyeCubemapScale);
-
             // NEW: Pass a boolean indicating if a dedicated environment mask texture exists.
             bool hasEnvMask = shape.environmentMaskID != 0;
             shader.setBool("has_env_mask", hasEnvMask);
@@ -1261,6 +1259,19 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
                 renderFirstFrameLog("    -> Env Map Scale: " + std::to_string(shape.envMapScale));
                 renderFirstFrameLog("    -> Eye Cubemap Scale: " + std::to_string(shape.eyeCubemapScale));
                 renderFirstFrameLog("    -> Has Env Mask Texture: " + std::string(hasEnvMask ? "true" : "false"));
+
+                // --- NEW LOGGING BLOCK ---
+                // This log explains the logic the shader will use to determine reflection strength, matching the new shader code.
+                if (hasEnvMask) {
+                    renderFirstFrameLog("    -> [Shader Logic] Reflection strength will be determined by the dedicated environment mask texture (slot 5).");
+                }
+                else if (shape.has_specular_map) {
+                    renderFirstFrameLog("    -> [Shader Logic] No dedicated mask found. Shader will FALL BACK to using the specular map texture (slot 7) for reflection strength.");
+                }
+                else {
+                    renderFirstFrameLog("    -> [Shader Logic] No mask or specular map found. Shader will use a default reflection strength of 1.0.");
+                }
+                // --- END NEW LOGGING BLOCK ---
             }
         }
         else {
