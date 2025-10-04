@@ -135,7 +135,7 @@ private:
     glm::vec3 m_originalDragDirection;    // Stores the light's direction when a drag begins
 
     // --- Configurable lighting parameters ---
-    glm::vec3 m_hairBacklightColor = glm::vec3(0.4f, 0.4f, 0.4f);
+    glm::vec3 m_hairBacklightColor = glm::vec3(0.1f, 0.1f, 0.1f);
 
     // --- Texture Slot Toggles ---
     struct TextureToggleState {

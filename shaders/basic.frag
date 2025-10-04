@@ -257,7 +257,7 @@ if (use_alpha_test && baseColor.a < alpha_threshold) {
                 // MODIFIED: The tightness of the rim effect is now controlled by the material's `rimLightPower`
                 // property, rather than a hardcoded exponent. This allows for fine artistic control.
                 float rim = pow(1.0 - max(dot(viewDir_viewSpace, normal_viewSpace), 0.0), rimlightPower);
-                backlight = rim * u_backlightColor * lightColor * diffuseStrength;
+                backlight = rim * u_backlightColor * lightColor * diffuseStrength * baseColor.rgb;
             }
 
             // --- NEW: Subsurface Scattering (for Skin) ---
@@ -278,7 +278,7 @@ if (use_alpha_test && baseColor.a < alpha_threshold) {
             
             // --- Final Composition ---
             // Combine all lighting components. Each is modulated by the shadow factor and the base color.
-            finalColor += (diffuse * shadow + specular * shadow + subsurface * shadow) * baseColor.rgb + (backlight * shadow);
+            finalColor += (diffuse * shadow + specular * shadow + subsurface * shadow + backlight * shadow) * baseColor.rgb;
         }
     }
     
