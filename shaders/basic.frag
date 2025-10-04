@@ -144,8 +144,9 @@ if (use_alpha_test && baseColor.a < alpha_threshold) {
 
     if (has_face_tint_map && u_useFaceTintMap) {
         vec4 tintSample = texture(texture_face_tint, TexCoords);
-        // Mix the base color with the tint color based on the tint mask's alpha channel.
-baseColor.rgb = mix(baseColor.rgb, tintSample.rgb, tintSample.a);
+        // Overlay tint onto DIFFUSE only: dark mask darkens color; bright mask brightens color.
+        // Equivalent to mix(base, base * tint, mask).
+        baseColor.rgb = mix(baseColor.rgb, baseColor.rgb * tintSample.rgb, tintSample.a);
     }
 
     // --- 2. NORMAL CALCULATION ---
