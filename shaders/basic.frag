@@ -150,43 +150,49 @@ if (use_alpha_test && baseColor.a < alpha_threshold) {
     }
 
     // --- 2. NORMAL CALCULATION ---
-vec3 normal_viewSpace;
+    vec3 normal_viewSpace;
 
-// The tangent vector is the first column of the TBN matrix from the vertex shader.
-// If its length is zero, it means the tangent/bitangent data was missing and the matrix is invalid.
-bool tbnIsValid = length(v_tangentToViewMatrix[0]) > 0.0;
+    // The tangent vector is the first column of the TBN matrix from the vertex shader.
+    // If its length is zero, it means the tangent/bitangent data was missing and the matrix is invalid.
+    bool tbnIsValid = length(v_tangentToViewMatrix[0]) > 0.0;
 
-if (has_normal_map && u_useNormalMap) {
-    if (is_model_space) {
-        // --- MODEL-SPACE PATH (for Skin) ---
-        // This path does not depend on the TBN matrix and works correctly.
-        vec3 normal_modelSpace = texture(texture_normal, TexCoords).rgb * 2.0 - 1.0;
-        normal_modelSpace.g = 1.0 - normal_modelSpace.g;
-        normal_viewSpace = normalize(v_modelToViewNormalMatrix * normal_modelSpace);
-    }
-    else if (tbnIsValid) {
-        // --- TANGENT-SPACE PATH (for Hair, with valid data) ---
-        // The TBN matrix is valid, so we can use the normal map.
-        vec3 normal_tangentSpace = texture(texture_normal, TexCoords).rgb * 2.0 - 1.0;
-        normal_tangentSpace.g = 1.0 - normal_tangentSpace.g;
-        normal_viewSpace = normalize(v_tangentToViewMatrix * normal_tangentSpace);
-    }
-    else {
-        // --- FALLBACK PATH (for Eyes/Beard with invalid data) ---
-        // The TBN matrix is invalid, so we cannot use the normal map.
-        // We fall back to the basic vertex normal (the 3rd column of the matrix).
+    if (has_normal_map && u_useNormalMap) {
+        if (is_model_space) {
+            // --- MODEL-SPACE PATH (for Skin) ---
+            vec3 normal_modelSpace = texture(texture_normal, TexCoords).rgb * 2.0 - 1.0;
+
+            // PATCH: Invert the green channel for DirectX normal maps.
+            // After unpacking to [-1, 1], a vector component is inverted by negating it (*= -1.0).
+            // The previous method (1.0 - g) is only correct for the [0, 1] color range.
+            normal_modelSpace.g *= -1.0;
+            
+            normal_viewSpace = normalize(v_modelToViewNormalMatrix * normal_modelSpace);
+        }
+        else if (tbnIsValid) {
+            // --- TANGENT-SPACE PATH (for Hair, with valid data) ---
+            vec3 normal_tangentSpace = texture(texture_normal, TexCoords).rgb * 2.0 - 1.0;
+            
+            // Apply the same patch here for tangent-space normals.
+            normal_tangentSpace.g *= -1.0;
+            
+            normal_viewSpace = normalize(v_tangentToViewMatrix * normal_tangentSpace);
+        }
+        else {
+            // --- FALLBACK PATH (for Eyes/Beard with invalid data) ---
+            // The TBN matrix is invalid, so we cannot use the normal map.
+            // We fall back to the basic vertex normal (the 3rd column of the matrix).
+            normal_viewSpace = normalize(v_tangentToViewMatrix[2]);
+        }
+    } else {
+        // --- NO NORMAL MAP PATH ---
+        // No normal map is present, so just use the basic vertex normal.
         normal_viewSpace = normalize(v_tangentToViewMatrix[2]);
     }
-} else {
-    // --- NO NORMAL MAP PATH ---
-    // No normal map is present, so just use the basic vertex normal.
-    normal_viewSpace = normalize(v_tangentToViewMatrix[2]);
-}
 
-// For eye meshes, normals are often inverted in the NIF. Flip them back.
-if (is_eye) {
-    normal_viewSpace = -normal_viewSpace;
-}
+    // For eye meshes, normals are often inverted in the NIF. Flip them back.
+    if (is_eye) {
+        normal_viewSpace = -normal_viewSpace;
+    }
     
     // --- 3. DYNAMIC LIGHTING ---
     vec3 finalColor = vec3(0.0);
