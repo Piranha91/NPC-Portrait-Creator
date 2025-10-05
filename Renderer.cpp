@@ -626,6 +626,62 @@ void Renderer::renderUI() {
                 std::cout << "--- Added new default directional light ---" << std::endl;
             }
 
+            // === NEW: Per-Mesh Normal Rotation Section ===
+            ImGui::SeparatorText("Per-Mesh Normal Rotation");
+            if (ImGui::BeginMenu("Adjust Mesh Normals")) {
+                // Helper lambda to create rotation controls for a vector of shapes
+                auto create_rotation_controls = [](const char* group_name, std::vector<MeshShape>& shapes) {
+                    if (shapes.empty()) {
+                        return;
+                    }
+
+                    if (ImGui::TreeNode(group_name)) {
+                        for (size_t i = 0; i < shapes.size(); ++i) {
+                            ImGui::PushID(static_cast<int>(i));
+
+                            if (ImGui::TreeNode(shapes[i].name.c_str())) {
+                                ImGui::Text("Rotation (degrees):");
+
+                                bool pitchChanged = ImGui::DragFloat("Pitch", &shapes[i].normalRotationPitch, 1.0f, -180.0f, 180.0f, "%.1f°");
+                                if (ImGui::IsItemHovered()) {
+                                    ImGui::SetTooltip("Rotate normals up/down (around X-axis)");
+                                }
+
+                                bool yawChanged = ImGui::DragFloat("Yaw", &shapes[i].normalRotationYaw, 1.0f, -180.0f, 180.0f, "%.1f°");
+                                if (ImGui::IsItemHovered()) {
+                                    ImGui::SetTooltip("Rotate normals left/right (around Y-axis)");
+                                }
+
+                                // Reset button
+                                if (ImGui::Button("Reset to 0°")) {
+                                    shapes[i].normalRotationPitch = 0.0f;
+                                    shapes[i].normalRotationYaw = 0.0f;
+                                }
+
+                                // Show current combined rotation info
+                                if (shapes[i].normalRotationPitch != 0.0f || shapes[i].normalRotationYaw != 0.0f) {
+                                    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f),
+                                        "Active: P%.1f° Y%.1f°",
+                                        shapes[i].normalRotationPitch,
+                                        shapes[i].normalRotationYaw);
+                                }
+
+                                ImGui::TreePop();
+                            }
+
+                            ImGui::PopID();
+                        }
+                        ImGui::TreePop();
+                    }
+                    };
+
+                create_rotation_controls("Opaque Parts", model->getOpaqueShapes());
+                create_rotation_controls("Alpha-Test Parts", model->getAlphaTestShapes());
+                create_rotation_controls("Transparent Parts", model->getTransparentShapes());
+
+                ImGui::EndMenu();
+            }
+
             ImGui::EndMenu();
         }
 

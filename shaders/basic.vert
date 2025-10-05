@@ -34,6 +34,9 @@ uniform mat4 u_view_worldToView;
 uniform mat4 u_proj_viewToClip;
 // Transforms a vertex from World Space (Y-up) to the light's Clip Space (for shadow mapping).
 uniform mat4 u_worldToLightClip_transform;
+// NEW: Per-mesh normal rotation
+uniform float u_normalRotationPitch;
+uniform float u_normalRotationYaw;
 
 uniform bool u_flipUvs;
 uniform vec2 u_uvScale;
@@ -85,9 +88,35 @@ void main()
     mat3 normalMatrix_modelToView_yUp = mat3(u_view_worldToView) * normalMatrix_modelToWorld_yUp;
     v_modelToViewNormalMatrix = normalMatrix_modelToView_yUp;
     
-    vec3 T_viewSpace = normalize(normalMatrix_modelToView_yUp * aTangent_modelSpace);
-    vec3 B_viewSpace = normalize(normalMatrix_modelToView_yUp * aBitangent_modelSpace);
-    vec3 N_viewSpace = normalize(normalMatrix_modelToView_yUp * aNormal_modelSpace);
+    // === NEW: Apply per-mesh normal rotation ===
+    // Create rotation matrices for pitch (X-axis) and yaw (Y-axis)
+    float pitchRad = radians(u_normalRotationPitch);
+    float yawRad = radians(u_normalRotationYaw);
+    
+    // Pitch rotation (around X-axis)
+    mat3 pitchRotation = mat3(
+        1.0, 0.0, 0.0,
+        0.0, cos(pitchRad), -sin(pitchRad),
+        0.0, sin(pitchRad), cos(pitchRad)
+    );
+    
+    // Yaw rotation (around Y-axis)
+    mat3 yawRotation = mat3(
+        cos(yawRad), 0.0, sin(yawRad),
+        0.0, 1.0, 0.0,
+        -sin(yawRad), 0.0, cos(yawRad)
+    );
+    
+    // Combine rotations: apply yaw first, then pitch
+    mat3 normalRotation = pitchRotation * yawRotation;
+    
+    // Apply rotation to the normal matrix
+    mat3 rotatedNormalMatrix = normalMatrix_modelToView_yUp * normalRotation;
+    // === END NEW ===
+    
+    vec3 T_viewSpace = normalize(rotatedNormalMatrix * aTangent_modelSpace);
+    vec3 B_viewSpace = normalize(rotatedNormalMatrix * aBitangent_modelSpace);
+    vec3 N_viewSpace = normalize(rotatedNormalMatrix * aNormal_modelSpace);
     v_tangentToViewMatrix = mat3(T_viewSpace, B_viewSpace, N_viewSpace);
 
     // Pass through other attributes.

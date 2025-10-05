@@ -23,6 +23,10 @@ struct MeshShape {
     GLuint VAO = 0, VBO = 0, EBO = 0;
     GLsizei indexCount = 0;
 
+    // --- NEW: Per-mesh normal rotation controls ---
+    float normalRotationPitch = 0.0f; // Rotation around X-axis (degrees)
+    float normalRotationYaw = 0.0f;   // Rotation around Y-axis (degrees)
+
     // This matrix transforms a vertex from this shape's local model space
     // into the NIF file's overall root coordinate space.
     //

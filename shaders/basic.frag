@@ -275,17 +275,6 @@ if (use_alpha_test && baseColor.a < alpha_threshold) {
     // For eye meshes, normals are often inverted in the NIF. Flip them back.
     if (is_eye) {
         normal_viewSpace = -normal_viewSpace;
-
-        // === DEBUG HACK: Rotate normal 45 degrees upward for eyes ===
-        // Create a rotation around the X-axis (horizontal axis in view space)
-        float angle = radians(-90.0);
-        mat3 rotationMatrix = mat3(
-            1.0, 0.0, 0.0,
-            0.0, cos(angle), -sin(angle),
-            0.0, sin(angle), cos(angle)
-        );
-        normal_viewSpace = normalize(rotationMatrix * normal_viewSpace);
-        // === END DEBUG HACK ===
     }
     
     // --- 3. DYNAMIC LIGHTING ---

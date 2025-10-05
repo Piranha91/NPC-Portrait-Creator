@@ -1225,6 +1225,11 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
 
         renderFirstFrameLog("  -> Final Model Matrix (Local Z-up -> World Y-up):\n" + glm::to_string(modelMatrix));
 
+        // === NEW: Set per-mesh normal rotation uniforms ===
+        shader.setFloat("u_normalRotationPitch", shape.normalRotationPitch);
+        shader.setFloat("u_normalRotationYaw", shape.normalRotationYaw);
+        // === END NEW ===
+
         // Set boolean flags that control shader logic.
         shader.setBool("is_eye", shape.isEye);
         shader.setBool("is_model_space", shape.isModelSpace); // For model-space normals
