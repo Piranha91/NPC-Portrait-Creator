@@ -444,12 +444,21 @@ found_head:
         // --- Stage 2: Copying Data to Local Buffers ---
         auto start_stage2 = std::chrono::high_resolution_clock::now();
         std::vector<Vertex> vertexData(vertices->size());
+
+        // First, copy all primary vertex data (position, normal, UVs, color)
         for (size_t i = 0; i < vertices->size(); ++i) {
             vertexData[i].pos = glm::vec3((*vertices)[i].x, (*vertices)[i].y, (*vertices)[i].z);
-            if (normals && i < normals->size()) vertexData[i].normal = glm::vec3((*normals)[i].x, (*normals)[i].y, (*normals)[i].z);
-            else vertexData[i].normal = glm::vec3(0.0f, 1.0f, 0.0f);
-            if (uvs && i < uvs->size()) vertexData[i].texCoords = glm::vec2((*uvs)[i].u, (*uvs)[i].v);
-            else vertexData[i].texCoords = glm::vec2(0.0f, 0.0f);
+
+            if (normals && i < normals->size())
+                vertexData[i].normal = glm::vec3((*normals)[i].x, (*normals)[i].y, (*normals)[i].z);
+            else
+                vertexData[i].normal = glm::vec3(0.0f, 1.0f, 0.0f);
+
+            if (uvs && i < uvs->size())
+                vertexData[i].texCoords = glm::vec2((*uvs)[i].u, (*uvs)[i].v);
+            else
+                vertexData[i].texCoords = glm::vec2(0.0f, 0.0f);
+
             if (colors && i < colors->size()) {
                 const auto& c = (*colors)[i];
                 vertexData[i].color = glm::vec4(c.r, c.g, c.b, c.a);
@@ -457,8 +466,81 @@ found_head:
             else {
                 vertexData[i].color = glm::vec4(1.0f);
             }
-            if (tangents && i < tangents->size()) vertexData[i].tangent = glm::vec3((*tangents)[i].x, (*tangents)[i].y, (*tangents)[i].z);
-            if (bitangents && i < bitangents->size()) vertexData[i].bitangent = glm::vec3((*bitangents)[i].x, (*bitangents)[i].y, (*bitangents)[i].z);
+        }
+
+        // --- Tangent/Bitangent Handling ---
+        // This is now done once, after all other vertex data has been buffered.
+        if (tangents && bitangents && !tangents->empty() && !bitangents->empty()) {
+            // Use existing tangent/bitangent data from the NIF
+            if (debugMode) std::cout << "    [Tangent Space] Using existing tangent/bitangent data from NIF.\n";
+
+            for (size_t i = 0; i < vertices->size(); ++i) {
+                if (i < tangents->size())
+                    vertexData[i].tangent = glm::vec3((*tangents)[i].x, (*tangents)[i].y, (*tangents)[i].z);
+                if (i < bitangents->size())
+                    vertexData[i].bitangent = glm::vec3((*bitangents)[i].x, (*bitangents)[i].y, (*bitangents)[i].z);
+            }
+
+            if (debugMode && vertices->size() > 0) {
+                // Sample the first vertex to check if tangent data looks valid
+                std::cout << "    [Tangent Debug] Sample vertex 0:\n";
+                std::cout << "      Normal:    " << glm::to_string(vertexData[0].normal) << "\n";
+                std::cout << "      Tangent:   " << glm::to_string(vertexData[0].tangent) << "\n";
+                std::cout << "      Bitangent: " << glm::to_string(vertexData[0].bitangent) << "\n";
+
+                // Check if tangent/bitangent are roughly perpendicular to normal
+                float dotTN = glm::dot(glm::normalize(vertexData[0].tangent), glm::normalize(vertexData[0].normal));
+                float dotBN = glm::dot(glm::normalize(vertexData[0].bitangent), glm::normalize(vertexData[0].normal));
+                std::cout << "      Dot(T,N): " << dotTN << " (should be ~0)\n";
+                std::cout << "      Dot(B,N): " << dotBN << " (should be ~0)\n";
+            }
+        }
+        else {
+            // Generate tangent space from geometry when missing
+            if (debugMode) std::cout << "    [Tangent Space] Generating tangent/bitangent data (missing from NIF).\n";
+
+            std::vector<nifly::Triangle> triangles;
+            niShape->GetTriangles(triangles);
+
+            // Accumulate tangents for each vertex
+            for (const auto& tri : triangles) {
+                glm::vec3 v0 = vertexData[tri.p1].pos;
+                glm::vec3 v1 = vertexData[tri.p2].pos;
+                glm::vec3 v2 = vertexData[tri.p3].pos;
+
+                glm::vec2 uv0 = vertexData[tri.p1].texCoords;
+                glm::vec2 uv1 = vertexData[tri.p2].texCoords;
+                glm::vec2 uv2 = vertexData[tri.p3].texCoords;
+
+                glm::vec3 edge1 = v1 - v0;
+                glm::vec3 edge2 = v2 - v0;
+                glm::vec2 deltaUV1 = uv1 - uv0;
+                glm::vec2 deltaUV2 = uv2 - uv0;
+
+                float denom = (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
+                float f = (fabs(denom) > 0.0001f) ? 1.0f / denom : 0.0f;
+
+                glm::vec3 tangent;
+                tangent.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
+                tangent.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
+                tangent.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
+
+                // Accumulate for averaging
+                vertexData[tri.p1].tangent += tangent;
+                vertexData[tri.p2].tangent += tangent;
+                vertexData[tri.p3].tangent += tangent;
+            }
+
+            // Normalize and orthogonalize using Gram-Schmidt
+            for (auto& v : vertexData) {
+                if (glm::length(v.tangent) > 0.0001f) {
+                    v.tangent = glm::normalize(v.tangent);
+                    // Make tangent orthogonal to normal
+                    v.tangent = glm::normalize(v.tangent - v.normal * glm::dot(v.normal, v.tangent));
+                    // Calculate bitangent
+                    v.bitangent = glm::cross(v.normal, v.tangent);
+                }
+            }
         }
         auto end_stage2 = std::chrono::high_resolution_clock::now();
 

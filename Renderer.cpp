@@ -650,6 +650,33 @@ void Renderer::renderUI() {
                 }
             }
             ImGui::Separator();
+            if (ImGui::CollapsingHeader("Texture Quality")) {
+                bool mipmapChanged = ImGui::Checkbox("Enable Mipmapping", &useTextureMipmapping);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Disable for maximum quality (default). Enable for better performance with distant objects.");
+                }
+
+                // Only show LOD bias slider if mipmapping is enabled
+                ImGui::BeginDisabled(!useTextureMipmapping);
+                bool lodBiasChanged = ImGui::SliderFloat("LOD Bias", &textureLodBias, -4.0f, 2.0f, "%.1f");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    if (useTextureMipmapping) {
+                        ImGui::SetTooltip("Negative values = sharper textures. Positive = softer (better performance).");
+                    }
+                    else {
+                        ImGui::SetTooltip("Only available when mipmapping is enabled.");
+                    }
+                }
+                ImGui::EndDisabled();
+
+                // Reload model if settings changed
+                if (mipmapChanged || lodBiasChanged) {
+                    loadNifModel(""); // Reload current model with new settings
+                }
+            }
+
+            ImGui::Separator();
+
             // We removed ImGuiTreeNodeFlags_DefaultOpen to make it start collapsed.
             if (ImGui::CollapsingHeader("Mesh Parts")) {
 
@@ -801,6 +828,7 @@ void Renderer::renderFrame() {
     }
 
     logFirstFrame("--- START Renderer::renderFrame() ---");
+    logFirstFrame("Rendering viewport: " + std::to_string(screenWidth) + "x" + std::to_string(screenHeight));
 
     // --- 1. DEPTH PASS (Render scene from light's perspective) ---
     // The entire depth pass operates in a Z-up coordinate system consistent with the NIF data.
@@ -929,6 +957,8 @@ void Renderer::renderFrame() {
     glActiveTexture(GL_TEXTURE8);
     glBindTexture(GL_TEXTURE_2D, depthMapTexture);
     shader.setInt("shadowMap", 8);
+
+
 
     if (model) {
         model->draw(shader, camera.Position_worldSpace_yUp, Matrices::NIF_ROOT_TO_WORLD_YUP, m_suppressSpecularOnVertexColor);
@@ -1438,6 +1468,10 @@ void Renderer::loadNifModel(const std::string& path) {
 
     textureManager.cleanup(); // clear the texture cache before reloading the model in case new data folders were added.
 
+    // Configure texture quality settings
+    textureManager.setMipmappingEnabled(useTextureMipmapping);
+    textureManager.setLodBias(textureLodBias);
+
     // You will need to update NifModel::load to also accept a vector<char>
     if (model->load(nifData, currentNifPath, textureManager, activeSkeleton)) {
         saveConfig();
@@ -1855,6 +1889,10 @@ void Renderer::loadConfig() {
 
         // Load lighting settings
         lightingProfilePath = data.value("lighting_profile_path", "lighting.json");
+
+        // Load texture quality settings
+        useTextureMipmapping = data.value("use_texture_mipmapping", false);
+        textureLodBias = data.value("texture_lod_bias", 0.0f);
     }
     catch (const std::exception& e) {
         std::cerr << "Error loading config file: " << e.what() << std::endl;
@@ -1884,6 +1922,9 @@ void Renderer::saveConfig() {
         data["camera_fov"] = m_cameraFovY;
 
         data["lighting_profile_path"] = lightingProfilePath;
+
+        data["use_texture_mipmapping"] = useTextureMipmapping;
+        data["texture_lod_bias"] = textureLodBias;
 
         std::ofstream o(configPath);
         o << std::setw(4) << data << std::endl;

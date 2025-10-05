@@ -46,6 +46,8 @@ int main(int argc, char** argv) {
         ("imgY", "Vertical resolution of the output PNG", cxxopts::value<int>())
         ("bgcolor", "Background R,G,B color (e.g. \"0.1,0.5,1.0\")", cxxopts::value<std::string>())
         ("fov", "Camera vertical Field of View in degrees", cxxopts::value<float>())
+        ("mipmap", "Enable texture mipmapping (default: off for max quality)", cxxopts::value<bool>())
+        ("lod-bias", "Texture LOD bias (negative = sharper, e.g., -2.0)", cxxopts::value<float>())
         ("v,version", "Print the program version and exit")
         ("h,help", "Print usage");
     auto result = options.parse(argc, argv);
@@ -93,6 +95,12 @@ int main(int argc, char** argv) {
         }
         if (result.count("fov")) {
             renderer.setFov(result["fov"].as<float>());
+        }
+        if (result.count("mipmap")) {
+            renderer.setTextureMipmapping(result["mipmap"].as<bool>());
+        }
+        if (result.count("lod-bias")) {
+            renderer.setTextureLodBias(result["lod-bias"].as<float>());
         }
 
         // Always override camera if specified on command line

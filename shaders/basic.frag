@@ -149,6 +149,28 @@ if (use_alpha_test && baseColor.a < alpha_threshold) {
         baseColor.rgb = mix(baseColor.rgb, baseColor.rgb * tintSample.rgb, tintSample.a);
     }
 
+    /// DEBUG
+    /*
+    if (has_normal_map && u_useNormalMap) {
+    vec3 normalMapRaw = texture(texture_normal, TexCoords).rgb;
+    // Visualize the raw normal map texture
+    FragColor = vec4(normalMapRaw, 1.0);
+    return; // Exit early to only show the normal map
+}*/
+/*
+    if (has_normal_map && u_useNormalMap) {
+    // Calculate which mip level would be sampled
+    vec2 dx = dFdx(TexCoords * 512.0); // 512 = texture resolution
+    vec2 dy = dFdy(TexCoords * 512.0);
+    float delta_max_sqr = max(dot(dx, dx), dot(dy, dy));
+    float mipLevel = 0.5 * log2(delta_max_sqr);
+    
+    // Visualize mip level as a color (0=red, higher=green)
+    FragColor = vec4(mipLevel / 9.0, 1.0 - (mipLevel / 9.0), 0.0, 1.0);
+    return;
+}*/
+    // END DEBUG    
+
     // --- 2. NORMAL CALCULATION ---
     vec3 normal_viewSpace;
 

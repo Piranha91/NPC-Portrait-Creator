@@ -67,6 +67,10 @@ public:
     void setLightingProfile(const std::string& path) { lightingProfilePath = path; }
     void setLightingProfileFromJsonString(const std::string& jsonString);
     bool TryParseLightingJson(const std::string& jsonString, std::vector<Light>& outLights) const;
+    void setTextureMipmapping(bool enabled) { useTextureMipmapping = enabled; }
+    void setTextureLodBias(float bias) { textureLodBias = bias; }
+    bool getTextureMipmapping() const { return useTextureMipmapping; }
+    float getTextureLodBias() const { return textureLodBias; }
 
     // --- Public Input Handlers ---
     void HandleMouseButton(int button, int action, int mods);
@@ -166,6 +170,10 @@ private:
     // Image output settings
     int imageXRes = 750;
     int imageYRes = 750;
+
+    // Texture quality settings
+    bool useTextureMipmapping = false;  // Default to highest quality
+    float textureLodBias = 0.0f;
 
     // --- NEW: Mugshot framing offsets ---
     float headTopOffset = 0.20f;    // Default: 20% margin at the top

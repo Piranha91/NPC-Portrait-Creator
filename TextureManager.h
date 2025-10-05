@@ -22,6 +22,10 @@ public:
     // MODIFICATION: Change the return type from GLuint to the new TextureInfo struct.
     TextureInfo loadTexture(const std::string& relativePath);
 
+    // NEW: Add methods to control texture quality
+    void setMipmappingEnabled(bool enabled) { m_useMipmapping = enabled; }
+    void setLodBias(float bias) { m_lodBias = bias; }
+
     void cleanup();
 
 private:
@@ -32,4 +36,8 @@ private:
 
     // This cache is for GPU texture IDs, which is still this class's responsibility.
     std::unordered_map<std::string, TextureInfo> textureCache;
+
+    // NEW: Texture quality settings
+    bool m_useMipmapping = false;
+    float m_lodBias = 0.0f;
 };
