@@ -666,6 +666,12 @@ found_head:
                     }
                 }
 
+                // NEW: Read UV scale
+                mesh.uvScale = glm::vec2(bslsp->uvScale.u, bslsp->uvScale.v);
+                if (debugMode) {
+                    std::cout << "    [Material] UV Scale: " << mesh.uvScale.x << ", " << mesh.uvScale.y << "\n";
+                }
+
                 mesh.doubleSided = flags.SLSF2_Double_Sided;
                 mesh.zBufferWrite = flags.SLSF2_ZBuffer_Write;
 
@@ -1163,6 +1169,8 @@ void NifModel::draw(Shader& shader, const glm::vec3& cameraPos, const glm::mat4&
         else {
             renderFirstFrameLog("  -> Does not have emissive properties.");
         }
+
+        shader.setVec2("u_uvScale", shape.uvScale);
 
         // --- Skinning ---
         // Tell the vertex shader whether this mesh is skinned.

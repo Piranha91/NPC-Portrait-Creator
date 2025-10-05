@@ -101,6 +101,7 @@ struct MeshShape {
     float greyscaleToPaletteScale = 1.0f; // NEW: Scale for greyscale colorization
     glm::vec3 emissiveColor = glm::vec3(0.0f);
     float emissiveMultiple = 1.0f;
+    glm::vec2 uvScale = glm::vec2(1.0f, 1.0f);
 
     void draw() const;
     void cleanup();
