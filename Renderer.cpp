@@ -2403,15 +2403,21 @@ void Renderer::loadLightingProfile(const std::string& path) {
         nlohmann::json defaultJson;
         defaultJson["lights"] = nlohmann::json::array({
             {
-                {"type", "directional"},
-                {"direction", {0.5f, 0.5f, 1.0f}},
-                {"color", {1.0f, 1.0f, 1.0f}},
-                {"intensity", 1.0f}
+                {"type", "ambient"},
+                {"color", {1.0f, 0.88f, 0.7f}},
+                {"intensity", 0.65f}
             },
             {
-                {"type", "ambient"},
-                {"color", {0.15f, 0.15f, 0.15f}},
-                {"intensity", 1.0f}
+                {"type", "directional"},
+                {"direction", {-0.0798034518957138f, -0.99638432264328f, -0.029152285307645798f}},
+                {"color", {1.0f, 0.85f, 0.65f}},
+                {"intensity", 1.6f}
+            },
+            {
+                {"type", "directional"},
+                {"direction", {0.12252168357372284f, -0.6893905401229858f, 0.7139532566070557f}},
+                {"color", {1.0f, 0.87f, 0.68f}},
+                {"intensity", 0.8f}
             }
             });
         jsonContent = defaultJson.dump(4);
