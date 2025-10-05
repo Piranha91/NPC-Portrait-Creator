@@ -548,12 +548,6 @@ found_head:
         mesh.name = niShape->name.get();
         std::string shapeName = niShape->name.get();
 
-        if (const auto* triShape = dynamic_cast<const nifly::BSTriShape*>(niShape)) {
-            if (triShape->HasEyeData()) {
-                mesh.isEye = true;
-            }
-        }
-
         // --- FINALIZED TRANSFORM LOGIC ---
         // This is the final calculated transform for this shape before converting to a GLM matrix.
         // It represents the transformation from the shape's local space to the NIF root space (Z-up).
@@ -816,6 +810,7 @@ found_head:
                 // --- END NEW BLOCK ---
 
                 if (shaderType == nifly::BSLSP_EYE) {
+                    mesh.isEye = true;
                     mesh.eyeCubemapScale = bslsp->eyeCubemapScale;
                     if (debugMode) {
                         std::cout << "    [Shader Type] Shape '" << mesh.name << "' has Eye shader type.\n";
@@ -939,7 +934,24 @@ found_head:
                 eyeCenter_nifRootSpace_zUp = sum / static_cast<float>(posedVertices_nifRootSpace_zUp.size());
             }
             bHasEyeCenter = true;
+            if (debugMode) {
+				std::cout << "    [Eye Debug] '" << shapeName << "' Detected as an Eye Mesh.\n";
+            }
         }
+        else if (debugMode) {
+            std::cout << "    [Eye Debug] '" << shapeName << "' Not Detected as an Eye Mesh.\n";
+		}
+
+        if (debugMode && vertices->size() > 0) {
+            std::cout << "    [Eye Tangent Debug] First 3 vertices:\n";
+            for (size_t i = 0; i < std::min(size_t(3), vertices->size()); ++i) {
+                std::cout << "      Vertex " << i << ":\n";
+                std::cout << "        Tangent:   " << glm::to_string(vertexData[i].tangent) << "\n";
+                std::cout << "        Bitangent: " << glm::to_string(vertexData[i].bitangent) << "\n";
+                std::cout << "        Normal:    " << glm::to_string(vertexData[i].normal) << "\n";
+            }
+        }
+
         auto end_stage4 = std::chrono::high_resolution_clock::now();
 
         // --- Stage 5: Texture & Material Loading ---
