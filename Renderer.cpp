@@ -591,6 +591,41 @@ void Renderer::performMeshPicking(double mouseX, double mouseY) {
     }
 }
 
+void Renderer::applyNormalMapHack() {
+    if (!model) return;
+
+    auto applyHackToShapes = [this](std::vector<MeshShape>& shapes) {
+        for (auto& shape : shapes) {
+            if (m_enableNormalMapHack) {
+                // Apply the hack based on the rules
+                if (shape.isModelSpace) {
+                    // Model-space normals: leave as-is
+                    shape.normalRotationPitch = 0.0f;
+                }
+                else if (shape.isEye) {
+                    // Tangent-space eye normals: +90 degrees
+                    shape.normalRotationPitch = 90.0f;
+                }
+                else {
+                    // Tangent-space non-eye normals: -90 degrees
+                    shape.normalRotationPitch = -90.0f;
+                }
+                // Yaw is always 0 for the hack
+                shape.normalRotationYaw = 0.0f;
+            }
+            else {
+                // Hack disabled: reset to no rotation
+                shape.normalRotationPitch = 0.0f;
+                shape.normalRotationYaw = 0.0f;
+            }
+        }
+        };
+
+    applyHackToShapes(model->getOpaqueShapes());
+    applyHackToShapes(model->getAlphaTestShapes());
+    applyHackToShapes(model->getTransparentShapes());
+}
+
 void Renderer::renderUI() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
@@ -806,6 +841,22 @@ void Renderer::renderUI() {
                 lights.push_back(newLight);
                 std::cout << "--- Added new default directional light ---" << std::endl;
             }
+
+            // === NEW: Normal Map Hack Toggle ===
+            ImGui::SeparatorText("Normal Map Corrections");
+            if (ImGui::Checkbox("Enable Normal Map Hack", &m_enableNormalMapHack)) {
+                // When toggled, apply the hack to all loaded meshes
+                if (model) {
+                    applyNormalMapHack();
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Automatically corrects normal map orientation:\n"
+                    "- Model-space normals: No change\n"
+                    "- Tangent-space (non-eye): -90° pitch\n"
+                    "- Tangent-space (eye): +90° pitch");
+            }
+            // === END NEW ===
 
             // === NEW: Per-Mesh Normal Rotation Section ===
             ImGui::SeparatorText("Per-Mesh Normal Rotation");
@@ -1821,6 +1872,12 @@ void Renderer::loadNifModel(const std::string& path) {
     if (model->load(nifData, currentNifPath, textureManager, activeSkeleton)) {
         saveConfig();
 
+        // === NEW: Apply normal map hack after loading ===
+        if (m_enableNormalMapHack) {
+            applyNormalMapHack();
+        }
+        // === END NEW ===
+
         // Check which camera mode to use. Mugshot mode is used only if all absolute camera parameters are zero.
         bool useAbsoluteCamera = (camX != 0.0f || camY != 0.0f || camZ != 0.0f || camPitch != 0.0f || camYaw != 0.0f);
 
@@ -2238,6 +2295,9 @@ void Renderer::loadConfig() {
         // Load texture quality settings
         useTextureMipmapping = data.value("use_texture_mipmapping", false);
         textureLodBias = data.value("texture_lod_bias", 0.0f);
+
+        // NEW: Load normal map hack setting (defaults to true if not present)
+        m_enableNormalMapHack = data.value("enable_normal_map_hack", true);
     }
     catch (const std::exception& e) {
         std::cerr << "Error loading config file: " << e.what() << std::endl;
@@ -2270,6 +2330,9 @@ void Renderer::saveConfig() {
 
         data["use_texture_mipmapping"] = useTextureMipmapping;
         data["texture_lod_bias"] = textureLodBias;
+
+        // NEW: Save normal map hack setting
+        data["enable_normal_map_hack"] = m_enableNormalMapHack;
 
         std::ofstream o(configPath);
         o << std::setw(4) << data << std::endl;

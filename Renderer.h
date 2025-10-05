@@ -87,6 +87,10 @@ public:
     bool isPanning = false;
     bool isRotating = false;
 
+	// --- Normal Map Hack ---
+    void setNormalMapHack(bool enabled) { m_enableNormalMapHack = enabled; }
+    bool getNormalMapHack() const { return m_enableNormalMapHack; }
+
 private:
     // --- UI Methods ---
     void initUI();
@@ -94,6 +98,7 @@ private:
     void shutdownUI();
     void updateAssetManagerPaths();
     void logLightAngles(int lightIndex, int directionalLightCounter) const;
+    void applyNormalMapHack();
 
     // --- Core Members ---
     GLFWwindow* window = nullptr;
@@ -248,6 +253,9 @@ private:
     // Logging
     bool m_logFirstFrameOnce = true;
     void logFirstFrame(const std::string& message) const;
+
+	// --- Normal Map Hack ---
+    bool m_enableNormalMapHack = true; // Default to enabled
 };
 
 #endif // RENDERER_H

@@ -48,6 +48,7 @@ int main(int argc, char** argv) {
         ("fov", "Camera vertical Field of View in degrees", cxxopts::value<float>())
         ("mipmap", "Enable texture mipmapping (default: off for max quality)", cxxopts::value<bool>())
         ("lod-bias", "Texture LOD bias (negative = sharper, e.g., -2.0)", cxxopts::value<float>())
+        ("normal-hack", "Enable normal map hack (default: true)", cxxopts::value<bool>()->default_value("true"))
         ("v,version", "Print the program version and exit")
         ("h,help", "Print usage");
     auto result = options.parse(argc, argv);
@@ -101,6 +102,9 @@ int main(int argc, char** argv) {
         }
         if (result.count("lod-bias")) {
             renderer.setTextureLodBias(result["lod-bias"].as<float>());
+        }
+        if (result.count("normal-hack")) {
+            renderer.setNormalMapHack(result["normal-hack"].as<bool>());
         }
 
         // Always override camera if specified on command line
