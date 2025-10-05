@@ -70,6 +70,15 @@ uniform bool u_useFaceTintMap;
 uniform bool u_useEnvironmentMap;
 uniform bool u_useEmissive;
 
+// --- NEW: Texture Debug View Toggles ---
+uniform bool u_debug_diffuse;
+uniform bool u_debug_normal;
+uniform bool u_debug_skin;
+uniform bool u_debug_detail;
+uniform bool u_debug_specular;
+uniform bool u_debug_faceTint;
+uniform bool u_debug_environmentMask;
+
 // --- MATERIAL PROPERTIES ---
 uniform float alpha_threshold;
 uniform float envMapScale;
@@ -122,6 +131,58 @@ float bias = 0.005;
 
 void main()
 {
+// --- NEW: Texture Debug Views ---
+    // If any debug view is active, this section will sample the
+    // corresponding texture, output its raw color, and exit the shader
+    // early, bypassing all lighting calculations.
+    if (u_debug_diffuse) {
+        if (u_useDiffuseMap) { FragColor = texture(texture_diffuse1, TexCoords); }
+        else { FragColor = vec4(0.5, 0.5, 0.5, 1.0); } // Grey if no texture
+        return;
+    }
+    if (u_debug_normal) {
+        if (has_normal_map) { FragColor = vec4(texture(texture_normal, TexCoords).rgb, 1.0); }
+        else { FragColor = vec4(0.5, 0.5, 1.0, 1.0); } // Default normal color if no texture
+        return;
+    }
+    if (u_debug_skin) {
+        if (has_skin_map) {
+            // Skin map is single-channel, so visualize it as greyscale.
+            float skinVal = texture(texture_skin, TexCoords).r;
+            FragColor = vec4(skinVal, skinVal, skinVal, 1.0);
+        }
+        else { FragColor = vec4(0.0, 0.0, 0.0, 1.0); } // Black if no texture
+        return;
+    }
+    if (u_debug_detail) {
+        if (has_detail_map) { FragColor = vec4(texture(texture_detail, TexCoords).rgb, 1.0); }
+        else { FragColor = vec4(0.5, 0.5, 0.5, 1.0); } // Grey if no texture
+        return;
+    }
+    if (u_debug_specular) {
+        if (has_specular_map) {
+            // Specular map is single-channel, so visualize it as greyscale.
+            float specVal = texture(texture_specular, TexCoords).r;
+            FragColor = vec4(specVal, specVal, specVal, 1.0);
+        }
+        else { FragColor = vec4(0.0, 0.0, 0.0, 1.0); } // Black if no texture
+        return;
+    }
+    if (u_debug_faceTint) {
+        if (has_face_tint_map) { FragColor = texture(texture_face_tint, TexCoords); }
+        else { FragColor = vec4(0.0, 0.0, 0.0, 1.0); } // Black if no texture
+        return;
+    }
+    if (u_debug_environmentMask) {
+        if (has_env_mask) {
+            // Env mask is single-channel, so visualize it as greyscale.
+            float maskVal = texture(texture_envmask, TexCoords).r;
+            FragColor = vec4(maskVal, maskVal, maskVal, 1.0);
+        }
+        else { FragColor = vec4(0.0, 0.0, 0.0, 1.0); } // Black if no texture
+        return;
+    }
+
     // --- 1. BASE COLOR & ALPHA TEST ---
     vec4 baseColor = vec4(1.0);
 if (u_useDiffuseMap) {

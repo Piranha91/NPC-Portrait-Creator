@@ -151,6 +151,17 @@ private:
         bool faceTint = true;
         bool environment = true;
         bool emissive = true;
+
+        // --- NEW: Add a nested struct for the debug view toggles ---
+        struct DebugView {
+            bool diffuse = false;
+            bool normal = false;
+            bool skin = false;
+            bool detail = false;
+            bool specular = false;
+            bool faceTint = false;
+            bool environmentMask = false; // Env maps are complex, so we'll debug the mask texture
+        } debug;
     };
     TextureToggleState m_textureToggles;
 

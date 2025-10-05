@@ -721,12 +721,19 @@ void Renderer::renderUI() {
             ImGui::Separator();
             if (ImGui::BeginMenu("Texture Slots")) {
                 ImGui::Checkbox("Diffuse / Base Color", &m_textureToggles.diffuse);
+                ImGui::SameLine(); ImGui::Checkbox("Debug##Diffuse", &m_textureToggles.debug.diffuse);
                 ImGui::Checkbox("Normal Map", &m_textureToggles.normal);
+                ImGui::SameLine(); ImGui::Checkbox("Debug##Normal", &m_textureToggles.debug.normal);
                 ImGui::Checkbox("Skin / Subsurface", &m_textureToggles.skin);
+                ImGui::SameLine(); ImGui::Checkbox("Debug##Skin", &m_textureToggles.debug.skin);
                 ImGui::Checkbox("Detail Map", &m_textureToggles.detail);
+                ImGui::SameLine(); ImGui::Checkbox("Debug##Detail", &m_textureToggles.debug.detail);
                 ImGui::Checkbox("Specular Map", &m_textureToggles.specular);
+                ImGui::SameLine(); ImGui::Checkbox("Debug##Specular", &m_textureToggles.debug.specular);
                 ImGui::Checkbox("Face Tint", &m_textureToggles.faceTint);
+                ImGui::SameLine(); ImGui::Checkbox("Debug##FaceTint", &m_textureToggles.debug.faceTint);
                 ImGui::Checkbox("Environment Map", &m_textureToggles.environment);
+                ImGui::SameLine(); ImGui::Checkbox("Debug Mask##Env", &m_textureToggles.debug.environmentMask);
                 ImGui::Checkbox("Emissive", &m_textureToggles.emissive);
                 ImGui::EndMenu();
             }
@@ -953,6 +960,15 @@ void Renderer::renderFrame() {
     shader.setBool("u_useFaceTintMap", m_textureToggles.faceTint);
     shader.setBool("u_useEnvironmentMap", m_textureToggles.environment);
     shader.setBool("u_useEmissive", m_textureToggles.emissive);
+
+    // --- NEW: Set texture debug view uniforms ---
+    shader.setBool("u_debug_diffuse", m_textureToggles.debug.diffuse);
+    shader.setBool("u_debug_normal", m_textureToggles.debug.normal);
+    shader.setBool("u_debug_skin", m_textureToggles.debug.skin);
+    shader.setBool("u_debug_detail", m_textureToggles.debug.detail);
+    shader.setBool("u_debug_specular", m_textureToggles.debug.specular);
+    shader.setBool("u_debug_faceTint", m_textureToggles.debug.faceTint);
+    shader.setBool("u_debug_environmentMask", m_textureToggles.debug.environmentMask);
 
     glActiveTexture(GL_TEXTURE8);
     glBindTexture(GL_TEXTURE_2D, depthMapTexture);
