@@ -410,6 +410,187 @@ void Renderer::run() {
     }
 }
 
+std::string Renderer::getTextureName(const std::string& fullPath) const {
+    if (fullPath.empty()) return "";
+
+    // Extract just the filename from the full path
+    size_t lastSlash = fullPath.find_last_of("/\\");
+    if (lastSlash != std::string::npos) {
+        return fullPath.substr(lastSlash + 1);
+    }
+    return fullPath;
+}
+
+bool Renderer::rayIntersectsMesh(const glm::vec3& rayOrigin_worldSpace, const glm::vec3& rayDir_worldSpace,
+    const MeshShape& shape, const glm::mat4& nifRootToWorld_transform,
+    float& outDistance) {
+    if (!shape.visible || shape.indexCount == 0) {
+        return false;
+    }
+
+    // Transform ray into the mesh's local space
+    glm::mat4 worldToLocal = glm::inverse(nifRootToWorld_transform * shape.shapeLocalToNifRoot_transform_zUp);
+    glm::vec3 rayOrigin_localSpace = glm::vec3(worldToLocal * glm::vec4(rayOrigin_worldSpace, 1.0f));
+    glm::vec3 rayDir_localSpace = glm::normalize(glm::vec3(worldToLocal * glm::vec4(rayDir_worldSpace, 0.0f)));
+
+    // We need to read back the vertex and index data from the GPU
+    glBindVertexArray(shape.VAO);
+
+    // Get vertex positions
+    GLint vertexBufferSize = 0;
+    glBindBuffer(GL_ARRAY_BUFFER, shape.VBO);
+    glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &vertexBufferSize);
+
+    const int floatsPerVertex = 26;
+    int vertexCount = vertexBufferSize / (floatsPerVertex * sizeof(float));
+
+    std::vector<float> vertexData(vertexBufferSize / sizeof(float));
+    glGetBufferSubData(GL_ARRAY_BUFFER, 0, vertexBufferSize, vertexData.data());
+
+    // Get indices
+    std::vector<unsigned short> indices(shape.indexCount);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, shape.EBO);
+    glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, shape.indexCount * sizeof(unsigned short), indices.data());
+
+    glBindVertexArray(0);
+
+    // Track the closest intersection for this mesh
+    float closestT = std::numeric_limits<float>::max();
+    bool foundIntersection = false;
+
+    // Test each triangle
+    for (int i = 0; i < shape.indexCount; i += 3) {
+        int idx0 = indices[i] * floatsPerVertex;
+        int idx1 = indices[i + 1] * floatsPerVertex;
+        int idx2 = indices[i + 2] * floatsPerVertex;
+
+        glm::vec3 v0(vertexData[idx0], vertexData[idx0 + 1], vertexData[idx0 + 2]);
+        glm::vec3 v1(vertexData[idx1], vertexData[idx1 + 1], vertexData[idx1 + 2]);
+        glm::vec3 v2(vertexData[idx2], vertexData[idx2 + 1], vertexData[idx2 + 2]);
+
+        // Möller-Trumbore intersection algorithm
+        const float EPSILON = 0.0000001f;
+        glm::vec3 edge1 = v1 - v0;
+        glm::vec3 edge2 = v2 - v0;
+        glm::vec3 h = glm::cross(rayDir_localSpace, edge2);
+        float a = glm::dot(edge1, h);
+
+        if (a > -EPSILON && a < EPSILON) {
+            continue;
+        }
+
+        float f = 1.0f / a;
+        glm::vec3 s = rayOrigin_localSpace - v0;
+        float u = f * glm::dot(s, h);
+
+        if (u < 0.0f || u > 1.0f) {
+            continue;
+        }
+
+        glm::vec3 q = glm::cross(s, edge1);
+        float v = f * glm::dot(rayDir_localSpace, q);
+
+        if (v < 0.0f || u + v > 1.0f) {
+            continue;
+        }
+
+        float t = f * glm::dot(edge2, q);
+
+        if (t > EPSILON && t < closestT) {
+            closestT = t;
+            foundIntersection = true;
+        }
+    }
+
+    if (foundIntersection) {
+        // Transform the hit distance back to world space
+        // We need to account for the transformation's scale
+        glm::mat4 localToWorld = nifRootToWorld_transform * shape.shapeLocalToNifRoot_transform_zUp;
+        glm::vec3 hitPoint_localSpace = rayOrigin_localSpace + rayDir_localSpace * closestT;
+        glm::vec3 hitPoint_worldSpace = glm::vec3(localToWorld * glm::vec4(hitPoint_localSpace, 1.0f));
+        outDistance = glm::distance(rayOrigin_worldSpace, hitPoint_worldSpace);
+        return true;
+    }
+
+    return false;
+}
+
+void Renderer::performMeshPicking(double mouseX, double mouseY) {
+    // Convert mouse coordinates to normalized device coordinates
+    float x = (2.0f * mouseX) / screenWidth - 1.0f;
+    float y = 1.0f - (2.0f * mouseY) / screenHeight;
+
+    // Create ray in clip space
+    glm::vec4 rayClip(x, y, -1.0f, 1.0f);
+
+    // Transform to view space
+    glm::mat4 projection = glm::perspective(glm::radians(m_cameraFovY),
+        (float)screenWidth / (float)screenHeight,
+        10.0f, 10000.0f);
+    glm::vec4 rayView = glm::inverse(projection) * rayClip;
+    rayView = glm::vec4(rayView.x, rayView.y, -1.0f, 0.0f);
+
+    // Transform to world space
+    glm::vec3 rayWorld = glm::vec3(glm::inverse(camera.GetViewMatrix()) * rayView);
+    rayWorld = glm::normalize(rayWorld);
+
+    glm::vec3 rayOrigin = camera.Position_worldSpace_yUp;
+
+    // Track the closest hit
+    float closestDistance = std::numeric_limits<float>::max();
+    const MeshShape* closestShape = nullptr;
+
+    // Test all meshes and find the closest intersection
+    auto testShapes = [&](std::vector<MeshShape>& shapes) {
+        for (const auto& shape : shapes) {
+            float hitDistance = -1.0f;
+            if (rayIntersectsMesh(rayOrigin, rayWorld, shape, Matrices::NIF_ROOT_TO_WORLD_YUP, hitDistance)) {
+                if (hitDistance < closestDistance) {
+                    closestDistance = hitDistance;
+                    closestShape = &shape;
+                }
+            }
+        }
+        };
+
+    // Test all shape types
+    testShapes(model->getOpaqueShapes());
+    testShapes(model->getAlphaTestShapes());
+    testShapes(model->getTransparentShapes());
+
+    // If we found a hit, populate the info
+    if (closestShape != nullptr) {
+        m_pickedMeshInfo.valid = true;
+        m_pickedMeshInfo.meshName = closestShape->name;
+
+        // Get texture names (just filenames, not full paths)
+        m_pickedMeshInfo.diffuseTexture = getTextureName(
+            textureManager.getTexturePath(closestShape->diffuseTextureID));
+        m_pickedMeshInfo.normalTexture = getTextureName(
+            textureManager.getTexturePath(closestShape->normalTextureID));
+        m_pickedMeshInfo.skinTexture = getTextureName(
+            textureManager.getTexturePath(closestShape->skinTextureID));
+        m_pickedMeshInfo.detailTexture = getTextureName(
+            textureManager.getTexturePath(closestShape->detailTextureID));
+        m_pickedMeshInfo.specularTexture = getTextureName(
+            textureManager.getTexturePath(closestShape->specularTextureID));
+        m_pickedMeshInfo.envMapTexture = getTextureName(
+            textureManager.getTexturePath(closestShape->environmentMapID));
+        m_pickedMeshInfo.envMaskTexture = getTextureName(
+            textureManager.getTexturePath(closestShape->environmentMaskID));
+        m_pickedMeshInfo.faceTintTexture = getTextureName(
+            textureManager.getTexturePath(closestShape->faceTintColorMaskID));
+
+        // NEW: Use the shared function to collect shader flags
+        m_pickedMeshInfo.shaderFlags = CollectActiveShaderFlags(*closestShape);
+
+        // NEW: Copy partition information
+        m_pickedMeshInfo.partitions = closestShape->dismemberPartitions;
+
+        m_showPickedMeshPopup = true;
+    }
+}
+
 void Renderer::renderUI() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
@@ -877,6 +1058,98 @@ void Renderer::renderUI() {
 
         ImGui::EndMainMenuBar();
     }
+
+    // === NEW: Mesh Info Popup ===
+    if (m_showPickedMeshPopup && m_pickedMeshInfo.valid) {
+        ImGui::OpenPopup("Mesh Information");
+        m_showPickedMeshPopup = false; // Only open once per click
+    }
+
+    if (ImGui::BeginPopup("Mesh Information")) {
+        ImGui::SeparatorText("Mesh Information");
+
+        ImGui::Text("Part Name:");
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "%s", m_pickedMeshInfo.meshName.c_str());
+
+        // NEW: Display partition information
+        if (!m_pickedMeshInfo.partitions.empty()) {
+            ImGui::Separator();
+            ImGui::Text("Dismember Partitions:");
+            for (int partID : m_pickedMeshInfo.partitions) {
+                // Map common partition IDs to readable names
+                std::string partName;
+                switch (partID) {
+                case 30: partName = "SBP_30_HEAD"; break;
+                case 31: partName = "SBP_31_HAIR"; break;
+                case 32: partName = "SBP_32_BODY"; break;
+                case 33: partName = "SBP_33_HANDS"; break;
+                case 34: partName = "SBP_34_FOREARMS"; break;
+                case 35: partName = "SBP_35_AMULET"; break;
+                case 36: partName = "SBP_36_RING"; break;
+                case 37: partName = "SBP_37_FEET"; break;
+                case 38: partName = "SBP_38_CALVES"; break;
+                case 39: partName = "SBP_39_SHIELD"; break;
+                case 40: partName = "SBP_40_TAIL"; break;
+                case 41: partName = "SBP_41_LONG_HAIR"; break;
+                case 42: partName = "SBP_42_CIRCLET"; break;
+                case 43: partName = "SBP_43_EARS"; break;
+                case 50: partName = "SBP_50_DECAPITATE_HEAD"; break;
+                case 51: partName = "SBP_51_DECAPITATE"; break;
+                case 61: partName = "SBP_61_FX01"; break;
+                case 130: partName = "SBP_130_HEAD"; break;
+                case 131: partName = "SBP_131_HAIR"; break;
+                case 141: partName = "SBP_141_LONG_HAIR"; break;
+                case 142: partName = "SBP_142_CIRCLET"; break;
+                case 143: partName = "SBP_143_EARS"; break;
+                case 150: partName = "SBP_150_DECAPITATE_HEAD"; break;
+                case 230: partName = "SBP_230_HEAD (Beast)"; break;
+                case 231: partName = "SBP_231_HAIR (Beast)"; break;
+                default: partName = "Unknown"; break;
+                }
+
+                if (partName != "Unknown") {
+                    ImGui::BulletText("%d - %s", partID, partName.c_str());
+                }
+                else {
+                    ImGui::BulletText("%d", partID);
+                }
+            }
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Textures:");
+
+        auto displayTexture = [](const char* label, const std::string& texName) {
+            if (!texName.empty()) {
+                ImGui::BulletText("%s: %s", label, texName.c_str());
+            }
+            };
+
+        displayTexture("Diffuse", m_pickedMeshInfo.diffuseTexture);
+        displayTexture("Normal", m_pickedMeshInfo.normalTexture);
+        displayTexture("Skin", m_pickedMeshInfo.skinTexture);
+        displayTexture("Detail", m_pickedMeshInfo.detailTexture);
+        displayTexture("Specular", m_pickedMeshInfo.specularTexture);
+        displayTexture("Environment", m_pickedMeshInfo.envMapTexture);
+        displayTexture("Env Mask", m_pickedMeshInfo.envMaskTexture);
+        displayTexture("Face Tint", m_pickedMeshInfo.faceTintTexture);
+
+        ImGui::Separator();
+        ImGui::Text("Shader Flags:");
+
+        if (m_pickedMeshInfo.shaderFlags.empty()) {
+            ImGui::BulletText("(none)");
+        }
+        else {
+            for (const auto& flag : m_pickedMeshInfo.shaderFlags) {
+                ImGui::BulletText("%s", flag.c_str());
+            }
+        }
+
+        ImGui::EndPopup();
+    }
+    // === END NEW ===
 }
 
 void Renderer::shutdownUI() {
@@ -2234,7 +2507,6 @@ void Renderer::logLightAngles(int lightIndex, int directionalLightCounter) const
 void Renderer::HandleMouseButton(int button, int action, int mods) {
     bool captureMouse = ImGui::GetIO().WantCaptureMouse;
     if (m_visualizeLights) {
-        // We now ONLY check if an item is hovered.
         captureMouse = ImGui::IsAnyItemHovered();
     }
     if (captureMouse) {
@@ -2252,13 +2524,26 @@ void Renderer::HandleMouseButton(int button, int action, int mods) {
             isRotating = false;
         }
     }
-    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+
+    // CHANGED: Panning is now middle mouse button
+    if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
         if (action == GLFW_PRESS) {
             isPanning = true;
             firstMouse = true;
         }
         else if (action == GLFW_RELEASE) {
             isPanning = false;
+        }
+    }
+
+    // NEW: Right-click for mesh picking
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        if (action == GLFW_PRESS) {
+            if (model) {
+                double xpos, ypos;
+                glfwGetCursorPos(window, &xpos, &ypos);
+                performMeshPicking(xpos, ypos);
+            }
         }
     }
 }

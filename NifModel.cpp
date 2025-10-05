@@ -139,6 +139,30 @@ std::string GetFlagsString(const ShaderFlagSet& flags, int set_number) {
     return ss.str();
 }
 
+// Helper to collect active shader flags from a MeshShape into a vector of strings
+std::vector<std::string> CollectActiveShaderFlags(const MeshShape& shape) {
+    std::vector<std::string> flags;
+
+    // Add flags based on booleans stored in MeshShape
+    if (shape.hasSpecularFlag) flags.push_back("SLSF1_Specular");
+    if (shape.isSkinned) flags.push_back("SLSF1_Skinned");
+    if (shape.hasEnvMapFlag) flags.push_back("SLSF1_Environment_Mapping");
+    if (shape.hasHairSoftLightingFlag) flags.push_back("SLSF1_Hair_Soft_Lighting");
+    if (shape.receiveShadows) flags.push_back("SLSF1_Receive_Shadows");
+    if (shape.castShadows) flags.push_back("SLSF1_Cast_Shadows");
+    if (shape.hasEyeEnvMapFlag) flags.push_back("SLSF1_Eye_Environment_Mapping");
+    if (shape.hasOwnEmitFlag) flags.push_back("SLSF1_Own_Emit");
+    if (shape.isModelSpace) flags.push_back("SLSF1_Model_Space_Normals");
+    if (shape.hasGreyscaleToPaletteFlag) flags.push_back("SLSF1_Greyscale_To_Palette_Color");
+
+    if (shape.zBufferWrite) flags.push_back("SLSF2_ZBuffer_Write");
+    if (shape.doubleSided) flags.push_back("SLSF2_Double_Sided");
+    if (shape.hasVertexColors) flags.push_back("SLSF2_Vertex_Colors");
+    if (shape.hasSoftLightingFlag) flags.push_back("SLSF2_Soft_Lighting");
+
+    return flags;
+}
+
 // Helper function to get the full world transform of any scene graph object (Node or Shape).
 // This calculates the transformation from the object's local space to the NIF file's root space.
 nifly::MatTransform GetAVObjectTransformToGlobal(const nifly::NifFile& nifFile, nifly::NiAVObject* obj, bool debugMode = false) {
@@ -638,6 +662,21 @@ found_head:
 
                     if (debugMode) {
                         std::cout << "        [Skinning Matrix] Final Shader Matrix for Bone #" << i << " (GLM Z-up, Col-major):\n" << glm::to_string(mesh.skinToBonePose_transforms_zUp[i]) << std::endl;
+                    }
+                }
+
+                // NEW: Track which partitions this mesh uses
+                if (auto* dismemberInst = nif.GetHeader().GetBlock<nifly::BSDismemberSkinInstance>(niShape->SkinInstanceRef())) {
+                    for (const auto& partition : dismemberInst->partitions) {
+                        mesh.dismemberPartitions.push_back(partition.partID);
+                    }
+                    if (debugMode && !mesh.dismemberPartitions.empty()) {
+                        std::cout << "    [Debug] Mesh uses dismember partitions: ";
+                        for (size_t i = 0; i < mesh.dismemberPartitions.size(); ++i) {
+                            std::cout << mesh.dismemberPartitions[i];
+                            if (i < mesh.dismemberPartitions.size() - 1) std::cout << ", ";
+                        }
+                        std::cout << std::endl;
                     }
                 }
 

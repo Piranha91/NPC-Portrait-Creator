@@ -26,6 +26,9 @@ public:
     void setMipmappingEnabled(bool enabled) { m_useMipmapping = enabled; }
     void setLodBias(float bias) { m_lodBias = bias; }
 
+    // NEW: Get the original path for a texture ID
+    std::string getTexturePath(GLuint textureID) const;
+
     void cleanup();
 
 private:
@@ -36,6 +39,9 @@ private:
 
     // This cache is for GPU texture IDs, which is still this class's responsibility.
     std::unordered_map<std::string, TextureInfo> textureCache;
+
+    // NEW: Reverse lookup map
+    std::unordered_map<GLuint, std::string> textureIdToPath;
 
     // NEW: Texture quality settings
     bool m_useMipmapping = false;

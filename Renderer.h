@@ -220,6 +220,31 @@ private:
     // --- NEW: Compatibility Toggles ---
     bool m_suppressSpecularOnVertexColor = false;
 
+    // --- NEW: Mesh Picking State ---
+    struct PickedMeshInfo {
+        bool valid = false;
+        std::string meshName;
+        std::string diffuseTexture;
+        std::string normalTexture;
+        std::string skinTexture;
+        std::string detailTexture;
+        std::string specularTexture;
+        std::string envMapTexture;
+        std::string envMaskTexture;
+        std::string faceTintTexture;
+        std::vector<std::string> shaderFlags;
+        std::vector<int> partitions; // NEW
+    };
+    PickedMeshInfo m_pickedMeshInfo;
+    bool m_showPickedMeshPopup = false;
+
+    // Helper method to perform ray-mesh intersection
+    bool rayIntersectsMesh(const glm::vec3& rayOrigin, const glm::vec3& rayDir,
+        const MeshShape& shape, const glm::mat4& transform,
+        float& outDistance);
+    void performMeshPicking(double mouseX, double mouseY);
+    std::string getTextureName(const std::string& fullPath) const;
+
     // Logging
     bool m_logFirstFrameOnce = true;
     void logFirstFrame(const std::string& message) const;

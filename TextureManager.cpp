@@ -26,9 +26,10 @@ TextureInfo TextureManager::loadTexture(const std::string& relativePath) {
     std::vector<char> fileData = assetManager.extractFile(relativePath);
 
     if (!fileData.empty()) {
-        TextureInfo texInfo = uploadDDSToGPU(fileData); // <-- Get the full struct
+        TextureInfo texInfo = uploadDDSToGPU(fileData);
         if (texInfo.id != 0) {
             textureCache[relativePath] = texInfo;
+            textureIdToPath[texInfo.id] = relativePath; // NEW: Track reverse mapping
             return texInfo;
         }
     }
@@ -36,6 +37,15 @@ TextureInfo TextureManager::loadTexture(const std::string& relativePath) {
     std::cerr << "Warning: Texture not found or failed to load: " << relativePath << std::endl;
     textureCache[relativePath] = { 0, GL_TEXTURE_2D };
     return { 0, GL_TEXTURE_2D };
+}
+
+// NEW: Implement the lookup method
+std::string TextureManager::getTexturePath(GLuint textureID) const {
+    auto it = textureIdToPath.find(textureID);
+    if (it != textureIdToPath.end()) {
+        return it->second;
+    }
+    return "";
 }
 
 
@@ -157,4 +167,5 @@ void TextureManager::cleanup() {
         }
     }
     textureCache.clear();
+    textureIdToPath.clear();
 }

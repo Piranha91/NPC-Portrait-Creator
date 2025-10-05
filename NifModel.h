@@ -107,9 +107,14 @@ struct MeshShape {
     float emissiveMultiple = 1.0f;
     glm::vec2 uvScale = glm::vec2(1.0f, 1.0f);
 
+    std::vector<int> dismemberPartitions; // List of partition IDs used by this mesh
+
     void draw() const;
     void cleanup();
 };
+
+// Helper function for shader flag collection
+std::vector<std::string> CollectActiveShaderFlags(const MeshShape& shape);
 
 class NifModel {
 public:
