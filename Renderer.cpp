@@ -881,7 +881,7 @@ void Renderer::renderUI() {
                 }
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Automatically corrects normal map orientation:\n"
+                ImGui::SetTooltip(u8"Automatically corrects normal map orientation:\n"
                     "- Model-space normals: No change\n"
                     "- Tangent-space (non-eye): -90° pitch\n"
                     "- Tangent-space (eye): +90° pitch");
@@ -904,18 +904,18 @@ void Renderer::renderUI() {
                             if (ImGui::TreeNode(shapes[i].name.c_str())) {
                                 ImGui::Text("Rotation (degrees):");
 
-                                bool pitchChanged = ImGui::DragFloat("Pitch", &shapes[i].normalRotationPitch, 1.0f, -180.0f, 180.0f, "%.1f°");
+                                bool pitchChanged = ImGui::DragFloat("Pitch", &shapes[i].normalRotationPitch, 1.0f, -180.0f, 180.0f, u8"%.1f°");
                                 if (ImGui::IsItemHovered()) {
                                     ImGui::SetTooltip("Rotate normals up/down (around X-axis)");
                                 }
 
-                                bool yawChanged = ImGui::DragFloat("Yaw", &shapes[i].normalRotationYaw, 1.0f, -180.0f, 180.0f, "%.1f°");
+                                bool yawChanged = ImGui::DragFloat("Yaw", &shapes[i].normalRotationYaw, 1.0f, -180.0f, 180.0f, u8"%.1f°");
                                 if (ImGui::IsItemHovered()) {
                                     ImGui::SetTooltip("Rotate normals left/right (around Y-axis)");
                                 }
 
                                 // Reset button
-                                if (ImGui::Button("Reset to 0°")) {
+                                if (ImGui::Button(u8"Reset to 0°")) {
                                     shapes[i].normalRotationPitch = 0.0f;
                                     shapes[i].normalRotationYaw = 0.0f;
                                 }
@@ -923,7 +923,7 @@ void Renderer::renderUI() {
                                 // Show current combined rotation info
                                 if (shapes[i].normalRotationPitch != 0.0f || shapes[i].normalRotationYaw != 0.0f) {
                                     ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f),
-                                        "Active: P%.1f° Y%.1f°",
+                                        u8"Active: P%.1f° Y%.1f°",
                                         shapes[i].normalRotationPitch,
                                         shapes[i].normalRotationYaw);
                                 }
@@ -967,13 +967,13 @@ void Renderer::renderUI() {
                     camera.updateCameraVectors();
                 }
             }
-            if (ImGui::DragFloat("Pitch", &camera.Pitch, 0.5f, -89.0f, 89.0f, "%.1f°")) {
+            if (ImGui::DragFloat("Pitch", &camera.Pitch, 0.5f, -89.0f, 89.0f, u8"%.1f°")) {
                 camera.updateCameraVectors();
             }
-            if (ImGui::DragFloat("Yaw", &camera.Yaw, 0.5f, -180.0f, 360.0f, "%.1f°")) {
+            if (ImGui::DragFloat("Yaw", &camera.Yaw, 0.5f, -180.0f, 360.0f, u8"%.1f°")) {
                 camera.updateCameraVectors();
             }
-            if (ImGui::DragFloat("Roll", &camera.Roll, 0.5f, -180.0f, 180.0f, "%.1f°")) {
+            if (ImGui::DragFloat("Roll", &camera.Roll, 0.5f, -180.0f, 180.0f, u8"%.1f°")) {
                 camera.updateCameraVectors();
             }
 
