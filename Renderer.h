@@ -190,6 +190,8 @@ private:
     float camX = 0.0f, camY = 0.0f, camZ = 0.0f;
 	float camPitch = 0.0f, camYaw = 0.0f, camRoll = 0.0f;
 
+    void calculateMugshotCamera();
+
     // Image output settings
     int imageXRes = 750;
     int imageYRes = 750;
