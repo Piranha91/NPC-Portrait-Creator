@@ -66,14 +66,6 @@ void Camera::ProcessMouseOrbit(float xoffset, float yoffset) {
 }
 
 void Camera::ProcessMousePan(float xoffset, float yoffset) {
-    // --- TEMPORARY DEBUGGING BLOCK ---
-    std::cout << "--- Panning ---" << std::endl;
-    std::cout << "Mouse Input (x, y): " << xoffset << ", " << yoffset << std::endl;
-    std::cout << "Camera Right Vector (Y-up): " << glm::to_string(Right_localSpace_yUp) << std::endl;
-    std::cout << "Camera Up Vector (Y-up):    " << glm::to_string(Up_localSpace_yUp) << std::endl;
-    std::cout << "-----------------" << std::endl;
-    // --- END DEBUGGING ---
-
     float panSpeed = PanSensitivity * RadiusFromTarget;
     Target_worldSpace_yUp -= Right_localSpace_yUp * (xoffset * panSpeed);
     Target_worldSpace_yUp -= Up_localSpace_yUp * (yoffset * panSpeed);
