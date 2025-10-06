@@ -1915,6 +1915,7 @@ void Renderer::loadNifModel(const std::string& path) {
             camera.Position_worldSpace_yUp = glm::vec3(camX, camY, camZ);
             camera.Pitch = camPitch;
             camera.Yaw = camYaw;
+            camera.Roll = camRoll;
             camera.updateCameraVectors();
             camera.SetInitialState(camera.Target_worldSpace_yUp, camera.RadiusFromTarget, camera.Yaw, camera.Pitch, camera.Roll);
             std::cout << "  [Camera Debug] Position set to: (" << camX << ", " << camY << ", " << camZ << ")\n";
@@ -1961,8 +1962,9 @@ void Renderer::loadNifModel(const std::string& path) {
             // 4. Set pitch and yaw (allowing command-line override or using defaults)
             camera.Yaw = (camYaw != 0.0f) ? camYaw : 90.0f; // Default to front-on view
             camera.Pitch = camPitch; // Default is already 0.0f
+            camera.Roll = camRoll;
 
-            if (camYaw != 0.0f || camPitch != 0.0f) {
+            if (camYaw != 0.0f || camPitch != 0.0f || camRoll != 0.0f) {
                 std::cout << "  [Mugshot Debug] Using custom rotation: Pitch=" << camera.Pitch << ", Yaw=" << camera.Yaw << "\n";
             }
             else {

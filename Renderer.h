@@ -60,8 +60,11 @@ public:
     void setMugshotBottomOffset(float offset) { headBottomOffset = offset; }
     void setImageResolutionX(int width) { imageXRes = width; }
     void setImageResolutionY(int height) { imageYRes = height; }
-    void setAbsoluteCamera(float x, float y, float z, float p, float yw) {
-        camX = x; camY = y; camZ = z; camPitch = p; camYaw = yw;
+    void setAbsoluteCamera(float x, float y, float z, float p, float yw, float r) {
+        camX = x; camY = y; camZ = z; camPitch = p; camYaw = yw; camRoll = r;
+    }
+    void setEulerAngles(float p, float yw, float r) {
+        camPitch = p; camYaw = yw; camRoll = r;
     }
     void setFov(float fov) { m_cameraFovY = fov; }
     void setLightingProfile(const std::string& path) { lightingProfilePath = path; }

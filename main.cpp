@@ -35,6 +35,7 @@ int main(int argc, char** argv) {
         ("camZ", "Camera Z position (disables auto-framing)", cxxopts::value<float>()->default_value("0"))
         ("pitch", "Camera pitch angle (works in both modes)", cxxopts::value<float>()->default_value("0"))
         ("yaw", "Camera yaw angle (works in both modes)", cxxopts::value<float>()->default_value("0"))
+        ("roll", "Camera roll angle (works in both modes)", cxxopts::value<float>()->default_value("0"))
         // Camera relative (mugshot) controls
         ("head-top-offset", "Top margin for head as a percentage (e.g., 0.15 for 15%)", cxxopts::value<float>())
         ("head-bottom-offset", "Bottom margin for head as a percentage (e.g., -0.02 for -2%)", cxxopts::value<float>())
@@ -108,10 +109,19 @@ int main(int argc, char** argv) {
         }
 
         // Always override camera if specified on command line
-        if (result.count("camX") || result.count("camY") || result.count("camZ") || result.count("pitch") || result.count("yaw")) {
+        // Position parameters trigger absolute camera mode
+        if (result.count("camX") || result.count("camY") || result.count("camZ")) {
             renderer.setAbsoluteCamera(
                 result["camX"].as<float>(), result["camY"].as<float>(), result["camZ"].as<float>(),
-                result["pitch"].as<float>(), result["yaw"].as<float>()
+                result["pitch"].as<float>(), result["yaw"].as<float>(), result["roll"].as<float>()
+            );
+        }
+        // Euler angles work in both modes - just store them
+        if (result.count("pitch") || result.count("yaw") || result.count("roll")) {
+            renderer.setEulerAngles(
+                result["pitch"].as<float>(),
+                result["yaw"].as<float>(),
+                result["roll"].as<float>()
             );
         }
 
