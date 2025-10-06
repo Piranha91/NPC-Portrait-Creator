@@ -1845,56 +1845,76 @@ void Renderer::calculateMugshotCamera() {
         std::cout << "  [Mugshot Warning] No head partition found. Falling back to aggregate head bounds.\n";
     }
 
-    // 2. Convert coordinates from Skyrim's Z-up to our renderer's Y-up
+    // 2. Convert coordinates from NIF's Z-up to renderer's Y-up
     float headTop_Yup = headMaxBounds_nifRootSpace_zUp.z;
     float headBottom_Yup = headMinBounds_nifRootSpace_zUp.z;
 
-    // Calculate horizontal center based on HEAD bounds
-    float headCenterX_Yup = -(headMinBounds_nifRootSpace_zUp.x + headMaxBounds_nifRootSpace_zUp.x) / 2.0f;
-    float headCenterZ_Yup = -(headMinBounds_nifRootSpace_zUp.y + headMaxBounds_nifRootSpace_zUp.y) / 2.0f;
+    // 3. Calculate the head mesh height
+    float headMeshHeight = headTop_Yup - headBottom_Yup;
+    std::cout << "  [Mugshot Calc] Head mesh height (Y-up): " << headMeshHeight << "\n";
 
-    // 3. Define the vertical frame for the mugshot based on the HEAD MESH ONLY
-    float headHeight = headTop_Yup - headBottom_Yup;
-    float frameBottom_Yup = headBottom_Yup + (headHeight * headBottomOffset);
-    float frameTop_Yup = headTop_Yup + (headHeight * headTopOffset);
-    float frameHeight = frameTop_Yup - frameBottom_Yup;
-    m_mugshotFrameHeight = frameHeight;
-    float frameCenterY = (frameTop_Yup + frameBottom_Yup) / 2.0f;
+    // 4. Account for hair extending above the head
+    glm::vec3 fullMinBounds_nifRootSpace_zUp = model->getMinBounds_nifRootSpace_zUp();
+    glm::vec3 fullMaxBounds_nifRootSpace_zUp = model->getMaxBounds_nifRootSpace_zUp();
+    float fullTop_Yup = fullMaxBounds_nifRootSpace_zUp.z;
 
-    // 4. Set pitch, yaw, and roll (allowing command-line override or using defaults)
-    camera.Yaw = (camYaw != 0.0f) ? camYaw : 90.0f; // Default to front-on view
-    camera.Pitch = camPitch; // Default is already 0.0f
-    camera.Roll = camRoll;   // Default is already 0.0f
+    // Calculate hair extension above head
+    float hairExtensionAbove = std::max(0.0f, fullTop_Yup - headTop_Yup);
+    std::cout << "  [Mugshot Calc] Hair extension above head: " << hairExtensionAbove << "\n";
 
-    if (camYaw != 0.0f || camPitch != 0.0f || camRoll != 0.0f) {
-        std::cout << "  [Mugshot Debug] Using custom rotation: Pitch=" << camera.Pitch
-            << ", Yaw=" << camera.Yaw
-            << ", Roll=" << camera.Roll << "\n";
-    }
-    else {
-        std::cout << "  [Mugshot Debug] Using default front-on rotation (Yaw=90, Pitch=0, Roll=0)\n";
-    }
+    // Total considered height (head + hair above, ignoring hair below)
+    float totalConsideredHeight = headMeshHeight + hairExtensionAbove;
+    std::cout << "  [Mugshot Calc] Total considered height: " << totalConsideredHeight << "\n";
 
-    // 5. Set target and perform initial vector update to establish view direction
-    camera.Target_worldSpace_yUp = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
-    camera.RadiusFromTarget = 100.0f; // Temporary distance for calculation
+    // 5. Apply pitch angle to get projected height in camera view
+    float pitchRad = glm::radians(camPitch);
+    float projectedHeight = totalConsideredHeight * cos(pitchRad);
+    std::cout << "  [Mugshot Calc] Projected height at pitch " << camPitch << " degrees: " << projectedHeight << "\n";
+
+    // 6. Calculate the required frame height based on offsets
+    // Top offset adds extra space above, bottom offset removes space below (or adds if negative)
+    float topMargin = projectedHeight * headTopOffset;
+    float bottomMargin = projectedHeight * headBottomOffset;
+
+    // The frame must fit: top margin + projected content + bottom margin
+    // Note: bottomMargin is typically negative, which means we're clipping the bottom
+    m_mugshotFrameHeight = topMargin + projectedHeight - bottomMargin;
+    std::cout << "  [Mugshot Calc] Top margin: " << topMargin << "\n";
+    std::cout << "  [Mugshot Calc] Bottom margin: " << bottomMargin << "\n";
+    std::cout << "  [Mugshot Calc] Required frame height: " << m_mugshotFrameHeight << "\n";
+
+    // 7. Calculate camera distance based on FOV and frame height
+    float fovYRadians = glm::radians(m_cameraFovY);
+    float cameraDistance = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
+    std::cout << "  [Mugshot Calc] Camera distance for FOV " << m_cameraFovY << " degrees: " << cameraDistance << "\n";
+
+    // 8. Calculate the vertical center position
+    // The frame should capture from (headBottom - bottomClip) to (headTop + hairExtension + topMargin)
+    // Where bottomClip is the portion we want to cut off
+    float topOfFrame_Yup = headTop_Yup + hairExtensionAbove + topMargin;
+    float bottomOfFrame_Yup = headBottom_Yup - bottomMargin; // bottomMargin is negative, so this moves DOWN
+    float verticalCenter_Yup = (topOfFrame_Yup + bottomOfFrame_Yup) / 2.0f;
+
+    // 9. Calculate horizontal center (use the center of the full bounds for better framing)
+    float horizontalCenter_X = (fullMinBounds_nifRootSpace_zUp.x + fullMaxBounds_nifRootSpace_zUp.x) / 2.0f;
+    float horizontalCenter_Z = (fullMinBounds_nifRootSpace_zUp.y + fullMaxBounds_nifRootSpace_zUp.y) / 2.0f;
+
+    // 10. Set the camera target and parameters
+    camera.Target_worldSpace_yUp = glm::vec3(horizontalCenter_X, verticalCenter_Yup, horizontalCenter_Z);
+    camera.RadiusFromTarget = cameraDistance;
+    camera.Pitch = camPitch;
+    camera.Yaw = camYaw;
+    camera.Roll = camRoll;
+
+    // 11. Update camera vectors and save as initial state
     camera.updateCameraVectors();
-
-    // 6. Calculate required camera distance based on the rotated view
-    const float fovYRadians = glm::radians(m_cameraFovY);
-    float distanceForHeight = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
-
-    // 7. Apply the final calculated distance
-    camera.RadiusFromTarget = distanceForHeight;
-    camera.updateCameraVectors();
-
-    // Save the calculated position as the new "zero"
     camera.SetInitialState(camera.Target_worldSpace_yUp, camera.RadiusFromTarget, camera.Yaw, camera.Pitch, camera.Roll);
 
-    std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target_worldSpace_yUp) << std::endl;
-    std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << frameHeight << std::endl;
-    std::cout << "  [Mugshot Debug] Final Camera Radius: " << camera.RadiusFromTarget << std::endl;
-    std::cout << "  [Mugshot Debug] Final Camera Position: " << glm::to_string(camera.Position_worldSpace_yUp) << std::endl;
+    std::cout << "  [Mugshot Result] Camera target: (" << camera.Target_worldSpace_yUp.x << ", "
+        << camera.Target_worldSpace_yUp.y << ", " << camera.Target_worldSpace_yUp.z << ")\n";
+    std::cout << "  [Mugshot Result] Camera distance: " << camera.RadiusFromTarget << "\n";
+    std::cout << "  [Mugshot Result] Camera rotation: Pitch=" << camera.Pitch
+        << ", Yaw=" << camera.Yaw << ", Roll=" << camera.Roll << "\n";
     std::cout << "-------------------------------------\n" << std::endl;
 }
 
@@ -2316,7 +2336,7 @@ void Renderer::loadConfig() {
         camRoll = data.value("roll", 0.0f);
 
         // Load mugshot settings
-        headTopOffset = data.value("head_top_offset", 0.20f);
+        headTopOffset = data.value("head_top_offset", 0.0f);
         headBottomOffset = data.value("head_bottom_offset", -0.05f);
 
         // Load image settings

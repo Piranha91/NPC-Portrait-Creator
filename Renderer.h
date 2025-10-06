@@ -201,7 +201,7 @@ private:
     float textureLodBias = 0.0f;
 
     // --- NEW: Mugshot framing offsets ---
-    float headTopOffset = 0.20f;    // Default: 20% margin at the top
+    float headTopOffset = 0.0f;    // Default: 5% margin at the top
     float headBottomOffset = -0.05f; // Default: -5% margin (overshoot) at the bottom
 
     // NEW: Add this variable to request a screenshot (to enable frame delay and avoid including the UI).
