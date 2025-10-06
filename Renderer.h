@@ -50,7 +50,7 @@ public:
     void loadNifModel(const std::string& path);
     void loadCustomSkeleton(const std::string& path);
     void detectAndSetSkeleton(const nifly::NifFile& nif);
-    void setGameDataDirectory(const std::string& path) { gameDataDirectory = path; }
+    void setGameDataDirectory(const std::string& path);
     void setDataFolders(const std::vector<std::string>& folders);
     std::vector<std::string>& getDataFolders() { return dataFolders; }
 
@@ -138,6 +138,7 @@ private:
 
     Skeleton* activeSkeleton = nullptr;
     SkeletonType currentSkeletonType = SkeletonType::None;
+    void reloadSkeletons();
 
     // Lighting
     std::string lightingProfilePath;

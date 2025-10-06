@@ -143,6 +143,53 @@ void Renderer::updateAssetManagerPaths() {
     assetManager.setActiveDirectories(finalPaths, appDirectory);
 }
 
+void Renderer::setGameDataDirectory(const std::string& path) {
+    std::cout << "[Game Data Update]: loading game data from " << path << "...\n";
+    gameDataDirectory = path;
+
+    // Update the AssetManager with the new directory configuration
+    updateAssetManagerPaths();
+
+    // Reload all skeletons from the updated data directories
+    reloadSkeletons();
+
+    // If a model is currently loaded, reload it to apply the new skeletons
+    if (!currentNifPath.empty() && model) {
+        std::cout << "[Game Data Update] Reloading current model with updated skeletons...\n";
+        loadNifModel(""); // Empty string triggers reload of current model
+    }
+}
+
+void Renderer::reloadSkeletons() {
+    std::cout << "[Skeleton Reload] Reloading all skeletons from updated data directories...\n";
+
+    const std::string femaleSkelPath = "meshes\\actors\\character\\character assets female\\skeleton_female.nif";
+    auto femaleData = assetManager.extractFile(femaleSkelPath);
+    if (!femaleData.empty()) {
+        femaleSkeleton.loadFromMemory(femaleData, "skeleton_female.nif");
+    }
+
+    const std::string maleSkelPath = "meshes\\actors\\character\\character assets\\skeleton.nif";
+    auto maleData = assetManager.extractFile(maleSkelPath);
+    if (!maleData.empty()) {
+        maleSkeleton.loadFromMemory(maleData, "skeleton.nif");
+    }
+
+    const std::string femaleBeastSkelPath = "meshes\\actors\\character\\character assets female\\skeletonbeast_female.nif";
+    auto femaleBeastData = assetManager.extractFile(femaleBeastSkelPath);
+    if (!femaleBeastData.empty()) {
+        femaleBeastSkeleton.loadFromMemory(femaleBeastData, "skeletonbeast_female.nif");
+    }
+
+    const std::string maleBeastSkelPath = "meshes\\actors\\character\\character assets\\skeletonbeast.nif";
+    auto maleBeastData = assetManager.extractFile(maleBeastSkelPath);
+    if (!maleBeastData.empty()) {
+        maleBeastSkeleton.loadFromMemory(maleBeastData, "skeletonbeast.nif");
+    }
+
+    std::cout << "[Skeleton Reload] Skeleton reload complete.\n";
+}
+
 void Renderer::init(bool headless) {
     this->isHeadless = headless;
     if (!glfwInit()) {
@@ -302,23 +349,7 @@ void Renderer::init(bool headless) {
     updateAssetManagerPaths();
 
     // --- Load all standard and beast skeletons using the AssetManager ---
-    std::cout << "[Skeleton Load] Attempting to load all default skeletons...\n";
-
-    const std::string femaleSkelPath = "meshes\\actors\\character\\character assets female\\skeleton_female.nif";
-    auto femaleData = assetManager.extractFile(femaleSkelPath);
-    if (!femaleData.empty()) femaleSkeleton.loadFromMemory(femaleData, "skeleton_female.nif");
-
-    const std::string maleSkelPath = "meshes\\actors\\character\\character assets\\skeleton.nif";
-    auto maleData = assetManager.extractFile(maleSkelPath);
-    if (!maleData.empty()) maleSkeleton.loadFromMemory(maleData, "skeleton.nif");
-
-    const std::string femaleBeastSkelPath = "meshes\\actors\\character\\character assets female\\skeletonbeast_female.nif";
-    auto femaleBeastData = assetManager.extractFile(femaleBeastSkelPath);
-    if (!femaleBeastData.empty()) femaleBeastSkeleton.loadFromMemory(femaleBeastData, "skeletonbeast_female.nif");
-
-    const std::string maleBeastSkelPath = "meshes\\actors\\character\\character assets\\skeletonbeast.nif";
-    auto maleBeastData = assetManager.extractFile(maleBeastSkelPath);
-    if (!maleBeastData.empty()) maleBeastSkeleton.loadFromMemory(maleBeastData, "skeletonbeast.nif");
+	reloadSkeletons();
 
     // No default skeleton is set at startup; it will be detected when a NIF is loaded.
     activeSkeleton = nullptr;
@@ -696,8 +727,7 @@ void Renderer::renderUI() {
             if (ImGui::MenuItem("Set Game Data Directory...")) {
                 std::string folderPath = selectFolderDialog_ModernWindows("Select Game Data Directory");
                 if (!folderPath.empty()) {
-                    gameDataDirectory = folderPath;
-                    loadNifModel(""); // Reload to apply the change
+					setGameDataDirectory(folderPath);
                 }
             }
 
