@@ -2154,6 +2154,7 @@ void Renderer::saveToPNG(const std::string& path) {
     else {
         metadata["lighting_profile"] = lightingJson;
     }
+    metadata["normal_hack"] = m_enableNormalMapHack;
     metadata["resolution_x"] = imageXRes;
     metadata["resolution_y"] = imageYRes;
     metadata["camera"] = {
