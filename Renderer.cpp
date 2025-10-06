@@ -937,6 +937,34 @@ void Renderer::renderUI() {
                     camera.updateCameraVectors();
                 }
             }
+            if (ImGui::DragFloat("Pitch", &camera.Pitch, 0.5f, -89.0f, 89.0f, "%.1f°")) {
+                camera.updateCameraVectors();
+            }
+            if (ImGui::DragFloat("Yaw", &camera.Yaw, 0.5f, -180.0f, 360.0f, "%.1f°")) {
+                camera.updateCameraVectors();
+            }
+            if (ImGui::DragFloat("Roll", &camera.Roll, 0.5f, -180.0f, 180.0f, "%.1f°")) {
+                camera.updateCameraVectors();
+            }
+
+            ImGui::Separator();
+            if (ImGui::MenuItem("Set as Default Camera Rotation")) {
+                camPitch = camera.Pitch;
+                camYaw = camera.Yaw;
+				camRoll = camera.Roll;
+                saveConfig();
+                std::cout << "Saved default camera rotation: Pitch=" << camera.Pitch
+                    << ", Yaw=" << camera.Yaw
+                    << ", Roll=" << camera.Roll << std::endl;
+            }
+            if (ImGui::MenuItem("Reset to Front View")) {
+                camera.Pitch = 0.0f;
+                camera.Yaw = 90.0f;
+                camera.Roll = 0.0f;
+                camera.updateCameraVectors();
+                camPitch = 0.0f;
+                camYaw = 90.0f;
+            }
             ImGui::Separator();
             if (ImGui::CollapsingHeader("Texture Quality")) {
                 bool mipmapChanged = ImGui::Checkbox("Enable Mipmapping", &useTextureMipmapping);
@@ -1878,8 +1906,9 @@ void Renderer::loadNifModel(const std::string& path) {
         }
         // === END NEW ===
 
-        // Check which camera mode to use. Mugshot mode is used only if all absolute camera parameters are zero.
-        bool useAbsoluteCamera = (camX != 0.0f || camY != 0.0f || camZ != 0.0f || camPitch != 0.0f || camYaw != 0.0f);
+        // Check which camera mode to use. Mugshot mode is used only if all absolute POSITION parameters are zero.
+        // Pitch and yaw can be specified in either mode.
+        bool useAbsoluteCamera = (camX != 0.0f || camY != 0.0f || camZ != 0.0f);
 
         if (useAbsoluteCamera) {
             std::cout << "\n--- Using Absolute Camera Position ---\n";
@@ -1887,12 +1916,11 @@ void Renderer::loadNifModel(const std::string& path) {
             camera.Pitch = camPitch;
             camera.Yaw = camYaw;
             camera.updateCameraVectors();
-            camera.SetInitialState(camera.Target_worldSpace_yUp, camera.RadiusFromTarget, camera.Yaw, camera.Pitch);
+            camera.SetInitialState(camera.Target_worldSpace_yUp, camera.RadiusFromTarget, camera.Yaw, camera.Pitch, camera.Roll);
             std::cout << "  [Camera Debug] Position set to: (" << camX << ", " << camY << ", " << camZ << ")\n";
             std::cout << "  [Camera Debug] Rotation set to: Pitch=" << camPitch << ", Yaw=" << camYaw << "\n";
             std::cout << "-------------------------------------\n" << std::endl;
         }
-
         else
         {
             std::cout << "\n--- Calculating Mugshot Camera Position ---\n";
@@ -1903,55 +1931,60 @@ void Renderer::loadNifModel(const std::string& path) {
             glm::vec3 headMinBounds_nifRootSpace_zUp;
             glm::vec3 headMaxBounds_nifRootSpace_zUp;
 
-            // --- MODIFICATION START: Prioritize partition bounds, then fall back ---
             if (model->hasHeadShapeBounds()) {
                 headMinBounds_nifRootSpace_zUp = model->getHeadShapeMinBounds_nifRootSpace_zUp();
                 headMaxBounds_nifRootSpace_zUp = model->getHeadShapeMaxBounds_nifRootSpace_zUp();
                 std::cout << "  [Mugshot Info] Using specific head partition bounds for framing.\n";
             }
             else {
-                // Fallback for models with no head partition
                 headMinBounds_nifRootSpace_zUp = model->getHeadMinBounds_nifRootSpace_zUp();
                 headMaxBounds_nifRootSpace_zUp = model->getHeadMaxBounds_nifRootSpace_zUp();
                 std::cout << "  [Mugshot Warning] No head partition found. Falling back to aggregate head bounds.\n";
             }
-            // --- MODIFICATION END ---
 
             // 2. Convert coordinates from Skyrim's Z-up to our renderer's Y-up
-            // The NIF's Z-axis (up) becomes the renderer's Y-axis (up).
             float headTop_Yup = headMaxBounds_nifRootSpace_zUp.z;
             float headBottom_Yup = headMinBounds_nifRootSpace_zUp.z;
 
-            // Calculate horizontal center based on HEAD bounds to ensure a straight-on view
-            // The NIF's X-axis (right) becomes the renderer's -X axis.
+            // Calculate horizontal center based on HEAD bounds
             float headCenterX_Yup = -(headMinBounds_nifRootSpace_zUp.x + headMaxBounds_nifRootSpace_zUp.x) / 2.0f;
-            // The NIF's Y-axis (forward) becomes the renderer's -Z axis (forward).
             float headCenterZ_Yup = -(headMinBounds_nifRootSpace_zUp.y + headMaxBounds_nifRootSpace_zUp.y) / 2.0f;
 
             // 3. Define the vertical frame for the mugshot based on the HEAD MESH ONLY
             float headHeight = headTop_Yup - headBottom_Yup;
-
-            // --- MODIFICATION START: Use configurable offsets ---
-            float frameBottom_Yup = headBottom_Yup + (headHeight * headBottomOffset); // Apply bottom offset
-            float frameTop_Yup = headTop_Yup + (headHeight * headTopOffset); // Apply top offset
-            // --- MODIFICATION END ---
-
+            float frameBottom_Yup = headBottom_Yup + (headHeight * headBottomOffset);
+            float frameTop_Yup = headTop_Yup + (headHeight * headTopOffset);
             float frameHeight = frameTop_Yup - frameBottom_Yup;
             m_mugshotFrameHeight = frameHeight;
             float frameCenterY = (frameTop_Yup + frameBottom_Yup) / 2.0f;
 
-            // 4. Calculate required camera distance based on the vertical frame ONLY
+            // 4. Set pitch and yaw (allowing command-line override or using defaults)
+            camera.Yaw = (camYaw != 0.0f) ? camYaw : 90.0f; // Default to front-on view
+            camera.Pitch = camPitch; // Default is already 0.0f
+
+            if (camYaw != 0.0f || camPitch != 0.0f) {
+                std::cout << "  [Mugshot Debug] Using custom rotation: Pitch=" << camera.Pitch << ", Yaw=" << camera.Yaw << "\n";
+            }
+            else {
+                std::cout << "  [Mugshot Debug] Using default front-on rotation (Yaw=90, Pitch=0)\n";
+            }
+
+            // 5. Set target and perform initial vector update to establish view direction
+            camera.Target_worldSpace_yUp = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
+            camera.RadiusFromTarget = 100.0f; // Temporary distance for calculation
+            camera.updateCameraVectors();
+
+            // 6. Calculate required camera distance based on the rotated view
+            // We need to consider how the model appears from this specific angle
             const float fovYRadians = glm::radians(m_cameraFovY);
             float distanceForHeight = (m_mugshotFrameHeight / 2.0f) / tan(fovYRadians / 2.0f);
-            // 5. Set camera properties
+
+            // 7. Apply the final calculated distance
             camera.RadiusFromTarget = distanceForHeight;
-            camera.Target_worldSpace_yUp = glm::vec3(headCenterX_Yup, frameCenterY, headCenterZ_Yup);
-            camera.Yaw = 90.0f; // Use 90 for a direct front-on view
-            camera.Pitch = 0.0f;
             camera.updateCameraVectors();
 
             // Save the calculated position as the new "zero"
-            camera.SetInitialState(camera.Target_worldSpace_yUp, camera.RadiusFromTarget, camera.Yaw, camera.Pitch);
+            camera.SetInitialState(camera.Target_worldSpace_yUp, camera.RadiusFromTarget, camera.Yaw, camera.Pitch, camera.Roll);
 
             std::cout << "  [Mugshot Debug] Camera Target (Y-up): " << glm::to_string(camera.Target_worldSpace_yUp) << std::endl;
             std::cout << "  [Mugshot Debug] Visible Height (Y-up): " << frameHeight << std::endl;
@@ -2274,6 +2307,7 @@ void Renderer::loadConfig() {
         camZ = data.value("camZ", 0.0f);
         camPitch = data.value("pitch", 0.0f);
         camYaw = data.value("yaw", 0.0f);
+        camRoll = data.value("roll", 0.0f);
 
         // Load mugshot settings
         headTopOffset = data.value("head_top_offset", 0.20f);
@@ -2316,6 +2350,7 @@ void Renderer::saveConfig() {
         data["camZ"] = camZ;
         data["pitch"] = camPitch;
         data["yaw"] = camYaw;
+        data["roll"] = camRoll;
 
         data["head_top_offset"] = headTopOffset;
         data["head_bottom_offset"] = headBottomOffset;
@@ -2579,33 +2614,30 @@ void Renderer::HandleMouseButton(int button, int action, int mods) {
         captureMouse = ImGui::IsAnyItemHovered();
     }
     if (captureMouse) {
-        isRotating = false;
-        isPanning = false;
+        currentDragMode = MouseDragMode::None;
         return;
     }
 
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
         if (action == GLFW_PRESS) {
-            isRotating = true;
+            currentDragMode = MouseDragMode::OrbitCamera;
             firstMouse = true;
         }
         else if (action == GLFW_RELEASE) {
-            isRotating = false;
+            currentDragMode = MouseDragMode::None;
         }
     }
 
-    // CHANGED: Panning is now middle mouse button
     if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
         if (action == GLFW_PRESS) {
-            isPanning = true;
+            currentDragMode = MouseDragMode::PanCamera;
             firstMouse = true;
         }
         else if (action == GLFW_RELEASE) {
-            isPanning = false;
+            currentDragMode = MouseDragMode::None;
         }
     }
 
-    // NEW: Right-click for mesh picking
     if (button == GLFW_MOUSE_BUTTON_RIGHT) {
         if (action == GLFW_PRESS) {
             if (model) {
@@ -2620,12 +2652,10 @@ void Renderer::HandleMouseButton(int button, int action, int mods) {
 void Renderer::HandleCursorPosition(double xpos, double ypos) {
     bool captureMouse = ImGui::GetIO().WantCaptureMouse;
     if (m_visualizeLights) {
-        // We now ONLY check if an item is hovered.
         captureMouse = ImGui::IsAnyItemHovered();
     }
     if (captureMouse) {
-        isRotating = false;
-        isPanning = false;
+        currentDragMode = MouseDragMode::None;
         return;
     }
 
@@ -2641,11 +2671,46 @@ void Renderer::HandleCursorPosition(double xpos, double ypos) {
     lastX = xpos;
     lastY = ypos;
 
-    if (isRotating) {
-        camera.ProcessMouseOrbit(xoffset, yoffset);
+    switch (currentDragMode) {
+    case MouseDragMode::OrbitCamera: {
+        // Check for axis locking
+        bool axisLockActive = false;
+
+        if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
+            // Lock to X-axis rotation (pitch only)
+            camera.Pitch += yoffset * camera.MouseSensitivity;
+            axisLockActive = true;
+        }
+        else if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS) {
+            // Lock to Y-axis rotation (yaw only)
+            camera.Yaw += xoffset * camera.MouseSensitivity;
+            axisLockActive = true;
+        }
+        else if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) {
+            // Lock to Z-axis rotation (roll only)
+            camera.Roll += xoffset * camera.MouseSensitivity;
+            axisLockActive = true;
+        }
+
+        if (!axisLockActive) {
+            // Free rotation
+            camera.ProcessMouseOrbit(xoffset, yoffset);
+        }
+        else {
+            // Constrain pitch and update vectors manually
+            if (camera.Pitch > 89.0f) camera.Pitch = 89.0f;
+            if (camera.Pitch < -89.0f) camera.Pitch = -89.0f;
+            camera.updateCameraVectors();
+        }
+        break;
     }
-    if (isPanning) {
+
+    case MouseDragMode::PanCamera:
         camera.ProcessMousePan(xoffset, yoffset);
+        break;
+
+    case MouseDragMode::None:
+        break;
     }
 }
 

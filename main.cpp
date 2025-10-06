@@ -30,11 +30,11 @@ int main(int argc, char** argv) {
         ("s,skeleton", "Path to a custom skeleton.nif file", cxxopts::value<std::string>())
         ("headless", "Run in headless mode without a visible window")
         // Camera absolute position controls
-        ("camX", "Camera X position", cxxopts::value<float>()->default_value("0"))
-        ("camY", "Camera Y position", cxxopts::value<float>()->default_value("0"))
-        ("camZ", "Camera Z position", cxxopts::value<float>()->default_value("0"))
-        ("pitch", "Camera pitch angle", cxxopts::value<float>()->default_value("0"))
-        ("yaw", "Camera yaw angle", cxxopts::value<float>()->default_value("0"))
+        ("camX", "Camera X position (disables auto-framing)", cxxopts::value<float>()->default_value("0"))
+        ("camY", "Camera Y position (disables auto-framing)", cxxopts::value<float>()->default_value("0"))
+        ("camZ", "Camera Z position (disables auto-framing)", cxxopts::value<float>()->default_value("0"))
+        ("pitch", "Camera pitch angle (works in both modes)", cxxopts::value<float>()->default_value("0"))
+        ("yaw", "Camera yaw angle (works in both modes)", cxxopts::value<float>()->default_value("0"))
         // Camera relative (mugshot) controls
         ("head-top-offset", "Top margin for head as a percentage (e.g., 0.15 for 15%)", cxxopts::value<float>())
         ("head-bottom-offset", "Bottom margin for head as a percentage (e.g., -0.02 for -2%)", cxxopts::value<float>())

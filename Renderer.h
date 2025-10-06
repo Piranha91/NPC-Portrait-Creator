@@ -84,8 +84,12 @@ public:
     Camera camera;
     float lastX, lastY;
     bool firstMouse = true;
-    bool isPanning = false;
-    bool isRotating = false;
+    enum class MouseDragMode {
+        None,
+        OrbitCamera,
+        PanCamera
+    };
+    MouseDragMode currentDragMode = MouseDragMode::None;
 
 	// --- Normal Map Hack ---
     void setNormalMapHack(bool enabled) { m_enableNormalMapHack = enabled; }
@@ -181,7 +185,7 @@ private:
 
     // Camera settings
     float camX = 0.0f, camY = 0.0f, camZ = 0.0f;
-    float camPitch = 0.0f, camYaw = 0.0f;
+	float camPitch = 0.0f, camYaw = 0.0f, camRoll = 0.0f;
 
     // Image output settings
     int imageXRes = 750;

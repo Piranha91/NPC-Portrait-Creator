@@ -42,6 +42,8 @@ public:
     float Yaw;
     // Pitch is the rotation up or down.
     float Pitch;
+    // Roll is the rotation around the view direction (barrel roll).
+    float Roll;
 
     // === Camera options ===
     float MouseSensitivity;
@@ -49,7 +51,7 @@ public:
     // The distance from the camera's position to its target point (the radius of the orbit).
     float RadiusFromTarget;
 
-    Camera(glm::vec3 target = glm::vec3(0.0f, 50.0f, 0.0f), float radius = DEFAULT_RADIUS, float yaw = YAW, float pitch = PITCH);
+    Camera(glm::vec3 target = glm::vec3(0.0f, 50.0f, 0.0f), float radius = DEFAULT_RADIUS, float yaw = YAW, float pitch = PITCH, float roll = 0.0f);
 
     // This matrix transforms coordinates from the renderer's world space into the camera's
     // local view/eye space. It is essential for rendering the scene from the camera's perspective.
@@ -62,7 +64,7 @@ public:
     // Resets the camera's position and orientation to its saved initial state.
     void Reset();
     // Saves a specific camera state (target, distance, orientation) as the new "zero position" for resets.
-    void SetInitialState(glm::vec3 target_worldSpace_yUp, float radiusFromTarget, float yaw, float pitch);
+    void SetInitialState(glm::vec3 target_worldSpace_yUp, float radiusFromTarget, float yaw, float pitch, float roll);
 
     // === Input processing ===
     void ProcessMouseOrbit(float xoffset, float yoffset);
@@ -79,4 +81,5 @@ private:
     float m_initialRadiusFromTarget;
     float m_initialYaw;
     float m_initialPitch;
+    float m_initialRoll;
 };
