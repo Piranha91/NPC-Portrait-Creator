@@ -47,9 +47,9 @@ int main(int argc, char** argv) {
         ("imgY", "Vertical resolution of the output PNG", cxxopts::value<int>())
         ("bgcolor", "Background R,G,B color (e.g. \"0.1,0.5,1.0\")", cxxopts::value<std::string>())
         ("fov", "Camera vertical Field of View in degrees", cxxopts::value<float>())
-        ("mipmap", "Enable texture mipmapping (default: off for max quality)", cxxopts::value<bool>())
+        ("mipmap", "Enable texture mipmapping (default: off for max quality)", cxxopts::value<std::string>())
         ("lod-bias", "Texture LOD bias (negative = sharper, e.g., -2.0)", cxxopts::value<float>())
-        ("normal-hack", "Enable normal map hack (default: true)", cxxopts::value<bool>()->default_value("true"))
+        ("normal-hack", "Enable normal map hack: true or false (default: true)", cxxopts::value<std::string>())
         ("v,version", "Print the program version and exit")
         ("h,help", "Print usage");
     auto result = options.parse(argc, argv);
@@ -64,7 +64,11 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    std::cout << "--- [Debug] Parsing Command-Line Arguments ---" << std::endl;
+
     bool isHeadless = result.count("headless") > 0;
+    std::cout << "[headless] " << (isHeadless ? "Found" : "Not found") << std::endl;
+
     try {
         std::filesystem::path exePath(argv[0]);
         std::filesystem::path exeDir = exePath.parent_path();
@@ -75,58 +79,148 @@ int main(int argc, char** argv) {
 
         // 2. Override with any command-line arguments
         if (result.count("gamedata")) {
-            renderer.setGameDataDirectory(result["gamedata"].as<std::string>());
+            std::string value = result["gamedata"].as<std::string>();
+            std::cout << "[gamedata] Found: \"" << value << "\"" << std::endl;
+            renderer.setGameDataDirectory(value);
         }
+        else {
+            std::cout << "[gamedata] Not found" << std::endl;
+        }
+
         if (result.count("data")) {
-            renderer.setDataFolders(result["data"].as<std::vector<std::string>>());
+            auto values = result["data"].as<std::vector<std::string>>();
+            std::cout << "[data] Found " << values.size() << " directories:" << std::endl;
+            for (const auto& dir : values) {
+                std::cout << "  - \"" << dir << "\"" << std::endl;
+            }
+            renderer.setDataFolders(values);
         }
+        else {
+            std::cout << "[data] Not found" << std::endl;
+        }
+
         if (result.count("skeleton")) {
-            renderer.loadCustomSkeleton(result["skeleton"].as<std::string>());
+            std::string value = result["skeleton"].as<std::string>();
+            std::cout << "[skeleton] Found: \"" << value << "\"" << std::endl;
+            renderer.loadCustomSkeleton(value);
         }
+        else {
+            std::cout << "[skeleton] Not found" << std::endl;
+        }
+
         if (result.count("head-top-offset")) {
-            renderer.setMugshotTopOffset(result["head-top-offset"].as<float>());
+            float value = result["head-top-offset"].as<float>();
+            std::cout << "[head-top-offset] Found: " << value << std::endl;
+            renderer.setMugshotTopOffset(value);
         }
+        else {
+            std::cout << "[head-top-offset] Not found" << std::endl;
+        }
+
         if (result.count("head-bottom-offset")) {
-            renderer.setMugshotBottomOffset(result["head-bottom-offset"].as<float>());
+            float value = result["head-bottom-offset"].as<float>();
+            std::cout << "[head-bottom-offset] Found: " << value << std::endl;
+            renderer.setMugshotBottomOffset(value);
         }
+        else {
+            std::cout << "[head-bottom-offset] Not found" << std::endl;
+        }
+
         if (result.count("imgX")) {
-            renderer.setImageResolutionX(result["imgX"].as<int>());
+            int value = result["imgX"].as<int>();
+            std::cout << "[imgX] Found: " << value << std::endl;
+            renderer.setImageResolutionX(value);
         }
+        else {
+            std::cout << "[imgX] Not found" << std::endl;
+        }
+
         if (result.count("imgY")) {
-            renderer.setImageResolutionY(result["imgY"].as<int>());
+            int value = result["imgY"].as<int>();
+            std::cout << "[imgY] Found: " << value << std::endl;
+            renderer.setImageResolutionY(value);
         }
+        else {
+            std::cout << "[imgY] Not found" << std::endl;
+        }
+
         if (result.count("fov")) {
-            renderer.setFov(result["fov"].as<float>());
+            float value = result["fov"].as<float>();
+            std::cout << "[fov] Found: " << value << std::endl;
+            renderer.setFov(value);
         }
+        else {
+            std::cout << "[fov] Not found" << std::endl;
+        }
+
         if (result.count("mipmap")) {
-            renderer.setTextureMipmapping(result["mipmap"].as<bool>());
+            std::string valueStr = result["mipmap"].as<std::string>();
+            bool value = (valueStr == "true" || valueStr == "1" || valueStr == "yes");
+            std::cout << "[mipmap] Found: raw=\"" << valueStr << "\", parsed=" << (value ? "true" : "false") << std::endl;
+            renderer.setTextureMipmapping(value);
         }
+        else {
+            std::cout << "[mipmap] Not found" << std::endl;
+        }
+
         if (result.count("lod-bias")) {
-            renderer.setTextureLodBias(result["lod-bias"].as<float>());
+            float value = result["lod-bias"].as<float>();
+            std::cout << "[lod-bias] Found: " << value << std::endl;
+            renderer.setTextureLodBias(value);
         }
+        else {
+            std::cout << "[lod-bias] Not found" << std::endl;
+        }
+
         if (result.count("normal-hack")) {
-            renderer.setNormalMapHack(result["normal-hack"].as<bool>());
+            std::string valueStr = result["normal-hack"].as<std::string>();
+            bool value = (valueStr == "true" || valueStr == "1" || valueStr == "yes");
+            std::cout << "[normal-hack] Found: raw=\"" << valueStr << "\", parsed=" << (value ? "true" : "false") << std::endl;
+            renderer.setNormalMapHack(value);
+        }
+        else {
+            std::cout << "[normal-hack] Not found (using default: true)" << std::endl;
         }
 
         // Always override camera if specified on command line
         // Position parameters trigger absolute camera mode
         if (result.count("camX") || result.count("camY") || result.count("camZ")) {
-            renderer.setAbsoluteCamera(
-                result["camX"].as<float>(), result["camY"].as<float>(), result["camZ"].as<float>(),
-                result["pitch"].as<float>(), result["yaw"].as<float>(), result["roll"].as<float>()
-            );
+            float camX = result["camX"].as<float>();
+            float camY = result["camY"].as<float>();
+            float camZ = result["camZ"].as<float>();
+            float pitch = result["pitch"].as<float>();
+            float yaw = result["yaw"].as<float>();
+            float roll = result["roll"].as<float>();
+
+            std::cout << "[camera-absolute] Parsed: camX=" << camX << ", camY=" << camY
+                << ", camZ=" << camZ << ", pitch=" << pitch << ", yaw=" << yaw
+                << ", roll=" << roll << std::endl;
+
+            renderer.setAbsoluteCamera(camX, camY, camZ, pitch, yaw, roll);
         }
+        else {
+            std::cout << "[camera-absolute] Not specified (using auto-framing)" << std::endl;
+        }
+
         // Euler angles work in both modes - just store them
         if (result.count("pitch") || result.count("yaw") || result.count("roll")) {
-            renderer.setEulerAngles(
-                result["pitch"].as<float>(),
-                result["yaw"].as<float>(),
-                result["roll"].as<float>()
-            );
+            float pitch = result["pitch"].as<float>();
+            float yaw = result["yaw"].as<float>();
+            float roll = result["roll"].as<float>();
+
+            std::cout << "[euler-angles] Parsed: pitch=" << pitch << ", yaw=" << yaw
+                << ", roll=" << roll << std::endl;
+
+            renderer.setEulerAngles(pitch, yaw, roll);
+        }
+        else {
+            std::cout << "[euler-angles] Not specified" << std::endl;
         }
 
         if (result.count("bgcolor")) {
             std::string bgColorStr = result["bgcolor"].as<std::string>();
+            std::cout << "[bgcolor] Raw value: \"" << bgColorStr << "\"" << std::endl;
+
             std::stringstream ss(bgColorStr);
             std::string segment;
             std::vector<float> colorComponents;
@@ -140,19 +234,32 @@ int main(int argc, char** argv) {
                 }
             }
             if (colorComponents.size() == 3) {
+                std::cout << "[bgcolor] Parsed: R=" << colorComponents[0] << ", G="
+                    << colorComponents[1] << ", B=" << colorComponents[2] << std::endl;
                 renderer.setBackgroundColor({ colorComponents[0], colorComponents[1], colorComponents[2] });
             }
             else {
+                std::cout << "[bgcolor] Parse failed - invalid format" << std::endl;
                 std::cerr << "Warning: Invalid --bgcolor format. Use R,G,B values from 0.0 to 1.0 (e.g., \"0.1,0.2,0.3\")." << std::endl;
             }
+        }
+        else {
+            std::cout << "[bgcolor] Not found" << std::endl;
         }
 
         // Lighting profile logic: --lighting-json takes precedence over --lighting
         if (result.count("lighting-json")) {
-            renderer.setLightingProfileFromJsonString(result["lighting-json"].as<std::string>());
+            std::string value = result["lighting-json"].as<std::string>();
+            std::cout << "[lighting-json] Found: \"" << value << "\"" << std::endl;
+            renderer.setLightingProfileFromJsonString(value);
         }
         else if (result.count("lighting")) {
-            renderer.setLightingProfile(result["lighting"].as<std::string>());
+            std::string value = result["lighting"].as<std::string>();
+            std::cout << "[lighting] Found: \"" << value << "\"" << std::endl;
+            renderer.setLightingProfile(value);
+        }
+        else {
+            std::cout << "[lighting/lighting-json] Not found" << std::endl;
         }
 
         renderer.init(isHeadless);
@@ -165,105 +272,12 @@ int main(int argc, char** argv) {
             std::string nifPath = result["file"].as<std::string>();
             std::string outputPath = result["output"].as<std::string>();
 
-            std::cout << "Running in headless mode..." << std::endl;
-
-            std::cout << "--- [Headless Arg] Parsing Command-Line Arguments ---" << std::endl;
-            if (result.count("file")) {
-                std::cout << "  [Parsed] --file: " << result["file"].as<std::string>() << std::endl;
-            }
-            if (result.count("output")) {
-                std::cout << "  [Parsed] --output: " << result["output"].as<std::string>() << std::endl;
-            }
-            if (result.count("gamedata")) {
-                std::cout << "  [Parsed] --gamedata: " << result["gamedata"].as<std::string>() << std::endl;
-            }
-            else {
-                std::cout << "  [Default] --gamedata: Not provided." << std::endl;
-            }
-            if (result.count("data")) {
-                for (const auto& dir : result["data"].as<std::vector<std::string>>()) {
-                    std::cout << "  [Parsed] --data: " << dir << std::endl;
-                }
-            }
-            else {
-                std::cout << "  [Default] --data: Not provided." << std::endl;
-            }
-            if (result.count("skeleton")) {
-                std::cout << "  [Parsed] --skeleton: " << result["skeleton"].as<std::string>() << std::endl;
-            }
-            else {
-                std::cout << "  [Default] --skeleton: Not provided." << std::endl;
-            }
-            std::cout << "  [Parsed] --camX: " << result["camX"].as<float>() << std::endl;
-            std::cout << "  [Parsed] --camY: " << result["camY"].as<float>() << std::endl;
-            std::cout << "  [Parsed] --camZ: " << result["camZ"].as<float>() << std::endl;
-            std::cout << "  [Parsed] --pitch: " << result["pitch"].as<float>() << std::endl;
-            std::cout << "  [Parsed] --yaw: " << result["yaw"].as<float>() << std::endl;
-            if (result.count("head-top-offset")) {
-                std::cout << "  [Parsed] --head-top-offset: " << result["head-top-offset"].as<float>() << std::endl;
-            }
-            else {
-                std::cout << "  [Default] --head-top-offset: Not provided, using config value." << std::endl;
-            }
-            if (result.count("head-bottom-offset")) {
-                std::cout << "  [Parsed] --head-bottom-offset: " << result["head-bottom-offset"].as<float>() << std::endl;
-            }
-            else {
-                std::cout << "  [Default] --head-bottom-offset: Not provided, using config value." << std::endl;
-            }
-            if (result.count("lighting-json")) {
-                std::string jsonStr = result["lighting-json"].as<std::string>();
-                // Call the new public method to check validity. Note that this does NOT
-                // alter the renderer's state. We create a dummy vector for the output.
-                std::vector<Light> dummyLights;
-                bool isValid = renderer.TryParseLightingJson(jsonStr, dummyLights);
-
-                std::cout << "  [Parsed] --lighting-json: " << jsonStr << (isValid ? " (Valid JSON)" : " (INVALID JSON)") << std::endl;
-            }
-            else if (result.count("lighting")) {
-                std::cout << "  [Parsed] --lighting: " << result["lighting"].as<std::string>() << std::endl;
-            }
-            else {
-                std::cout << "  [Default] --lighting: Not provided, using default profile." << std::endl;
-            }
-            if (result.count("imgX")) {
-                std::cout << "  [Parsed] --imgX: " << result["imgX"].as<int>() << std::endl;
-            }
-            else {
-                std::cout << "  [Default] --imgX: Not provided, using config value." << std::endl;
-            }
-            if (result.count("imgY")) {
-                std::cout << "  [Parsed] --imgY: " << result["imgY"].as<int>() << std::endl;
-            }
-            else {
-                std::cout << "  [Default] --imgY: Not provided, using config value." << std::endl;
-            }
-            if (result.count("bgcolor")) {
-                std::string bgColorStr = result["bgcolor"].as<std::string>();
-                std::stringstream ss(bgColorStr);
-                std::string segment;
-                std::vector<float> colorComponents;
-                while (std::getline(ss, segment, ',')) {
-                    try {
-                        colorComponents.push_back(std::stof(segment));
-                    }
-                    catch (const std::exception&) {
-                        colorComponents.clear();
-                        break;
-                    }
-                }
-                if (colorComponents.size() == 3) {
-                    std::cout << "  [Parsed] --bgcolor: " << bgColorStr << " (Valid format)" << std::endl;
-                }
-                else {
-                    std::cout << "  [Invalid] --bgcolor: \"" << bgColorStr << "\" (Invalid format. Expected R,G,B floats)" << std::endl;
-                }
-            }
-            else {
-                std::cout << "  [Default] --bgcolor: Not provided, using config value." << std::endl;
-            }
+            std::cout << "\n--- [Headless Mode] Processing ---" << std::endl;
+            std::cout << "[file] \"" << nifPath << "\"" << std::endl;
+            std::cout << "[output] \"" << outputPath << "\"" << std::endl;
 
             renderer.loadNifModel(nifPath);
+
             // --- START MODIFICATION: WARM-UP LOOP ---
             // Run a few frames to allow the OpenGL context to stabilize.
             std::cout << "--- [Debug] Running 5 warm-up frames... ---" << std::endl;
