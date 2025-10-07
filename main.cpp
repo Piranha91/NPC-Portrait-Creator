@@ -77,7 +77,13 @@ int main(int argc, char** argv) {
         // 1. Load settings from config file first
         renderer.loadConfig();
 
-        // 2. Override with any command-line arguments
+        // 2. If headless, clear any cached data folders before applying CLI args
+        if (isHeadless) {
+            std::cout << "[headless] Clearing cached data folders for clean slate" << std::endl;
+            renderer.setDataFolders({}); // Start fresh
+        }
+
+        // 3. Override with any command-line arguments
         if (result.count("gamedata")) {
             std::string value = result["gamedata"].as<std::string>();
             std::cout << "[gamedata] Found: \"" << value << "\"" << std::endl;
