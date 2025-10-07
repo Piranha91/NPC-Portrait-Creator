@@ -72,7 +72,23 @@ int main(int argc, char** argv) {
     try {
         std::filesystem::path exePath(argv[0]);
         std::filesystem::path exeDir = exePath.parent_path();
-        Renderer renderer(1280, 720, exeDir.string());
+        int windowWidth = 1280;  // Fallback defaults
+        int windowHeight = 720;
+
+        if (glfwInit()) {  // Need to init GLFW first to query monitors
+            GLFWmonitor* primary = glfwGetPrimaryMonitor();
+            if (primary) {
+                const GLFWvidmode* mode = glfwGetVideoMode(primary);
+                if (mode) {
+                    windowWidth = mode->width;
+                    windowHeight = mode->height;
+                    std::cout << "[Display] Primary monitor resolution: " << windowWidth << "x" << windowHeight << std::endl;
+                }
+            }
+            glfwTerminate();  // Clean up, will be re-initialized by Renderer::init()
+        }
+
+        Renderer renderer(windowWidth, windowHeight, exeDir.string());
 
         // 1. Load settings from config file first
         renderer.loadConfig();
