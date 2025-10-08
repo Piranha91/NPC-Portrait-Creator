@@ -286,7 +286,7 @@ NifModel::~NifModel() {
     cleanup();
 }
 
-bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton) {
+bool NifModel::load(const std::vector<char>& data, const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton, bool useModdedFallback) {
     cleanup();
     bool debugMode = true; // Set to true to enable debug output
 
@@ -1001,18 +1001,14 @@ found_head:
                     std::string texPath = textureSet->textures[i].get();
                     if (texPath.empty()) continue;
 
-                    // Call the function once and store the full TextureInfo result.
-                    TextureInfo texInfo; // Declare the info struct to be populated.
+                    // ========================= MODIFICATION START =========================
+                    // The restricted search is used if:
+                    // 1. It's the face tint texture (slot 6), OR
+                    // 2. The global "Use Modded Fallback Textures" setting is disabled.
+                    bool useRestrictedSearch = (i == 6) || !useModdedFallback;
 
-                    // Check if the current texture is the face tint mask (slot 6).
-                    if (i == 6) {
-                        // If it is, call loadTexture with the special fallback logic enabled.
-                        texInfo = textureManager.loadTexture(texPath, true);
-                    }
-                    else {
-                        // For all other textures, use the standard loading logic.
-                        texInfo = textureManager.loadTexture(texPath, false);
-                    }
+                    TextureInfo texInfo = textureManager.loadTexture(texPath, useRestrictedSearch);
+                    // ========================== MODIFICATION END ==========================
 
                     // Debug logging with source location
                     if (debugMode) {
@@ -1194,18 +1190,6 @@ found_head:
     }
 
     return true;
-}
-
-// Keep your old load function to avoid breaking things, and have it call the new one.
-// This is optional but good practice.
-bool NifModel::load(const std::string& nifPath, TextureManager& textureManager, const Skeleton* skeleton) {
-    std::ifstream file(nifPath, std::ios::binary);
-    if (!file) {
-        std::cerr << "Error: Failed to open NIF file from disk: " << nifPath << std::endl;
-        return false;
-    }
-    std::vector<char> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    return load(data, nifPath, textureManager, skeleton);
 }
 
 /**

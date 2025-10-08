@@ -50,6 +50,7 @@ public:
     void loadNifModel(const std::string& path);
     void loadCustomSkeleton(const std::string& path);
     void detectAndSetSkeleton(const nifly::NifFile& nif);
+    void setUseModdedFallbackTextures(bool enabled);
     void setGameDataDirectory(const std::string& path);
     void setDataFolders(const std::vector<std::string>& folders);
     std::vector<std::string>& getDataFolders() { return dataFolders; }
@@ -267,6 +268,9 @@ private:
 
 	// --- Normal Map Hack ---
     bool m_enableNormalMapHack = true; // Default to enabled
+
+    // NEW: Member to hold the state of the texture fallback setting. Defaults to true.
+    bool m_useModdedFallbackTextures = true;
 };
 
 #endif // RENDERER_H
