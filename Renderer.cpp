@@ -147,6 +147,10 @@ void Renderer::updateAssetManagerPaths() {
     }
 }
 
+void Renderer::setUseModdedFallbackTextures(bool enabled) {
+    m_useModdedFallbackTextures = enabled;
+}
+
 void Renderer::setGameDataDirectory(const std::string& path) {
     std::cout << "[Game Data Update]: loading game data from " << path << "...\n";
     gameDataDirectory = path;
@@ -782,6 +786,17 @@ void Renderer::renderUI() {
             }
 
             ImGui::Separator();
+            if (ImGui::Checkbox("Use Modded Fallback Textures", &m_useModdedFallbackTextures)) {
+                // Reload the model to apply the new texture search paths
+                loadNifModel("");
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("If enabled (default), missing textures will search ALL files in the base game Data folder.\n"
+                    "If disabled, the search is restricted to ONLY vanilla Skyrim and Creation Club BSAs,\n"
+                    "which prevents loose modded textures in the base Data folder from appearing.");
+            }
+            ImGui::Separator();
+
             if (ImGui::MenuItem("Exit")) { glfwSetWindowShouldClose(window, true); }
             ImGui::EndMenu();
         }
@@ -2036,7 +2051,7 @@ void Renderer::loadNifModel(const std::string& path) {
     textureManager.setLodBias(textureLodBias);
 
     // You will need to update NifModel::load to also accept a vector<char>
-    if (model->load(nifData, currentNifPath, textureManager, activeSkeleton)) {
+    if (model->load(nifData, currentNifPath, textureManager, activeSkeleton, m_useModdedFallbackTextures)) {
         saveConfig();
 
         // === NEW: Apply normal map hack after loading ===
@@ -2171,6 +2186,7 @@ void Renderer::saveToPNG(const std::string& path) {
         metadata["lighting_profile"] = lightingJson;
     }
     metadata["normal_hack"] = m_enableNormalMapHack;
+    metadata["use_modded_fallback_textures"] = m_useModdedFallbackTextures;
     metadata["resolution_x"] = imageXRes;
     metadata["resolution_y"] = imageYRes;
     metadata["camera"] = {
@@ -2405,6 +2421,9 @@ void Renderer::loadConfig() {
 
         // NEW: Load normal map hack setting (defaults to true if not present)
         m_enableNormalMapHack = data.value("enable_normal_map_hack", true);
+
+        // NEW: Load the modded fallback texture setting, defaulting to true if not present.
+        m_useModdedFallbackTextures = data.value("use_modded_fallback_textures", true);
     }
     catch (const std::exception& e) {
         std::cerr << "Error loading config file: " << e.what() << std::endl;
@@ -2441,6 +2460,9 @@ void Renderer::saveConfig() {
 
         // NEW: Save normal map hack setting
         data["enable_normal_map_hack"] = m_enableNormalMapHack;
+
+        // NEW: Save the current state of the modded fallback texture setting.
+        data["use_modded_fallback_textures"] = m_useModdedFallbackTextures;
 
         std::ofstream o(configPath);
         o << std::setw(4) << data << std::endl;

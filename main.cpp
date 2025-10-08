@@ -50,6 +50,7 @@ int main(int argc, char** argv) {
         ("mipmap", "Enable texture mipmapping (default: off for max quality)", cxxopts::value<std::string>())
         ("lod-bias", "Texture LOD bias (negative = sharper, e.g., -2.0)", cxxopts::value<float>())
         ("normal-hack", "Enable normal map hack: true or false (default: true)", cxxopts::value<std::string>())
+        ("mod-fallback-textures", "Use loose/modded BSA textures in the base Game Data folder as fallbacks: true or false (default: true)", cxxopts::value<std::string>())
         ("v,version", "Print the program version and exit")
         ("h,help", "Print usage");
     auto result = options.parse(argc, argv);
@@ -202,6 +203,16 @@ int main(int argc, char** argv) {
         }
         else {
             std::cout << "[normal-hack] Not found (using default: true)" << std::endl;
+        }
+
+        if (result.count("mod-fallback-textures")) {
+            std::string valueStr = result["mod-fallback-textures"].as<std::string>();
+            bool value = (valueStr == "true" || valueStr == "1" || valueStr == "yes");
+            std::cout << "[mod-fallback-textures] Found: raw=\"" << valueStr << "\", parsed=" << (value ? "true" : "false") << std::endl;
+            renderer.setUseModdedFallbackTextures(value);
+        }
+        else {
+            std::cout << "[mod-fallback-textures] Not found (using default: true)" << std::endl;
         }
 
         // Always override camera if specified on command line
