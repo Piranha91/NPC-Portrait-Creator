@@ -12,7 +12,7 @@ public:
     AssetManager() = default;
 
     void setActiveDirectories(const std::vector<std::filesystem::path>& dataDirs, const std::filesystem::path& cacheDir);
-    std::vector<char> extractFile(const std::string& relativePath);
+    std::vector<char> extractFile(const std::string& fileLocation);
     std::string getFileLocation(const std::string& relativePath);
 
 private:

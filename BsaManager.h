@@ -15,6 +15,9 @@ public:
     std::vector<char> extractFile(const std::string& relativePath) const;
     size_t getArchiveCount() const;
 
+    // NEW: Method to check if this manager handles a specific archive name.
+    bool hasArchive(const std::string& archiveName) const;
+
 private:
     // New helper methods for loading and saving the JSON cache
     bool loadCache(const std::string& bsa_directory);

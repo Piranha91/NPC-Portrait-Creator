@@ -23,22 +23,32 @@ TextureInfo TextureManager::loadTexture(const std::string& relativePath) {
         return it->second;
     }
 
-    // NEW: Get the source location before extracting
+    // MODIFIED: The asset loading logic now uses the two-step process.
+    // 1. Get the unique location of the file (loose or in a BSA).
     std::string sourceLocation = assetManager.getFileLocation(relativePath);
 
-    std::vector<char> fileData = assetManager.extractFile(relativePath);
+    // If the file wasn't found anywhere, return an empty texture.
+    if (sourceLocation.empty()) {
+        std::cerr << "Warning: Texture not found or failed to load: " << relativePath << std::endl;
+        textureCache[relativePath] = { 0, GL_TEXTURE_2D, "" };
+        return { 0, GL_TEXTURE_2D, "" };
+    }
+
+    // 2. Extract the file using its location, avoiding a second search.
+    std::vector<char> fileData = assetManager.extractFile(sourceLocation);
 
     if (!fileData.empty()) {
         TextureInfo texInfo = uploadDDSToGPU(fileData);
         if (texInfo.id != 0) {
-            texInfo.sourceLocation = sourceLocation; // NEW: Store the location
+            texInfo.sourceLocation = sourceLocation; // Store the location
             textureCache[relativePath] = texInfo;
             textureIdToPath[texInfo.id] = relativePath;
             return texInfo;
         }
     }
 
-    std::cerr << "Warning: Texture not found or failed to load: " << relativePath << std::endl;
+    // This path may be reached if extraction succeeded but GPU upload failed.
+    std::cerr << "Warning: Texture data for " << relativePath << " could not be uploaded to GPU." << std::endl;
     textureCache[relativePath] = { 0, GL_TEXTURE_2D, "" };
     return { 0, GL_TEXTURE_2D, "" };
 }

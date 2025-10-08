@@ -139,6 +139,7 @@ private:
     Skeleton* activeSkeleton = nullptr;
     SkeletonType currentSkeletonType = SkeletonType::None;
     void reloadSkeletons();
+    void loadSingleSkeleton(const std::string& relativePath, Skeleton& targetSkeleton);
 
     // Lighting
     std::string lightingProfilePath;

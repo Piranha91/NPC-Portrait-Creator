@@ -160,32 +160,44 @@ void Renderer::setGameDataDirectory(const std::string& path) {
     }
 }
 
+void Renderer::loadSingleSkeleton(const std::string& relativePath, Skeleton& targetSkeleton) {
+    std::string filename = std::filesystem::path(relativePath).filename().string();
+
+    // 1. Look up the file's location once to see if it exists in loose files or any BSA.
+    std::string location = assetManager.getFileLocation(relativePath);
+
+    // 2. Proceed only if the file was found.
+    if (!location.empty()) {
+        // 3. Extract the file using its specific location, which avoids a second search.
+        std::vector<char> data = assetManager.extractFile(location);
+
+        if (!data.empty()) {
+            targetSkeleton.loadFromMemory(data, filename);
+            // Improved logging to show where the asset was loaded from.
+            std::cout << "  [Skeleton] Successfully loaded " << filename << " from: " << location << std::endl;
+        }
+    }
+    else {
+        // This is a normal case if a particular skeleton (e.g., beast) isn't used.
+        std::cout << "  [Skeleton] Did not find " << filename << " in active data folders." << std::endl;
+    }
+}
+
+// The reloadSkeletons function remains clean and does not need to be changed.
 void Renderer::reloadSkeletons() {
     std::cout << "[Skeleton Reload] Reloading all skeletons from updated data directories...\n";
 
-    const std::string femaleSkelPath = "meshes\\actors\\character\\character assets female\\skeleton_female.nif";
-    auto femaleData = assetManager.extractFile(femaleSkelPath);
-    if (!femaleData.empty()) {
-        femaleSkeleton.loadFromMemory(femaleData, "skeleton_female.nif");
-    }
+    // Clear any existing data before loading.
+    femaleSkeleton.clear();
+    maleSkeleton.clear();
+    femaleBeastSkeleton.clear();
+    maleBeastSkeleton.clear();
 
-    const std::string maleSkelPath = "meshes\\actors\\character\\character assets\\skeleton.nif";
-    auto maleData = assetManager.extractFile(maleSkelPath);
-    if (!maleData.empty()) {
-        maleSkeleton.loadFromMemory(maleData, "skeleton.nif");
-    }
-
-    const std::string femaleBeastSkelPath = "meshes\\actors\\character\\character assets female\\skeletonbeast_female.nif";
-    auto femaleBeastData = assetManager.extractFile(femaleBeastSkelPath);
-    if (!femaleBeastData.empty()) {
-        femaleBeastSkeleton.loadFromMemory(femaleBeastData, "skeletonbeast_female.nif");
-    }
-
-    const std::string maleBeastSkelPath = "meshes\\actors\\character\\character assets\\skeletonbeast.nif";
-    auto maleBeastData = assetManager.extractFile(maleBeastSkelPath);
-    if (!maleBeastData.empty()) {
-        maleBeastSkeleton.loadFromMemory(maleBeastData, "skeletonbeast.nif");
-    }
+    // Use the corrected helper for each skeleton type.
+    loadSingleSkeleton("meshes\\actors\\character\\character assets female\\skeleton_female.nif", femaleSkeleton);
+    loadSingleSkeleton("meshes\\actors\\character\\character assets\\skeleton.nif", maleSkeleton);
+    loadSingleSkeleton("meshes\\actors\\character\\character assets female\\skeletonbeast_female.nif", femaleBeastSkeleton);
+    loadSingleSkeleton("meshes\\actors\\character\\character assets\\skeletonbeast.nif", maleBeastSkeleton);
 
     std::cout << "[Skeleton Reload] Skeleton reload complete.\n";
 }

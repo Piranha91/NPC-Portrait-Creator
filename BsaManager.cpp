@@ -260,6 +260,16 @@ std::vector<char> BsaManager::findAndExtractDirectly(const std::string& internal
     return {}; // Not found in any BSA.
 }
 
+// Performs a case-insensitive check against the manager's loaded BSA paths.
+bool BsaManager::hasArchive(const std::string& archiveName) const {
+    for (const auto& p : bsaPaths) {
+        // Case-insensitive comparison
+        if (_stricmp(p.filename().string().c_str(), archiveName.c_str()) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
 
 size_t BsaManager::getArchiveCount() const {
     return bsaPaths.size();

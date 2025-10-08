@@ -17,32 +17,48 @@ void AssetManager::setActiveDirectories(const std::vector<std::filesystem::path>
     }
 }
 
-std::vector<char> AssetManager::extractFile(const std::string& relativePath) {
-    std::vector<char> fileData;
+std::vector<char> AssetManager::extractFile(const std::string& fileLocation) {
+    if (fileLocation.empty()) {
+        return {};
+    }
 
-    // 1. Search for loose files in all active directories, from highest priority to lowest.
-    for (auto it = activeDataDirectories.rbegin(); it != activeDataDirectories.rend(); ++it) {
-        std::filesystem::path loosePath = *it / relativePath;
+    // Case 1: Loose file. The location is a direct filesystem path.
+    // We identify this by the absence of the "[bsa_name]" prefix.
+    if (fileLocation.find('[') == std::string::npos || fileLocation.front() != '[') {
+        std::filesystem::path loosePath = fileLocation;
         if (std::filesystem::exists(loosePath)) {
             std::ifstream file(loosePath, std::ios::binary);
-            fileData.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-            return fileData;
-        }
-    }
-
-    // 2. If no loose file was found, search the BSAs for each directory.
-    for (auto it = activeDataDirectories.rbegin(); it != activeDataDirectories.rend(); ++it) {
-        std::string dirStr = it->string();
-        auto managerIt = bsaManagers.find(dirStr);
-        if (managerIt != bsaManagers.end()) {
-            fileData = managerIt->second->extractFile(relativePath);
-            if (!fileData.empty()) {
-                return fileData;
+            if (file) {
+                // Read the entire file into the vector
+                return std::vector<char>((std::istreambuf_iterator<char>(file)),
+                    std::istreambuf_iterator<char>());
             }
         }
+        return {}; // File not found on disk or could not be opened.
     }
 
-    return {}; // Return empty vector if not found.
+    // Case 2: BSA file. Location is in "[bsa_name]\relative_path" format.
+    size_t bsaEnd = fileLocation.find(']');
+    size_t pathStart = fileLocation.find_first_of("\\/", bsaEnd);
+
+    if (bsaEnd == std::string::npos || pathStart == std::string::npos) {
+        std::cerr << "Error: Malformed BSA location string: " << fileLocation << std::endl;
+        return {};
+    }
+
+    std::string bsaName = fileLocation.substr(1, bsaEnd - 1);
+    std::string relativePath = fileLocation.substr(pathStart + 1);
+
+    // Find which BsaManager is responsible for this BSA and ask it to extract the file.
+    for (auto const& [dirPath, manager] : bsaManagers) {
+        if (manager->hasArchive(bsaName)) {
+            return manager->extractFile(relativePath);
+        }
+    }
+
+    // This should not be reached if getFileLocation returned a valid BSA path.
+    std::cerr << "Warning: Could not find a manager for BSA '" << bsaName << "'." << std::endl;
+    return {};
 }
 
 std::string AssetManager::getFileLocation(const std::string& relativePath) {
