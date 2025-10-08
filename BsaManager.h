@@ -11,12 +11,20 @@ class BsaManager {
 public:
     BsaManager() = default;
     void loadArchives(const std::string& directory, const std::filesystem::path& cache_dir);
+    // Original method for general searches
     std::string findFileInArchives(const std::string& relativePath) const;
+
+    // NEW: Overloaded method for restricted searches
+    std::string findFileInArchives(const std::string& relativePath, const std::vector<std::string>& allowedBsaNames) const;
+
     std::vector<char> extractFile(const std::string& relativePath) const;
     size_t getArchiveCount() const;
 
     // NEW: Method to check if this manager handles a specific archive name.
     bool hasArchive(const std::string& archiveName) const;
+
+    // NEW: Public accessor for BSA paths
+    const std::vector<std::filesystem::path>& getBsaPaths() const;
 
 private:
     // New helper methods for loading and saving the JSON cache

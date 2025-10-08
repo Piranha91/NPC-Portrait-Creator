@@ -1002,7 +1002,17 @@ found_head:
                     if (texPath.empty()) continue;
 
                     // Call the function once and store the full TextureInfo result.
-                    TextureInfo texInfo = textureManager.loadTexture(texPath);
+                    TextureInfo texInfo; // Declare the info struct to be populated.
+
+                    // Check if the current texture is the face tint mask (slot 6).
+                    if (i == 6) {
+                        // If it is, call loadTexture with the special fallback logic enabled.
+                        texInfo = textureManager.loadTexture(texPath, true);
+                    }
+                    else {
+                        // For all other textures, use the standard loading logic.
+                        texInfo = textureManager.loadTexture(texPath, false);
+                    }
 
                     // Debug logging with source location
                     if (debugMode) {

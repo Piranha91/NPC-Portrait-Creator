@@ -13,7 +13,7 @@ TextureManager::~TextureManager() {
     cleanup();
 }
 
-TextureInfo TextureManager::loadTexture(const std::string& relativePath) {
+TextureInfo TextureManager::loadTexture(const std::string& relativePath, bool baseGameTextureFallbackOnly) {
     if (relativePath.empty()) {
         return { 0, GL_TEXTURE_2D, "" };
     }
@@ -25,7 +25,7 @@ TextureInfo TextureManager::loadTexture(const std::string& relativePath) {
 
     // MODIFIED: The asset loading logic now uses the two-step process.
     // 1. Get the unique location of the file (loose or in a BSA).
-    std::string sourceLocation = assetManager.getFileLocation(relativePath);
+    std::string sourceLocation = assetManager.getFileLocation(relativePath, baseGameTextureFallbackOnly);
 
     // If the file wasn't found anywhere, return an empty texture.
     if (sourceLocation.empty()) {

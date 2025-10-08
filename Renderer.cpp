@@ -134,13 +134,17 @@ void Renderer::updateAssetManagerPaths() {
     }
     // 2. Append all user-specified data folders.
     for (const auto& s : dataFolders) {
-        // Avoid adding duplicates if a user manually adds the game directory
         if (s != gameDataDirectory) {
             finalPaths.push_back(s);
         }
     }
     // 3. Pass the complete, prioritized list to the AssetManager.
     assetManager.setActiveDirectories(finalPaths, appDirectory);
+
+    // NEW: Inform the AssetManager which directory is the base game directory.
+    if (!gameDataDirectory.empty()) {
+        assetManager.setGameDataDirectory(gameDataDirectory);
+    }
 }
 
 void Renderer::setGameDataDirectory(const std::string& path) {

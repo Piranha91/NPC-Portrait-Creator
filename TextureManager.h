@@ -21,7 +21,7 @@ public:
     ~TextureManager();
 
     // MODIFICATION: Change the return type from GLuint to the new TextureInfo struct.
-    TextureInfo loadTexture(const std::string& relativePath);
+    TextureInfo loadTexture(const std::string& relativePath, bool baseGameTextureFallbackOnly = false);
 
     // NEW: Add methods to control texture quality
     void setMipmappingEnabled(bool enabled) { m_useMipmapping = enabled; }

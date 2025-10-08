@@ -138,6 +138,11 @@ bool BsaManager::loadCache(const std::string& bsa_directory) {
     }
 }
 
+// NEW: Public accessor implementation
+const std::vector<std::filesystem::path>& BsaManager::getBsaPaths() const {
+    return bsaPaths;
+}
+
 
 void BsaManager::loadArchives(const std::string& directory, const std::filesystem::path& cache_dir) {
     if (directory.empty() || !std::filesystem::exists(directory)) {
@@ -303,6 +308,25 @@ std::string BsaManager::findFileInArchives(const std::string& relativePath) cons
 
     return "";
 }
+
+// NEW: Overloaded findFileInArchives for restricted searches
+std::string BsaManager::findFileInArchives(const std::string& relativePath, const std::vector<std::string>& allowedBsaNames) const {
+    // First, find the file using the normal cache-based method.
+    std::string bsaName = findFileInArchives(relativePath);
+
+    // If a BSA was found, check if it's on the allowed list.
+    if (!bsaName.empty()) {
+        for (const auto& allowedName : allowedBsaNames) {
+            if (_stricmp(bsaName.c_str(), allowedName.c_str()) == 0) {
+                return bsaName; // It's allowed, return the name.
+            }
+        }
+    }
+
+    // If the file wasn't found or wasn't in an allowed BSA, return empty.
+    return "";
+}
+
 
 // This function now correctly finds the full BSA path from its internal list.
 std::vector<char> BsaManager::extractFile(const std::string& relativePath) const {
