@@ -44,3 +44,28 @@ std::vector<char> AssetManager::extractFile(const std::string& relativePath) {
 
     return {}; // Return empty vector if not found.
 }
+
+std::string AssetManager::getFileLocation(const std::string& relativePath) {
+    // 1. Search for loose files in all active directories, from highest priority to lowest.
+    for (auto it = activeDataDirectories.rbegin(); it != activeDataDirectories.rend(); ++it) {
+        std::filesystem::path loosePath = *it / relativePath;
+        if (std::filesystem::exists(loosePath)) {
+            return loosePath.string(); // Return full filesystem path
+        }
+    }
+
+    // 2. If no loose file was found, search the BSAs for each directory.
+    for (auto it = activeDataDirectories.rbegin(); it != activeDataDirectories.rend(); ++it) {
+        std::string dirStr = it->string();
+        auto managerIt = bsaManagers.find(dirStr);
+        if (managerIt != bsaManagers.end()) {
+            std::string bsaName = managerIt->second->findFileInArchives(relativePath);
+            if (!bsaName.empty()) {
+                // Return format: [BSAName]\relativePath
+                return "[" + bsaName + "]\\" + relativePath;
+            }
+        }
+    }
+
+    return ""; // Not found
+}

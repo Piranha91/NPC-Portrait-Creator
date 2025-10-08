@@ -13,6 +13,7 @@ public:
 
     void setActiveDirectories(const std::vector<std::filesystem::path>& dataDirs, const std::filesystem::path& cacheDir);
     std::vector<char> extractFile(const std::string& relativePath);
+    std::string getFileLocation(const std::string& relativePath);
 
 private:
     std::vector<std::filesystem::path> activeDataDirectories;

@@ -11,6 +11,7 @@ class AssetManager;
 struct TextureInfo {
     GLuint id = 0;
     GLenum target = GL_TEXTURE_2D; // Default to 2D texture
+    std::string sourceLocation;     // NEW: Full path or BSA location
 };
 
 class TextureManager {

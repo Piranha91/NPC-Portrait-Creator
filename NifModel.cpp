@@ -1001,6 +1001,10 @@ found_head:
                     std::string texPath = textureSet->textures[i].get();
                     if (texPath.empty()) continue;
 
+                    // Call the function once and store the full TextureInfo result.
+                    TextureInfo texInfo = textureManager.loadTexture(texPath);
+
+                    // Debug logging with source location
                     if (debugMode) {
                         std::string slotName = "Unknown";
                         switch (i) {
@@ -1014,11 +1018,8 @@ found_head:
                         case 7: slotName = "Specular"; break;
                         }
                         std::cout << "    [Texture Load] Shape '" << mesh.name << "' | Slot " << i << " | " << slotName << ": \"" << texPath << "\"\n";
+                        std::cout << "                   Source: " << (texInfo.sourceLocation.empty() ? "[NOT FOUND]" : texInfo.sourceLocation) << "\n";
                     }
-
-                    // --- CORRECTED LOGIC ---
-                    // Call the function once and store the full TextureInfo result.
-                    TextureInfo texInfo = textureManager.loadTexture(texPath);
 
                     // Now assign the members of the struct to the mesh.
                     switch (i) {
