@@ -1,4 +1,4 @@
-#define GLM_ENABLE_EXPERIMENTAL
+﻿#define GLM_ENABLE_EXPERIMENTAL
 #define MAX_BONES 80 // <-- MAKE SURE THIS MATCHES YOUR SHADER'S ARRAY SIZE
 
 #include "NifModel.h"
@@ -17,6 +17,43 @@
 #include <chrono>
 #include <sstream> // Add for std::stringstream
 #include <fstream> 
+
+namespace {
+    // Constructs the expected facegen tint texture path from a NIF file path
+    // E.g., "meshes\actors\character\FaceGenData\FaceGeom\Skyrim.esm\0000080D.nif"
+    //    -> "textures\actors\character\FaceGenData\FaceTint\Skyrim.esm\0000080D.dds"
+    std::string constructFacegenTintPath(const std::string& nifPath) {
+        // Normalize the path to use backslashes
+        std::string normalizedPath = nifPath;
+        std::replace(normalizedPath.begin(), normalizedPath.end(), '/', '\\');
+
+        // Convert to lowercase for case-insensitive search
+        std::string lowerPath = normalizedPath;
+        std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(), ::tolower);
+
+        // Find "FaceGenData\FaceGeom\" in the path
+        const std::string facegeomMarker = "facegendata\\facegeom\\";
+        size_t markerPos = lowerPath.find(facegeomMarker);
+
+        if (markerPos == std::string::npos) {
+            // Not a facegen NIF, return empty string
+            return "";
+        }
+
+        // Extract the part after "FaceGeom\" (e.g., "Skyrim.esm\0000080D.nif")
+        size_t pathStart = markerPos + facegeomMarker.length();
+        std::string relativePath = normalizedPath.substr(pathStart);
+
+        // Replace the .nif extension with .dds
+        size_t extPos = relativePath.rfind(".nif");
+        if (extPos != std::string::npos) {
+            relativePath = relativePath.substr(0, extPos) + ".dds";
+        }
+
+        // Construct the full tint texture path
+        return "textures\\actors\\character\\facegendata\\facetint\\" + relativePath;
+    }
+}
 
 // Vertex structure used for processing mesh data, now includes skinning and tangent space info
 struct Vertex {
@@ -999,16 +1036,64 @@ found_head:
             if (auto* textureSet = nif.GetHeader().GetBlock<nifly::BSShaderTextureSet>(shader->TextureSetRef())) {
                 for (size_t i = 0; i < textureSet->textures.size(); ++i) {
                     std::string texPath = textureSet->textures[i].get();
-                    if (texPath.empty()) continue;
 
-                    // ========================= MODIFICATION START =========================
-                    // The restricted search is used if:
-                    // 1. It's the face tint texture (slot 6), OR
-                    // 2. The global "Use Modded Fallback Textures" setting is disabled.
-                    bool useRestrictedSearch = (i == 6) || !useModdedFallback;
+                    TextureInfo texInfo;
 
-                    TextureInfo texInfo = textureManager.loadTexture(texPath, useRestrictedSearch);
-                    // ========================== MODIFICATION END ==========================
+                    // ========================= FACE TINT SPECIAL HANDLING =========================
+                    if (i == 6) { // Face tint texture slot
+                        if (debugMode) {
+                            std::cout << "    [Face Tint] Processing face tint texture for NIF: " << nifPath << "\n";
+                        }
+
+                        // Step 1: Construct the expected facegen path from the NIF path
+                        std::string facegenPath = constructFacegenTintPath(nifPath);
+
+                        if (!facegenPath.empty()) {
+                            if (debugMode) {
+                                std::cout << "    [Face Tint] Constructed facegen path: " << facegenPath << "\n";
+                            }
+
+                            // Step 2: Try to load from all active directories (mods + base game)
+                            texInfo = textureManager.loadTexture(facegenPath, false);
+
+                            if (texInfo.id != 0) {
+                                if (debugMode) {
+                                    std::cout << "    [Face Tint] ✓ Found facegen tint in active directories\n";
+                                }
+                            }
+                            else {
+                                // Step 3: Try to load from base game BSAs only
+                                if (debugMode) {
+                                    std::cout << "    [Face Tint] Not found in active dirs, searching base game BSAs...\n";
+                                }
+                                texInfo = textureManager.loadTexture(facegenPath, true);
+
+                                if (texInfo.id != 0 && debugMode) {
+                                    std::cout << "    [Face Tint] ✓ Found facegen tint in base game BSAs\n";
+                                }
+                            }
+                        }
+
+                        // Step 4: Fall back to the path specified in the NIF file (restricted search)
+                        // Only try this if the NIF actually specified a path and we haven't found anything yet
+                        if (texInfo.id == 0 && !texPath.empty()) {
+                            if (debugMode) {
+                                std::cout << "    [Face Tint] Facegen tint not found, falling back to NIF path: " << texPath << "\n";
+                            }
+                            texInfo = textureManager.loadTexture(texPath, true);
+                        }
+
+                        // If still nothing found, texInfo.id will be 0 (handled gracefully by assignment below)
+                    }
+                    // ========================= NORMAL TEXTURE HANDLING =========================
+                    else {
+                        // For all other texture slots, skip if the NIF didn't specify a path
+                        if (texPath.empty()) continue;
+
+                        // Use the existing logic
+                        bool useRestrictedSearch = !useModdedFallback;
+                        texInfo = textureManager.loadTexture(texPath, useRestrictedSearch);
+                    }
 
                     // Debug logging with source location
                     if (debugMode) {
@@ -1037,7 +1122,7 @@ found_head:
                         mesh.environmentMapID = texInfo.id;
                         mesh.environmentMapTarget = texInfo.target;
                         break;
-                    case 5: mesh.environmentMaskID = texInfo.id; break;   // Masks are always 2D
+                    case 5: mesh.environmentMaskID = texInfo.id; break;
                     case 6: mesh.faceTintColorMaskID = texInfo.id; break;
                     case 7: mesh.specularTextureID = texInfo.id; break;
                     default: break;
