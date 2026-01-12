@@ -1956,9 +1956,9 @@ void Renderer::calculateMugshotCamera() {
     float bottomOfFrame_Yup = headBottom_Yup - bottomMargin; // bottomMargin is negative, so this moves DOWN
     float verticalCenter_Yup = (topOfFrame_Yup + bottomOfFrame_Yup) / 2.0f;
 
-    // 9. Calculate horizontal center (use the center of the full bounds for better framing)
-    float horizontalCenter_X = (fullMinBounds_nifRootSpace_zUp.x + fullMaxBounds_nifRootSpace_zUp.x) / 2.0f;
-    float horizontalCenter_Z = (fullMinBounds_nifRootSpace_zUp.y + fullMaxBounds_nifRootSpace_zUp.y) / 2.0f;
+    // 9. Calculate horizontal center (use the head bounds to avoid asymmetrical hair shifting the face)
+    float horizontalCenter_X = (headMinBounds_nifRootSpace_zUp.x + headMaxBounds_nifRootSpace_zUp.x) / 2.0f;
+    float horizontalCenter_Z = (headMinBounds_nifRootSpace_zUp.y + headMaxBounds_nifRootSpace_zUp.y) / 2.0f;
 
     // 10. Set the camera target and parameters
     camera.Target_worldSpace_yUp = glm::vec3(horizontalCenter_X, verticalCenter_Yup, horizontalCenter_Z);
