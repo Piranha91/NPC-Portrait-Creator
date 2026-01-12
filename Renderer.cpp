@@ -797,6 +797,10 @@ void Renderer::renderUI() {
             }
             ImGui::Separator();
 
+            std::string verText = "Version: " + PROGRAM_VERSION;
+            // The last two 'false' arguments make it unselectable (grayed out) so it acts like a label
+            ImGui::MenuItem(verText.c_str(), nullptr, false, false);
+
             if (ImGui::MenuItem("Exit")) { glfwSetWindowShouldClose(window, true); }
             ImGui::EndMenu();
         }
