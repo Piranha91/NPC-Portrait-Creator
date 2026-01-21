@@ -6,6 +6,7 @@
 #include <unordered_set>    // For std::unordered_set
 #include <stdexcept> 
 #include <functional>   // Add this for std::hash
+#include <filesystem>
 
 // Include the correct C++ wrapper header for reading archives
 #include <bs_archive.h>
@@ -72,7 +73,8 @@ bool BsaManager::loadCache(const std::string& bsa_directory) {
     try {
         // 1. Get the current list of BSA files on disk for validation.
         std::vector<std::string> diskBsaNames;
-        for (const auto& entry : std::filesystem::directory_iterator(bsa_directory)) {
+        std::filesystem::path fsDirectory = std::filesystem::u8path(bsa_directory);
+        for (const auto& entry : std::filesystem::directory_iterator(fsDirectory)) {
             if (entry.is_regular_file() && entry.path().extension() == ".bsa") {
                 diskBsaNames.push_back(entry.path().filename().string());
             }

@@ -2232,7 +2232,19 @@ void Renderer::saveToPNG(const std::string& path) {
         throw std::runtime_error("LodePNG encoding error: " + std::string(lodepng_error_text(error)));
     }
 
-    error = lodepng::save_file(png_buffer, path);
+    std::vector<unsigned char> png_file_data;
+    error = lodepng::encode(png_file_data, flipped_buffer, imageXRes, imageYRes, state);
+
+    if (!error) {
+        std::filesystem::path utf8Path = std::filesystem::u8path(path);
+        std::ofstream file(utf8Path, std::ios::binary);
+        if (file) {
+            file.write(reinterpret_cast<const char*>(png_file_data.data()), png_file_data.size());
+        }
+        else {
+            error = 79; // generic write error code
+        }
+    }
     if (error) {
         throw std::runtime_error("LodePNG file saving error: " + std::string(lodepng_error_text(error)));
     }
@@ -2306,7 +2318,8 @@ void Renderer::processDirectory() {
     std::cout << "--- Scanning for .nif files in: " << inputPath << " ---" << std::endl;
 
     // 2. Find all .nif files in the selected directory (case-insensitively)
-    for (const auto& entry : std::filesystem::directory_iterator(inputPath)) {
+    std::filesystem::path searchPath = std::filesystem::u8path(inputPath);
+    for (const auto& entry : std::filesystem::directory_iterator(searchPath)) {
         if (entry.is_regular_file()) {
             // Get the extension as a string
             std::string extension = entry.path().extension().string();
@@ -2368,7 +2381,8 @@ void Renderer::loadConfig() {
     if (!std::filesystem::exists(configPath)) return;
 
     try {
-        std::ifstream f(configPath);
+        std::filesystem::path fsConfigPath = std::filesystem::u8path(configPath);
+        std::ifstream f(fsConfigPath);
         nlohmann::json data = nlohmann::json::parse(f, nullptr, false);
         if (data.is_discarded()) {
             std::cerr << "Warning: Could not parse config file " << configPath << std::endl;
@@ -2468,7 +2482,8 @@ void Renderer::saveConfig() {
         // NEW: Save the current state of the modded fallback texture setting.
         data["use_modded_fallback_textures"] = m_useModdedFallbackTextures;
 
-        std::ofstream o(configPath);
+        std::filesystem::path fsConfigPath = std::filesystem::u8path(configPath);
+        std::ofstream o(fsConfigPath);
         o << std::setw(4) << data << std::endl;
     }
     catch (const std::exception& e) {

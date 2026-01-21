@@ -29,7 +29,13 @@ std::vector<char> AssetManager::extractFile(const std::string& fileLocation) {
     // Case 1: Loose file. The location is a direct filesystem path.
     // We identify this by the absence of the "[bsa_name]" prefix.
     if (fileLocation.find('[') == std::string::npos || fileLocation.front() != '[') {
-        std::filesystem::path loosePath = fileLocation;
+
+        // --- [Fix Start] Handle UTF-8 Paths correctly on Windows ---
+        // The input 'fileLocation' is UTF-8 (from tinyfd), but standard fs::path(string) 
+        // on Windows expects ANSI. We must use u8path to decode it correctly.
+        std::filesystem::path loosePath = std::filesystem::u8path(fileLocation);
+        // --- [Fix End] ---
+
         if (std::filesystem::exists(loosePath)) {
             std::ifstream file(loosePath, std::ios::binary);
             if (file) {

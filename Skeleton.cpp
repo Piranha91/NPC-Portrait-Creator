@@ -5,6 +5,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/string_cast.hpp>
 #include "CommonMatrices.h"
+#include <filesystem>
+#include <fstream>
 
 void Skeleton::clear() {
     boneWorldTransforms.clear();
@@ -12,7 +14,12 @@ void Skeleton::clear() {
 
 bool Skeleton::loadFromFile(const std::string& path) {
     clear();
-    if (nif.Load(path) != 0) {
+
+    // THE FIX: Open the stream manually using u8path
+    std::filesystem::path utf8Path = std::filesystem::u8path(path);
+    std::ifstream file(utf8Path, std::ios::binary);
+
+    if (!file.is_open() || nif.Load(file) != 0) {
         std::cerr << "Error: Failed to load skeleton file: " << path << std::endl;
         return false;
     }
